@@ -515,6 +515,59 @@ def test_proxy_status_command_reports_observational_status(monkeypatch):
     assert "socks_listen: ok - 127.0.0.1:34501 is listening" in result.output
     assert "performed_side_effects: False" in result.output
 
+def test_proxy_run_command_rejects_when_preflight_fails(monkeypatch):
+    from migate.proxy.run import ProxyRunResult
+    from migate.proxy.runtime import ProxyRuntimeCheck
+
+    monkeypatch.setattr(
+        main_module,
+        "run_proxy_placeholder",
+        lambda *args, **kwargs: ProxyRunResult(
+            status="rejected",
+            message="proxy run preflight failed; listener not started",
+            checks=[ProxyRuntimeCheck("tun_interface", "failed", "tun-migate interface is missing")],
+            listener_started=False,
+            forwarding_started=False,
+            performed_side_effects=False,
+        ),
+    )
+
+    result = runner.invoke(app, ["proxy", "run"])
+
+    assert result.exit_code == 1
+    assert "Proxy run" in result.output
+    assert "status: rejected" in result.output
+    assert "tun_interface: failed - tun-migate interface is missing" in result.output
+    assert "listener_started: False" in result.output
+    assert "forwarding_started: False" in result.output
+
+
+def test_proxy_run_command_reports_placeholder_when_preflight_passes(monkeypatch):
+    from migate.proxy.run import ProxyRunResult
+    from migate.proxy.runtime import ProxyRuntimeCheck
+
+    monkeypatch.setattr(
+        main_module,
+        "run_proxy_placeholder",
+        lambda *args, **kwargs: ProxyRunResult(
+            status="placeholder",
+            message="proxy forwarding is not implemented yet; listener not started",
+            checks=[ProxyRuntimeCheck("fail_policy", "ok", "fail_policy is block")],
+            listener_started=False,
+            forwarding_started=False,
+            performed_side_effects=False,
+        ),
+    )
+
+    result = runner.invoke(app, ["proxy", "run"])
+
+    assert result.exit_code == 0
+    assert "status: placeholder" in result.output
+    assert "proxy forwarding is not implemented yet" in result.output
+    assert "listener_started: False" in result.output
+    assert "forwarding_started: False" in result.output
+
+
 def test_proxy_service_preview_command_prints_unit_without_systemctl():
     result = runner.invoke(app, ["proxy", "service", "preview"])
 
