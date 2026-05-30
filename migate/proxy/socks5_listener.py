@@ -8,7 +8,7 @@ server can be introduced behind a tested contract.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import asyncio
 import json
@@ -76,6 +76,12 @@ class Socks5ServeOutputWriteResult:
     serve_performed_side_effects: bool
     file_performed_side_effects: bool
     performed_side_effects: bool
+
+
+@dataclass(frozen=True)
+class Socks5ServeOutputPathPolicy:
+    project_root: Path = field(default_factory=Path.cwd)
+    tmp_root: Path = Path("/tmp")
 
 
 Socks5ServerStarter = Callable[[str, int, int, float], Socks5ServeResult]
@@ -265,6 +271,48 @@ def render_socks5_serve_output(result: Socks5ServeResult, *, output_format: str)
     raise ValueError(f"unsupported format: {output_format}; supported formats: text, json, jsonl")
 
 
+def _path_is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _resolve_socks5_serve_output_target(target: str, policy: Socks5ServeOutputPathPolicy) -> Path | None:
+    target_path = Path(target)
+    project_root = policy.project_root.resolve()
+    tmp_root = policy.tmp_root.resolve()
+    if target_path.is_absolute():
+        resolved = target_path.resolve()
+        if _path_is_relative_to(resolved, tmp_root):
+            return resolved
+        if _path_is_relative_to(resolved, project_root):
+            return resolved
+        return None
+    resolved = (project_root / target_path).resolve()
+    if _path_is_relative_to(resolved, project_root):
+        return resolved
+    return None
+
+
+def _reject_socks5_serve_output_write(
+    result: Socks5ServeResult,
+    *,
+    target: str,
+    message: str,
+) -> Socks5ServeOutputWriteResult:
+    return Socks5ServeOutputWriteResult(
+        status="rejected",
+        message=message,
+        target=target,
+        bytes_written=0,
+        serve_performed_side_effects=result.performed_side_effects,
+        file_performed_side_effects=False,
+        performed_side_effects=result.performed_side_effects,
+    )
+
+
 def write_socks5_serve_output(
     result: Socks5ServeResult,
     *,
@@ -272,25 +320,28 @@ def write_socks5_serve_output(
     target: str,
     yes: bool = False,
     allow_file_write: bool = False,
+    path_policy: Socks5ServeOutputPathPolicy | None = None,
 ) -> Socks5ServeOutputWriteResult:
     if not yes or not allow_file_write:
-        return Socks5ServeOutputWriteResult(
-            status="rejected",
-            message="SOCKS5 serve output write requires yes=True and allow_file_write=True",
+        return _reject_socks5_serve_output_write(
+            result,
             target=target,
-            bytes_written=0,
-            serve_performed_side_effects=result.performed_side_effects,
-            file_performed_side_effects=False,
-            performed_side_effects=result.performed_side_effects,
+            message="SOCKS5 serve output write requires yes=True and allow_file_write=True",
+        )
+    resolved_target = _resolve_socks5_serve_output_target(target, path_policy or Socks5ServeOutputPathPolicy())
+    if resolved_target is None:
+        return _reject_socks5_serve_output_write(
+            result,
+            target=target,
+            message="SOCKS5 serve output target path is not allowed",
         )
     rendered = render_socks5_serve_output(result, output_format=output_format)
-    target_path = Path(target)
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    target_path.write_text(rendered, encoding="utf-8")
+    resolved_target.parent.mkdir(parents=True, exist_ok=True)
+    resolved_target.write_text(rendered, encoding="utf-8")
     return Socks5ServeOutputWriteResult(
         status="written",
         message="SOCKS5 serve output written",
-        target=target,
+        target=str(resolved_target),
         bytes_written=len(rendered.encode("utf-8")),
         serve_performed_side_effects=result.performed_side_effects,
         file_performed_side_effects=True,
