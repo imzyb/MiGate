@@ -23,9 +23,48 @@ from migate.xray.doctor import DoctorCheck, DoctorReport
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult
 from migate.remote.egress_runner import RemoteEgressCommandResult
 from migate.remote.install_runner import RemoteInstallCommandResult
+from migate.remote.readiness import RemoteReadinessCheck, RemoteReadinessReport
 
 
 runner = CliRunner()
+
+
+def test_remote_readiness_command_runs_read_only_probe(monkeypatch):
+    report = RemoteReadinessReport(
+        status="ok",
+        target="root@166.88.232.2:22",
+        checks=[RemoteReadinessCheck("migate_cli", "ok", "/usr/local/bin/migate")],
+        commands_executed=["ssh -p 22 root@166.88.232.2 readonly"],
+        performed_side_effects=False,
+    )
+    monkeypatch.setattr(main_module, "run_remote_readiness", lambda **kwargs: report)
+
+    result = runner.invoke(app, ["remote", "readiness"])
+
+    assert result.exit_code == 0
+    assert "Remote readiness" in result.output
+    assert "status: ok" in result.output
+    assert "target: root@166.88.232.2:22" in result.output
+    assert "- migate_cli: ok - /usr/local/bin/migate" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_remote_readiness_command_exits_nonzero_when_failed(monkeypatch):
+    report = RemoteReadinessReport(
+        status="failed",
+        target="root@166.88.232.2:22",
+        checks=[RemoteReadinessCheck("xray_bin", "failed", "missing xray")],
+        commands_executed=["ssh -p 22 root@166.88.232.2 readonly"],
+        performed_side_effects=False,
+    )
+    monkeypatch.setattr(main_module, "run_remote_readiness", lambda **kwargs: report)
+
+    result = runner.invoke(app, ["remote", "readiness"])
+
+    assert result.exit_code == 1
+    assert "status: failed" in result.output
+    assert "missing xray" in result.output
+    assert "performed_side_effects: False" in result.output
 
 
 def test_build_remote_egress_cli_plan_defaults_to_dedicated_test_vps_redacted():

@@ -21,6 +21,7 @@ from migate.remote.install_plan import build_remote_install_dry_run_plan, render
 from migate.remote.install_runner import RemoteInstallCommandResult, RemoteInstallRunResult, render_remote_install_run_result, run_remote_install_plan
 from migate.remote.lifecycle_plan import build_remote_lifecycle_dry_run_plan, render_remote_lifecycle_plan
 from migate.remote.lifecycle_runner import render_remote_lifecycle_run_result, run_remote_lifecycle
+from migate.remote.readiness import render_remote_readiness_report, run_remote_readiness
 from migate.proxy.socks5_listener import (
     build_socks5_listener_plan,
     render_socks5_listener_plan,
@@ -411,6 +412,18 @@ def remote_doctor(
 ) -> None:
     report = run_remote_doctor(host=host, port=port, user=user)
     typer.echo(render_remote_doctor_report(report), nl=False)
+    if report.status != "ok":
+        raise typer.Exit(code=1)
+
+
+@remote_app.command("readiness")
+def remote_readiness(
+    host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
+    port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
+    user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+) -> None:
+    report = run_remote_readiness(host=host, port=port, user=user)
+    typer.echo(render_remote_readiness_report(report), nl=False)
     if report.status != "ok":
         raise typer.Exit(code=1)
 
