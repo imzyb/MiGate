@@ -13,6 +13,15 @@ from migate.vpn.process_runner import (
     OpenVPNStartStepResult,
     run_openvpn_start_plan,
 )
+from migate.vpn.process_stop import (
+    OpenVPNStopCommandResult,
+    OpenVPNStopPlan,
+    OpenVPNStopResult,
+    OpenVPNStopStepResult,
+    build_openvpn_stop_plan,
+    read_openvpn_pid,
+    run_openvpn_stop_plan,
+)
 
 __all__ = [
     "OpenVPNConfigSaveResult",
@@ -23,6 +32,13 @@ __all__ = [
     "OpenVPNStartPlan",
     "OpenVPNStartResult",
     "OpenVPNStartStepResult",
+    "OpenVPNStopCommandResult",
+    "OpenVPNStopPlan",
+    "OpenVPNStopResult",
+    "OpenVPNStopStepResult",
+    "build_openvpn_stop_plan",
+    "read_openvpn_pid",
+    "run_openvpn_stop_plan",
     "build_openvpn_start_plan",
     "dry_run_openvpn_start_plan",
     "render_openvpn_config_preview",
