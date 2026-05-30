@@ -35,4 +35,10 @@ Custom target preview:
 migate remote lifecycle --host 203.0.113.10 --port 62422 --user ubuntu
 ```
 
-Real remote execution is intentionally not implemented in this layer. Keep actual install/uninstall, OpenVPN, Xray, systemd, policy routing, and leak tests off the development host and behind a later explicit double-gated remote executor.
+Real remote execution is intentionally limited in this layer. The only non-dry-run lifecycle action currently allowed is the read-only doctor phase, and it requires both gates:
+
+```bash
+migate remote lifecycle --no-dry-run --yes --allow-remote-changes
+```
+
+This command still does not install, uninstall, start Xray, start OpenVPN, edit systemd, change routes, or modify firewall state. Those phases remain behind later explicit implementations.
