@@ -38,6 +38,17 @@ migate remote install --no-dry-run --yes --allow-remote-changes
 
 This path executes the planned command previews in order through the runner layer and stops on the first failed step. Treat it as a test-VPS-only orchestration shell, not a production installer. It still does not implement rollback, ownership cleanup, firewall changes, policy routing, OpenVPN startup, or leak tests.
 
+### Remote egress dry-run
+
+Preview remote egress operations after installation without opening SSH or changing the test VPS:
+
+```bash
+migate remote egress up
+migate remote egress down
+```
+
+These commands print side-effect-free plans with `commands_executed: []` and `performed_side_effects: False`. They preview the future remote calls to gated local commands such as `migate egress up --no-dry-run --yes --allow-system-changes`, but the remote planning layer itself never SSHs, starts OpenVPN, changes policy routing, or performs leak tests.
+
 ### Remote lifecycle dry-run
 
 Preview the dedicated test VPS lifecycle without opening SSH or changing either host:

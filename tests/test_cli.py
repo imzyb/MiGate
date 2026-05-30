@@ -7,6 +7,7 @@ import migate.main as main_module
 from migate.main import (
     app,
     build_panel_server_config,
+    build_remote_egress_cli_plan,
     build_remote_install_cli_plan,
     build_remote_lifecycle_cli_plan,
     build_xray_install_cli_plan,
@@ -23,6 +24,52 @@ from migate.remote.install_runner import RemoteInstallCommandResult
 
 
 runner = CliRunner()
+
+
+def test_build_remote_egress_cli_plan_defaults_to_dedicated_test_vps_redacted():
+    plan = build_remote_egress_cli_plan(action="up")
+
+    assert plan.status == "dry_run"
+    assert plan.action == "up"
+    assert plan.target == "root@166.88.232.2:22"
+    assert plan.credential_hint == "[REDACTED]"
+    assert plan.commands_executed == []
+    assert plan.performed_side_effects is False
+    assert [step.action for step in plan.steps] == ["doctor", "egress_up", "post_up_status"]
+
+
+def test_remote_egress_up_command_defaults_to_dry_run_without_ssh_or_side_effects():
+    result = runner.invoke(app, ["remote", "egress", "up"])
+
+    assert result.exit_code == 0
+    assert "Remote egress up dry-run" in result.output
+    assert "target: root@166.88.232.2:22" in result.output
+    assert "credential_hint: [REDACTED]" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert "- doctor: planned read-only" in result.output
+    assert "- egress_up: planned side-effect" in result.output
+    assert "ssh -p 22 root@166.88.232.2 -- migate egress up --no-dry-run --yes --allow-system-changes" in result.output
+    assert "sshpass" not in result.output.lower()
+    assert "password" not in result.output.lower()
+
+
+def test_remote_egress_down_command_accepts_custom_target_without_side_effects():
+    result = runner.invoke(app, ["remote", "egress", "down", "--host", "203.0.113.10", "--port", "62422", "--user", "ubuntu"])
+
+    assert result.exit_code == 0
+    assert "Remote egress down dry-run" in result.output
+    assert "target: ubuntu@203.0.113.10:62422" in result.output
+    assert "ssh -p 62422 ubuntu@203.0.113.10 -- migate egress down --no-dry-run --yes --allow-system-changes" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_remote_egress_command_rejects_embedded_credentials():
+    result = runner.invoke(app, ["remote", "egress", "up", "--host", "root:secret@203.0.113.10"])
+
+    assert result.exit_code == 1
+    assert "embedded credentials are not allowed" in result.output
+    assert "secret" not in result.output
 
 
 def test_build_remote_install_cli_plan_defaults_to_dedicated_test_vps_redacted():
