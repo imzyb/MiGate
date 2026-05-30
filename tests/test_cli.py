@@ -226,6 +226,24 @@ def test_xray_install_command_with_real_gate_prints_doctor_report_then_success_r
     assert result.output.index("Xray 安装前检查") < result.output.rindex("status: success")
 
 
+def test_xray_config_preview_command_prints_json_without_saving():
+    result = runner.invoke(app, ["xray", "config", "preview"])
+
+    assert result.exit_code == 0
+    assert '"outbounds"' in result.output
+    assert '"protocol": "socks"' in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_xray_config_save_command_requires_double_gate():
+    result = runner.invoke(app, ["xray", "config", "save"])
+
+    assert result.exit_code == 0
+    assert "status: rejected" in result.output
+    assert "config save requires yes=True and allow_system_changes=True" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
 def test_xray_doctor_command_reports_dependency_checks():
     result = runner.invoke(app, ["xray", "doctor"])
 

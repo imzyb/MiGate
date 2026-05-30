@@ -8,6 +8,7 @@ import typer
 import uvicorn
 
 from migate.config import MiGateConfig
+from migate.xray.config_cli import preview_xray_config, save_xray_config
 from migate.xray.doctor import DoctorReport, run_xray_install_doctor
 from migate.xray.install_executor import dry_run_xray_install_plan
 from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
@@ -15,7 +16,9 @@ from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResu
 
 app = typer.Typer(help="MiGate smart egress gateway")
 xray_app = typer.Typer(help="Xray runtime and installer commands")
+xray_config_app = typer.Typer(help="Xray config preview and save commands")
 app.add_typer(xray_app, name="xray")
+xray_app.add_typer(xray_config_app, name="config")
 
 
 @app.callback()
@@ -108,6 +111,31 @@ def _echo_install_result(result: XrayInstallResult) -> None:
             typer.echo(
                 f"- {step.action}: {step.status} returncode={step.returncode} command={' '.join(step.command)} stdout={step.stdout} stderr={step.stderr}"
             )
+
+
+@xray_config_app.command("preview")
+def xray_config_preview() -> None:
+    typer.echo(preview_xray_config(MiGateConfig()), nl=False)
+    typer.echo("performed_side_effects: False")
+
+
+@xray_config_app.command("save")
+def xray_config_save(
+    target: str = typer.Option("/etc/migate/xray/config.json", "--target", help="Target xray config path."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge that saving config writes to disk."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually write config when combined with --yes."),
+) -> None:
+    result = save_xray_config(
+        MiGateConfig(),
+        target,
+        yes=yes,
+        allow_system_changes=allow_system_changes,
+    )
+    typer.echo(f"status: {result.status}")
+    typer.echo(f"message: {result.message}")
+    typer.echo(f"target: {result.target}")
+    typer.echo(f"validation_status: {result.validation_status}")
+    typer.echo(f"performed_side_effects: {result.performed_side_effects}")
 
 
 @xray_app.command("doctor")
