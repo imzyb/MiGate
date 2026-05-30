@@ -20,6 +20,7 @@ def test_run_socks5_serve_placeholder_defaults_to_dry_run_without_listening():
         listener_started=False,
         accepted_connections=0,
         upstream_connections=0,
+        max_clients=1,
         performed_side_effects=False,
     )
     assert calls == []
@@ -46,8 +47,8 @@ def test_run_socks5_serve_placeholder_rejects_real_listen_without_double_gate():
 def test_run_socks5_serve_placeholder_calls_injected_server_starter_only_when_double_gated():
     calls = []
 
-    def fake_server_starter(host: str, port: int):
-        calls.append((host, port))
+    def fake_server_starter(host: str, port: int, max_clients: int):
+        calls.append((host, port, max_clients))
         return Socks5ServeResult(
             status="listening_placeholder",
             message="SOCKS5 listener placeholder handled zero clients",
@@ -56,6 +57,7 @@ def test_run_socks5_serve_placeholder_calls_injected_server_starter_only_when_do
             listener_started=True,
             accepted_connections=0,
             upstream_connections=0,
+            max_clients=max_clients,
             performed_side_effects=True,
         )
 
@@ -71,14 +73,14 @@ def test_run_socks5_serve_placeholder_calls_injected_server_starter_only_when_do
     assert result.listener_started is True
     assert result.upstream_connections == 0
     assert result.performed_side_effects is True
-    assert calls == [("127.0.0.1", 34501)]
+    assert calls == [("127.0.0.1", 34501, 1)]
 
 
 def test_start_socks5_placeholder_server_delegates_to_asyncio_server(monkeypatch):
     calls = []
 
-    async def fake_serve_once(host: str, port: int):
-        calls.append((host, port))
+    async def fake_serve_once(host: str, port: int, max_clients: int):
+        calls.append((host, port, max_clients))
         return Socks5ServeResult(
             status="stopped",
             message="handled one client",
@@ -87,6 +89,7 @@ def test_start_socks5_placeholder_server_delegates_to_asyncio_server(monkeypatch
             listener_started=True,
             accepted_connections=1,
             upstream_connections=0,
+            max_clients=max_clients,
             performed_side_effects=True,
         )
 
@@ -94,14 +97,14 @@ def test_start_socks5_placeholder_server_delegates_to_asyncio_server(monkeypatch
 
     monkeypatch.setattr(listener_module, "_serve_socks5_once", fake_serve_once)
 
-    result = start_socks5_placeholder_server("127.0.0.1", 0)
+    result = start_socks5_placeholder_server("127.0.0.1", 0, 1)
 
     assert result.status == "stopped"
     assert result.listener_started is True
     assert result.accepted_connections == 1
     assert result.upstream_connections == 0
     assert result.performed_side_effects is True
-    assert calls == [("127.0.0.1", 0)]
+    assert calls == [("127.0.0.1", 0, 1)]
 
 
 def test_render_socks5_serve_result_is_structured_and_mentions_no_upstream_connections():
@@ -113,6 +116,7 @@ def test_render_socks5_serve_result_is_structured_and_mentions_no_upstream_conne
         listener_started=False,
         accepted_connections=0,
         upstream_connections=0,
+        max_clients=1,
         performed_side_effects=False,
     )
 
@@ -123,4 +127,5 @@ def test_render_socks5_serve_result_is_structured_and_mentions_no_upstream_conne
     assert "listener_started: False" in text
     assert "accepted_connections: 0" in text
     assert "upstream_connections: 0" in text
+    assert "max_clients: 1" in text
     assert "performed_side_effects: False" in text

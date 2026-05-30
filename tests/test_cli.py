@@ -602,6 +602,16 @@ def test_proxy_socks5_serve_command_rejects_real_listen_without_gate():
     assert "performed_side_effects: False" in result.output
 
 
+def test_proxy_socks5_serve_command_accepts_max_clients_option_in_dry_run():
+    result = runner.invoke(app, ["proxy", "socks5", "serve", "--max-clients", "2"])
+
+    assert result.exit_code == 0
+    assert "status: dry_run" in result.output
+    assert "max_clients: 2" in result.output
+    assert "listener_started: False" in result.output
+    assert "upstream_connections: 0" in result.output
+
+
 def test_proxy_service_preview_command_prints_unit_without_systemctl():
     result = runner.invoke(app, ["proxy", "service", "preview"])
 

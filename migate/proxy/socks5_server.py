@@ -66,41 +66,51 @@ async def _handle_socks5_client(
         await writer.wait_closed()
 
 
-async def serve_socks5_once(bind_host: str, bind_port: int) -> Socks5ServeResult:
-    """Serve exactly one SOCKS5 client and then stop.
+async def serve_socks5_bounded(bind_host: str, bind_port: int, *, max_clients: int = 1) -> Socks5ServeResult:
+    """Serve a bounded number of SOCKS5 clients and then stop.
 
     This opens a local listening socket, but never opens upstream sockets.
     """
     global _current_server
     stats = {"accepted_connections": 0, "upstream_connections": 0}
-    client_done = asyncio.Event()
+    all_clients_done = asyncio.Event()
 
     async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             await _handle_socks5_client(reader, writer, stats)
         finally:
-            client_done.set()
+            if stats["accepted_connections"] >= max_clients:
+                all_clients_done.set()
 
     server = await asyncio.start_server(handler, bind_host, bind_port)
     _current_server = server
     try:
-        await client_done.wait()
+        await all_clients_done.wait()
     finally:
+        sockname: Any = server.sockets[0].getsockname() if server.sockets else (bind_host, bind_port)
         server.close()
         await server.wait_closed()
         _current_server = None
 
-    sockname: Any = server.sockets[0].getsockname() if server.sockets else (bind_host, bind_port)
     return Socks5ServeResult(
         status="stopped",
-        message="SOCKS5 listener handled one client without upstream forwarding",
+        message=f"SOCKS5 listener handled {stats['accepted_connections']} client(s) without upstream forwarding",
         bind_host=str(sockname[0]),
         bind_port=int(sockname[1]),
         listener_started=True,
         accepted_connections=stats["accepted_connections"],
         upstream_connections=stats["upstream_connections"],
+        max_clients=max_clients,
         performed_side_effects=True,
     )
+
+
+async def serve_socks5_once(bind_host: str, bind_port: int) -> Socks5ServeResult:
+    """Serve exactly one SOCKS5 client and then stop.
+
+    This opens a local listening socket, but never opens upstream sockets.
+    """
+    return await serve_socks5_bounded(bind_host, bind_port, max_clients=1)
 
 
 async def _current_server_waiter() -> asyncio.AbstractServer:
@@ -111,4 +121,5 @@ async def _current_server_waiter() -> asyncio.AbstractServer:
     raise RuntimeError("SOCKS5 server did not start")
 
 
+serve_socks5_bounded.current_server = _current_server_waiter  # type: ignore[attr-defined]
 serve_socks5_once.current_server = _current_server_waiter  # type: ignore[attr-defined]
