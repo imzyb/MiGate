@@ -11,7 +11,12 @@ from migate.config import MiGateConfig
 from migate.proxy.run import render_proxy_run_result, run_proxy_placeholder
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
-from migate.proxy.socks5_listener import build_socks5_listener_plan, render_socks5_listener_plan
+from migate.proxy.socks5_listener import (
+    build_socks5_listener_plan,
+    render_socks5_listener_plan,
+    render_socks5_serve_result,
+    run_socks5_serve_placeholder,
+)
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
 from migate.xray.config_cli import preview_xray_config, save_xray_config
 from migate.xray.deploy_cli import render_xray_deploy_plan, render_xray_deploy_result, run_xray_deploy
@@ -161,6 +166,25 @@ def proxy_service_preview() -> None:
 @proxy_socks5_app.command("plan")
 def proxy_socks5_plan() -> None:
     typer.echo(render_socks5_listener_plan(build_socks5_listener_plan(MiGateConfig())))
+
+
+@proxy_socks5_app.command("serve")
+def proxy_socks5_serve(
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview without opening a listening socket."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge that real listen opens a local socket."),
+    allow_network_listen: bool = typer.Option(
+        False,
+        "--allow-network-listen",
+        help="Actually allow opening the SOCKS5 listening socket when combined with --no-dry-run and --yes.",
+    ),
+) -> None:
+    result = run_socks5_serve_placeholder(
+        MiGateConfig(),
+        dry_run=dry_run,
+        yes=yes,
+        allow_network_listen=allow_network_listen,
+    )
+    typer.echo(render_socks5_serve_result(result))
 
 
 @proxy_service_app.command("save")

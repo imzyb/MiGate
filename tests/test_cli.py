@@ -581,6 +581,27 @@ def test_proxy_socks5_plan_command_prints_dry_run_listener_plan():
     assert "performed_side_effects: False" in result.output
 
 
+def test_proxy_socks5_serve_command_defaults_to_dry_run_without_listening():
+    result = runner.invoke(app, ["proxy", "socks5", "serve"])
+
+    assert result.exit_code == 0
+    assert "SOCKS5 serve result" in result.output
+    assert "status: dry_run" in result.output
+    assert "listener_started: False" in result.output
+    assert "upstream_connections: 0" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_proxy_socks5_serve_command_rejects_real_listen_without_gate():
+    result = runner.invoke(app, ["proxy", "socks5", "serve", "--no-dry-run", "--yes"])
+
+    assert result.exit_code == 0
+    assert "status: rejected" in result.output
+    assert "requires yes=True and allow_network_listen=True" in result.output
+    assert "listener_started: False" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
 def test_proxy_service_preview_command_prints_unit_without_systemctl():
     result = runner.invoke(app, ["proxy", "service", "preview"])
 
