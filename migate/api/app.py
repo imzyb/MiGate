@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse
 
 from migate.database.repository import NodeRecord, NodeRepository
 from migate.config import MiGateConfig
+from migate.systemd.manager import SystemdResult, service_status
 from migate.systemd.units import build_panel_unit, build_xray_unit, write_unit_file
 from migate.xray.links import build_shadowsocks_link, build_trojan_link, build_vless_link
 from migate.xray.node_adapter import build_config_from_nodes
@@ -124,7 +125,13 @@ def _xray_preview_html(nodes: list[NodeRecord]) -> str:
 """
 
 
-def _home_body(*, nodes: list[NodeRecord] | None = None, result_html: str = "", systemd_html: str = "") -> str:
+def _home_body(
+    *,
+    nodes: list[NodeRecord] | None = None,
+    result_html: str = "",
+    systemd_html: str = "",
+    service_status_html: str = "",
+) -> str:
     current_nodes = nodes or []
     nodes_html = _nodes_html(current_nodes)
     preview_html = _xray_preview_html(current_nodes)
@@ -171,6 +178,7 @@ def _home_body(*, nodes: list[NodeRecord] | None = None, result_html: str = "", 
   </section>
 
   {result_html}
+  {service_status_html}
   {nodes_html}
   {preview_html}
   {systemd_html}
@@ -213,23 +221,59 @@ def _systemd_preview_html(config: MiGateConfig) -> str:
 """
 
 
+def _service_status_row(service_name: str, result: SystemdResult) -> str:
+    output = "\n".join(part for part in [result.stdout, result.stderr] if part)
+    return f"""
+    <article class="node">
+      <div class="node-title">{escape(service_name)}</div>
+      <div class="label">状态：{escape(result.status)} ｜ 返回码：{escape(str(result.returncode))}</div>
+      <pre>{escape(output)}</pre>
+    </article>
+"""
+
+
+def _service_status_html(status_loader: Callable[[str], SystemdResult], *, refreshed: bool = False) -> str:
+    xray_result = status_loader("migate-xray.service")
+    panel_result = status_loader("migate-panel.service")
+    heading = "服务状态已刷新" if refreshed else "服务状态"
+    return f"""
+  <section class="card">
+    <h2>{heading}</h2>
+    <p>这里只读取 MiGate 自有服务状态，不会执行重启、重载或开机启用。</p>
+    <form method="post" action="/systemd/status/refresh">
+      <button type="submit">刷新服务状态</button>
+    </form>
+    {_service_status_row("migate-xray.service", xray_result)}
+    {_service_status_row("migate-panel.service", panel_result)}
+  </section>
+"""
+
+
 def create_app(
     node_repository: NodeRepository | None = None,
     xray_config_path: str | Path | None = None,
     xray_validator: Callable[[Path], XrayValidationResult] | None = None,
     systemd_unit_dir: str | Path | None = None,
+    systemd_status_loader: Callable[[str], SystemdResult] | None = None,
 ) -> FastAPI:
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
     config_path = Path(xray_config_path) if xray_config_path is not None else DEFAULT_XRAY_CONFIG_PATH
     unit_dir = Path(systemd_unit_dir) if systemd_unit_dir is not None else DEFAULT_SYSTEMD_UNIT_DIR
     validator = xray_validator or validate_xray_config
+    status_loader = systemd_status_loader or service_status
     migate_config = MiGateConfig()
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:
-        return _page_shell(_home_body(nodes=repo.list_nodes(), systemd_html=_systemd_preview_html(migate_config)))
+        return _page_shell(
+            _home_body(
+                nodes=repo.list_nodes(),
+                service_status_html=_service_status_html(status_loader),
+                systemd_html=_systemd_preview_html(migate_config),
+            )
+        )
 
     @app.post("/nodes/create", response_class=HTMLResponse)
     def create_node(
@@ -304,6 +348,23 @@ def create_app(
     <p>当前步骤仅写服务文件，不会执行服务重载或启动。</p>
   </section>
 """
-        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, systemd_html=_systemd_preview_html(migate_config)))
+        return _page_shell(
+            _home_body(
+                nodes=repo.list_nodes(),
+                result_html=result,
+                service_status_html=_service_status_html(status_loader),
+                systemd_html=_systemd_preview_html(migate_config),
+            )
+        )
+
+    @app.post("/systemd/status/refresh", response_class=HTMLResponse)
+    def refresh_systemd_status() -> str:
+        return _page_shell(
+            _home_body(
+                nodes=repo.list_nodes(),
+                service_status_html=_service_status_html(status_loader, refreshed=True),
+                systemd_html=_systemd_preview_html(migate_config),
+            )
+        )
 
     return app

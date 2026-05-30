@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from migate.api.app import create_app
 from migate.database.repository import NodeRepository
+from migate.systemd.manager import SystemdResult
 from migate.xray.validator import XrayValidationResult
 
 
@@ -154,6 +155,51 @@ def test_panel_save_systemd_units_writes_unit_files_only(tmp_path):
     assert (unit_dir / "migate-xray.service").exists()
     assert (unit_dir / "migate-panel.service").exists()
     assert "systemctl" not in decoded
+
+
+def test_panel_home_shows_safe_service_status_actions_without_restart(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+
+    def status_loader(service_name: str) -> SystemdResult:
+        if service_name == "migate-xray.service":
+            return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
+        return SystemdResult(status="failed", returncode=3, stdout="", stderr="inactive")
+
+    client = TestClient(create_app(node_repository=repo, systemd_status_loader=status_loader))
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "服务状态" in decoded
+    assert "migate-xray.service" in decoded
+    assert "migate-panel.service" in decoded
+    assert "active (running)" in decoded
+    assert "inactive" in decoded
+    assert "刷新服务状态" in decoded
+    assert "重启服务" not in decoded
+    assert "daemon-reload" not in decoded
+
+
+def test_panel_service_status_refresh_shows_structured_results(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+
+    def status_loader(service_name: str) -> SystemdResult:
+        if service_name == "migate-xray.service":
+            return SystemdResult(status="systemctl_not_found", returncode=None, stdout="", stderr="systemctl command not found")
+        return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
+
+    client = TestClient(create_app(node_repository=repo, systemd_status_loader=status_loader))
+
+    response = client.post("/systemd/status/refresh")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "服务状态已刷新" in decoded
+    assert "systemctl_not_found" in decoded
+    assert "systemctl command not found" in decoded
+    assert "active (running)" in decoded
+    assert "重启服务" not in decoded
 
 
 def test_panel_create_trojan_node_returns_share_link():
