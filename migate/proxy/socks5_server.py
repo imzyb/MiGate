@@ -54,6 +54,16 @@ async def _handle_socks5_client(
             writer.write(greeting_event.response)
             await asyncio.wait_for(writer.drain(), timeout=client_timeout)
         if greeting_event.status != "accepted":
+            events.append(
+                Socks5ServeEvent(
+                    client_id=client_id,
+                    phase="greeting",
+                    status=greeting_event.status,
+                    target_host=None,
+                    target_port=None,
+                    upstream_connected=False,
+                )
+            )
             return
 
         request_payload = await asyncio.wait_for(_read_socks5_request(reader), timeout=client_timeout)
