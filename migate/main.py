@@ -15,6 +15,7 @@ from migate.proxy.run import render_proxy_run_result, run_proxy_placeholder
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
 from migate.remote.doctor import render_remote_doctor_report, run_remote_doctor
+from migate.remote.install_plan import build_remote_install_dry_run_plan, render_remote_install_plan
 from migate.remote.lifecycle_plan import build_remote_lifecycle_dry_run_plan, render_remote_lifecycle_plan
 from migate.remote.lifecycle_runner import render_remote_lifecycle_run_result, run_remote_lifecycle
 from migate.proxy.socks5_listener import (
@@ -87,6 +88,16 @@ def build_xray_install_cli_plan(*, system: str | None = None, machine: str | Non
         machine=machine or platform.machine(),
         version=version,
     )
+
+
+def build_remote_install_cli_plan(
+    *,
+    host: str = "166.88.232.2",
+    port: int = 22,
+    user: str = "root",
+    staging_dir: str = "/tmp/migate-install",
+):
+    return build_remote_install_dry_run_plan(host=host, port=port, user=user, staging_dir=staging_dir)
 
 
 def build_remote_lifecycle_cli_plan(*, host: str = "166.88.232.2", port: int = 22, user: str = "root"):
@@ -232,6 +243,19 @@ def _echo_install_result(result: XrayInstallResult) -> None:
             typer.echo(
                 f"- {step.action}: {step.status} returncode={step.returncode} command={' '.join(step.command)} stdout={step.stdout} stderr={step.stderr}"
             )
+
+
+@remote_app.command("install")
+def remote_install(
+    host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
+    port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
+    user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+    staging_dir: str = typer.Option("/tmp/migate-install", "--staging-dir", help="Remote staging directory preview; must stay under /tmp/ for this dry-run layer."),
+) -> None:
+    plan = build_remote_install_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir)
+    typer.echo(render_remote_install_plan(plan), nl=False)
+    if plan.status == "rejected":
+        raise typer.Exit(code=1)
 
 
 @remote_app.command("lifecycle")

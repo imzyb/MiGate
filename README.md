@@ -11,6 +11,16 @@ See `docs/plans/2026-05-30-migate-xray-gateway-v0.1.md` for the v0.1 implementat
 - Full-system lifecycle tests must run on the dedicated test VPS environment.
 - Never commit or document test VPS passwords, private keys, tokens, or connection strings. Use `[REDACTED]` in docs and reports.
 
+### Remote install dry-run
+
+Preview the future remote installer on the dedicated test VPS without SSHing or making changes:
+
+```bash
+migate remote install
+```
+
+The command prints a side-effect-free plan with `commands_executed: []` and `performed_side_effects: False`. It redacts credential hints, rejects embedded credentials such as `user:password@host`, and keeps the staging directory under `/tmp/`.
+
 ### Remote lifecycle dry-run
 
 Preview the dedicated test VPS lifecycle without opening SSH or changing either host:

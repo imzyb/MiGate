@@ -4,7 +4,15 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 import migate.main as main_module
-from migate.main import app, build_panel_server_config, build_remote_lifecycle_cli_plan, run_remote_lifecycle_cli, build_xray_install_cli_plan, run_xray_install_cli
+from migate.main import (
+    app,
+    build_panel_server_config,
+    build_remote_install_cli_plan,
+    build_remote_lifecycle_cli_plan,
+    build_xray_install_cli_plan,
+    run_remote_lifecycle_cli,
+    run_xray_install_cli,
+)
 from migate.egress.lifecycle import EgressLifecyclePhase, EgressLifecycleResult
 from migate.egress.status import EgressStatusCheck, EgressStatusReport
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
@@ -13,6 +21,79 @@ from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResu
 
 
 runner = CliRunner()
+
+
+def test_build_remote_install_cli_plan_defaults_to_dedicated_test_vps_redacted():
+    plan = build_remote_install_cli_plan()
+
+    assert plan.status == "dry_run"
+    assert plan.target == "root@166.88.232.2:22"
+    assert plan.credential_hint == "[REDACTED]"
+    assert plan.commands_executed == []
+    assert plan.performed_side_effects is False
+    assert [step.action for step in plan.steps] == [
+        "doctor",
+        "sync_project",
+        "install_python_package",
+        "install_xray",
+        "write_services",
+        "post_install_doctor",
+    ]
+
+
+def test_remote_install_command_defaults_to_dry_run_without_ssh_or_side_effects():
+    result = runner.invoke(app, ["remote", "install"])
+
+    assert result.exit_code == 0
+    assert "Remote install dry-run" in result.output
+    assert "target: root@166.88.232.2:22" in result.output
+    assert "credential_hint: [REDACTED]" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert "- doctor: planned read-only" in result.output
+    assert "- sync_project: planned side-effect" in result.output
+    assert "rsync -az --delete ./ root@166.88.232.2:/tmp/migate-install/" in result.output
+    assert "sshpass" not in result.output.lower()
+    assert "password" not in result.output.lower()
+
+
+def test_remote_install_command_accepts_custom_target_and_staging_dir():
+    result = runner.invoke(
+        app,
+        [
+            "remote",
+            "install",
+            "--host",
+            "203.0.113.10",
+            "--port",
+            "62422",
+            "--user",
+            "ubuntu",
+            "--staging-dir",
+            "/tmp/migate-custom",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "target: ubuntu@203.0.113.10:62422" in result.output
+    assert "rsync -az --delete ./ ubuntu@203.0.113.10:/tmp/migate-custom/" in result.output
+    assert "ssh -p 62422 ubuntu@203.0.113.10 -- cd /tmp/migate-custom && python3 -m pip install ." in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_remote_install_command_rejects_embedded_credentials():
+    result = runner.invoke(app, ["remote", "install", "--host", "root:secret@203.0.113.10"])
+
+    assert result.exit_code == 1
+    assert "embedded credentials are not allowed" in result.output
+    assert "secret" not in result.output
+
+
+def test_remote_install_command_rejects_unsafe_staging_dir():
+    result = runner.invoke(app, ["remote", "install", "--staging-dir", "/etc/migate"])
+
+    assert result.exit_code == 1
+    assert "staging_dir must be under /tmp/" in result.output
 
 
 def test_build_remote_lifecycle_cli_plan_defaults_to_dedicated_test_vps_redacted():
