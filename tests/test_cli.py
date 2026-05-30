@@ -244,6 +244,33 @@ def test_xray_config_save_command_requires_double_gate():
     assert "performed_side_effects: False" in result.output
 
 
+def test_xray_config_save_command_shows_backup_and_rollback_fields(monkeypatch, tmp_path):
+    target = tmp_path / "config.json"
+
+    from migate.xray.config_cli import XrayConfigSaveResult
+
+    monkeypatch.setattr(
+        main_module,
+        "save_xray_config",
+        lambda *args, **kwargs: XrayConfigSaveResult(
+            status="invalid",
+            message="config validation failed; restored previous config",
+            target=target,
+            validation_status="invalid",
+            performed_side_effects=True,
+            backup_path=target.with_name("config.json.bak"),
+            rollback_performed=True,
+        ),
+    )
+
+    result = runner.invoke(app, ["xray", "config", "save", "--yes", "--allow-system-changes", "--target", str(target)])
+
+    assert result.exit_code == 0
+    assert f"target: {target}" in result.output
+    assert f"backup_path: {target.with_name('config.json.bak')}" in result.output
+    assert "rollback_performed: True" in result.output
+
+
 def test_xray_doctor_command_reports_dependency_checks():
     result = runner.invoke(app, ["xray", "doctor"])
 

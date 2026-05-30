@@ -135,6 +135,9 @@ def xray_config_save(
     typer.echo(f"message: {result.message}")
     typer.echo(f"target: {result.target}")
     typer.echo(f"validation_status: {result.validation_status}")
+    if result.backup_path:
+        typer.echo(f"backup_path: {result.backup_path}")
+    typer.echo(f"rollback_performed: {result.rollback_performed}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
 
 

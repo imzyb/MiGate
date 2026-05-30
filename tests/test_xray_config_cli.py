@@ -74,7 +74,76 @@ def test_save_xray_config_writes_then_validates_when_double_gate_passes(tmp_path
     assert result.performed_side_effects is True
     assert target.exists()
     assert json.loads(target.read_text(encoding="utf-8"))["outbounds"][0]["protocol"] == "socks"
-    assert calls == [["xray", "test", "-config", str(target)]]
+    assert calls == [["xray", "test", "-config", str(target.with_name("config.json.tmp"))]]
+
+
+def test_save_xray_config_backs_up_existing_config_and_keeps_backup_on_success(tmp_path):
+    target = tmp_path / "config.json"
+    target.write_text('{"old": true}\n', encoding="utf-8")
+
+    def validator(args):
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="config ok", stderr="")
+
+    result = save_xray_config(
+        MiGateConfig(),
+        target,
+        yes=True,
+        allow_system_changes=True,
+        validator_runner=validator,
+        backup_suffix=".bak-test",
+    )
+
+    assert result.status == "saved"
+    assert result.backup_path == target.with_name("config.json.bak-test")
+    assert result.rollback_performed is False
+    assert result.backup_path.read_text(encoding="utf-8") == '{"old": true}\n'
+    assert json.loads(target.read_text(encoding="utf-8"))["outbounds"][0]["protocol"] == "socks"
+
+
+def test_save_xray_config_restores_existing_config_when_validation_fails(tmp_path):
+    target = tmp_path / "config.json"
+    old_content = '{"old": true}\n'
+    target.write_text(old_content, encoding="utf-8")
+
+    def validator(args):
+        return subprocess.CompletedProcess(args=args, returncode=23, stdout="", stderr="invalid config")
+
+    result = save_xray_config(
+        MiGateConfig(),
+        target,
+        yes=True,
+        allow_system_changes=True,
+        validator_runner=validator,
+        backup_suffix=".bak-test",
+    )
+
+    assert result.status == "invalid"
+    assert result.message == "config validation failed; restored previous config"
+    assert result.validation_status == "invalid"
+    assert result.rollback_performed is True
+    assert result.backup_path == target.with_name("config.json.bak-test")
+    assert target.read_text(encoding="utf-8") == old_content
+
+
+def test_save_xray_config_removes_new_config_when_validation_fails_without_existing_file(tmp_path):
+    target = tmp_path / "config.json"
+
+    def validator(args):
+        return subprocess.CompletedProcess(args=args, returncode=23, stdout="", stderr="invalid config")
+
+    result = save_xray_config(
+        MiGateConfig(),
+        target,
+        yes=True,
+        allow_system_changes=True,
+        validator_runner=validator,
+    )
+
+    assert result.status == "invalid"
+    assert result.message == "config validation failed; removed invalid new config"
+    assert result.rollback_performed is True
+    assert result.backup_path is None
+    assert not target.exists()
 
 
 def test_save_xray_config_reports_validation_failure_after_write(tmp_path):
@@ -91,7 +160,8 @@ def test_save_xray_config_reports_validation_failure_after_write(tmp_path):
     )
 
     assert result.status == "invalid"
-    assert result.message == "config saved but validation failed"
+    assert result.message == "config validation failed; removed invalid new config"
     assert result.validation_status == "invalid"
     assert result.performed_side_effects is True
-    assert target.exists()
+    assert result.rollback_performed is True
+    assert not target.exists()
