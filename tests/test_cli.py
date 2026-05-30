@@ -10,6 +10,7 @@ from migate.main import (
     build_remote_install_cli_plan,
     build_remote_lifecycle_cli_plan,
     build_xray_install_cli_plan,
+    run_remote_install_cli,
     run_remote_lifecycle_cli,
     run_xray_install_cli,
 )
@@ -18,6 +19,7 @@ from migate.egress.status import EgressStatusCheck, EgressStatusReport
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
 from migate.xray.doctor import DoctorCheck, DoctorReport
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult
+from migate.remote.install_runner import RemoteInstallCommandResult
 
 
 runner = CliRunner()
@@ -94,6 +96,66 @@ def test_remote_install_command_rejects_unsafe_staging_dir():
 
     assert result.exit_code == 1
     assert "staging_dir must be under /tmp/" in result.output
+
+
+def test_run_remote_install_cli_rejects_real_execution_without_double_gate():
+    calls = []
+
+    result = run_remote_install_cli(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        staging_dir="/tmp/migate-install",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=False,
+        command_runner=lambda command: calls.append(command) or RemoteInstallCommandResult(0, "ok", ""),
+    )
+
+    assert result.status == "rejected"
+    assert result.message == "remote install requires yes=True and allow_remote_changes=True"
+    assert result.commands_executed == []
+    assert result.performed_side_effects is False
+    assert calls == []
+
+
+def test_remote_install_command_real_path_uses_runner_shell_with_double_gate(monkeypatch):
+    calls = []
+
+    def fake_run_remote_install_cli(**kwargs):
+        result = main_module.run_remote_install_plan(
+            main_module.build_remote_install_cli_plan(
+                host=kwargs["host"],
+                port=kwargs["port"],
+                user=kwargs["user"],
+                staging_dir=kwargs["staging_dir"],
+            ),
+            dry_run=kwargs["dry_run"],
+            yes=kwargs["yes"],
+            allow_remote_changes=kwargs["allow_remote_changes"],
+            runner=lambda command: calls.append(command) or RemoteInstallCommandResult(0, "ok", ""),
+        )
+        return result
+
+    monkeypatch.setattr(main_module, "run_remote_install_cli", fake_run_remote_install_cli)
+
+    result = runner.invoke(app, ["remote", "install", "--no-dry-run", "--yes", "--allow-remote-changes"])
+
+    assert result.exit_code == 0
+    assert "Remote install result" in result.output
+    assert "status: success" in result.output
+    assert "performed_side_effects: True" in result.output
+    assert "- sync_project: success returncode=0" in result.output
+    assert calls[0] == "migate remote doctor --host 166.88.232.2 --port 22 --user root"
+    assert len(calls) == 6
+
+
+def test_remote_install_command_real_path_rejects_without_allow_remote_changes():
+    result = runner.invoke(app, ["remote", "install", "--no-dry-run", "--yes"])
+
+    assert result.exit_code == 1
+    assert "remote install requires yes=True and allow_remote_changes=True" in result.output
+    assert "performed_side_effects: False" in result.output
 
 
 def test_build_remote_lifecycle_cli_plan_defaults_to_dedicated_test_vps_redacted():

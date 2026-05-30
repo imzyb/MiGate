@@ -16,6 +16,7 @@ from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, 
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
 from migate.remote.doctor import render_remote_doctor_report, run_remote_doctor
 from migate.remote.install_plan import build_remote_install_dry_run_plan, render_remote_install_plan
+from migate.remote.install_runner import RemoteInstallCommandResult, RemoteInstallRunResult, render_remote_install_run_result, run_remote_install_plan
 from migate.remote.lifecycle_plan import build_remote_lifecycle_dry_run_plan, render_remote_lifecycle_plan
 from migate.remote.lifecycle_runner import render_remote_lifecycle_run_result, run_remote_lifecycle
 from migate.proxy.socks5_listener import (
@@ -102,6 +103,27 @@ def build_remote_install_cli_plan(
 
 def build_remote_lifecycle_cli_plan(*, host: str = "166.88.232.2", port: int = 22, user: str = "root"):
     return build_remote_lifecycle_dry_run_plan(host=host, port=port, user=user)
+
+
+def run_remote_install_cli(
+    *,
+    host: str,
+    port: int,
+    user: str,
+    staging_dir: str,
+    dry_run: bool,
+    yes: bool,
+    allow_remote_changes: bool,
+    command_runner: Callable[[str], RemoteInstallCommandResult] | None = None,
+) -> RemoteInstallRunResult:
+    plan = build_remote_install_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir)
+    return run_remote_install_plan(
+        plan,
+        dry_run=dry_run,
+        yes=yes,
+        allow_remote_changes=allow_remote_changes,
+        runner=command_runner,
+    )
 
 
 def run_remote_lifecycle_cli(
@@ -251,10 +273,28 @@ def remote_install(
     port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
     user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
     staging_dir: str = typer.Option("/tmp/migate-install", "--staging-dir", help="Remote staging directory preview; must stay under /tmp/ for this dry-run layer."),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge remote install command execution."),
+    allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote install runner shell."),
 ) -> None:
-    plan = build_remote_install_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir)
-    typer.echo(render_remote_install_plan(plan), nl=False)
-    if plan.status == "rejected":
+    if dry_run:
+        plan = build_remote_install_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir)
+        typer.echo(render_remote_install_plan(plan), nl=False)
+        if plan.status == "rejected":
+            raise typer.Exit(code=1)
+        return
+
+    result = run_remote_install_cli(
+        host=host,
+        port=port,
+        user=user,
+        staging_dir=staging_dir,
+        dry_run=dry_run,
+        yes=yes,
+        allow_remote_changes=allow_remote_changes,
+    )
+    typer.echo(render_remote_install_run_result(result), nl=False)
+    if result.status != "success":
         raise typer.Exit(code=1)
 
 

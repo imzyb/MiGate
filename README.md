@@ -21,6 +21,14 @@ migate remote install
 
 The command prints a side-effect-free plan with `commands_executed: []` and `performed_side_effects: False`. It redacts credential hints, rejects embedded credentials such as `user:password@host`, and keeps the staging directory under `/tmp/`.
 
+The first gated runner shell is available only with all remote-change gates:
+
+```bash
+migate remote install --no-dry-run --yes --allow-remote-changes
+```
+
+This path executes the planned command previews in order through the runner layer and stops on the first failed step. Treat it as a test-VPS-only orchestration shell, not a production installer. It still does not implement rollback, ownership cleanup, firewall changes, policy routing, OpenVPN startup, or leak tests.
+
 ### Remote lifecycle dry-run
 
 Preview the dedicated test VPS lifecycle without opening SSH or changing either host:
