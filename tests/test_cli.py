@@ -775,6 +775,49 @@ def test_proxy_socks5_serve_command_jsonl_includes_injected_real_result_events(m
     }
 
 
+def test_proxy_socks5_serve_command_rejects_output_file_without_file_write_gate(tmp_path):
+    target = tmp_path / "serve.jsonl"
+
+    result = runner.invoke(app, ["proxy", "socks5", "serve", "--format", "jsonl", "--output", str(target), "--yes"])
+
+    assert result.exit_code == 0
+    assert "SOCKS5 serve output write result" in result.output
+    assert "status: rejected" in result.output
+    assert "requires yes=True and allow_file_write=True" in result.output
+    assert "bytes_written: 0" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert not target.exists()
+
+
+def test_proxy_socks5_serve_command_writes_output_file_when_double_gated(tmp_path):
+    target = tmp_path / "serve.jsonl"
+
+    result = runner.invoke(
+        app,
+        [
+            "proxy",
+            "socks5",
+            "serve",
+            "--format",
+            "jsonl",
+            "--output",
+            str(target),
+            "--yes",
+            "--allow-file-write",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "SOCKS5 serve output write result" in result.output
+    assert "status: written" in result.output
+    assert f"target: {target}" in result.output
+    assert "performed_side_effects: True" in result.output
+    lines = [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()]
+    assert lines[0]["type"] == "summary"
+    assert lines[0]["status"] == "dry_run"
+    assert lines[0]["upstream_connections"] == 0
+
+
 def test_proxy_socks5_serve_command_accepts_max_clients_option_in_dry_run():
     result = runner.invoke(app, ["proxy", "socks5", "serve", "--max-clients", "2"])
 

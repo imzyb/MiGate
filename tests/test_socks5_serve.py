@@ -5,10 +5,13 @@ from migate.proxy.socks5_listener import (
     Socks5ServeEvent,
     Socks5ServeEventSummary,
     Socks5ServeResult,
+    Socks5ServeOutputWriteResult,
     render_socks5_serve_json,
     render_socks5_serve_jsonl,
     render_socks5_serve_output,
+    render_socks5_serve_output_write_result,
     render_socks5_serve_result,
+    write_socks5_serve_output,
     socks5_serve_result_to_dict,
     run_socks5_serve_placeholder,
     start_socks5_placeholder_server,
@@ -228,6 +231,95 @@ def test_render_socks5_serve_output_rejects_unknown_format_without_side_effects(
         assert str(exc) == "unsupported format: yaml; supported formats: text, json, jsonl"
     else:
         raise AssertionError("expected ValueError for unsupported format")
+
+
+def test_write_socks5_serve_output_rejects_without_double_file_write_gate(tmp_path):
+    target = tmp_path / "serve.jsonl"
+    result = Socks5ServeResult(
+        status="dry_run",
+        message="SOCKS5 listener dry-run; no socket opened",
+        bind_host="127.0.0.1",
+        bind_port=34501,
+        listener_started=False,
+        accepted_connections=0,
+        upstream_connections=0,
+        timed_out_connections=0,
+        max_clients=1,
+        client_timeout=5.0,
+        events=[],
+        performed_side_effects=False,
+    )
+
+    write_result = write_socks5_serve_output(
+        result,
+        output_format="jsonl",
+        target=str(target),
+        yes=True,
+        allow_file_write=False,
+    )
+
+    assert write_result == Socks5ServeOutputWriteResult(
+        status="rejected",
+        message="SOCKS5 serve output write requires yes=True and allow_file_write=True",
+        target=str(target),
+        bytes_written=0,
+        performed_side_effects=False,
+    )
+    assert not target.exists()
+
+
+def test_write_socks5_serve_output_writes_rendered_output_when_double_gated(tmp_path):
+    target = tmp_path / "nested" / "serve.jsonl"
+    result = Socks5ServeResult(
+        status="dry_run",
+        message="SOCKS5 listener dry-run; no socket opened",
+        bind_host="127.0.0.1",
+        bind_port=34501,
+        listener_started=False,
+        accepted_connections=0,
+        upstream_connections=0,
+        timed_out_connections=0,
+        max_clients=1,
+        client_timeout=5.0,
+        events=[],
+        performed_side_effects=False,
+    )
+
+    write_result = write_socks5_serve_output(
+        result,
+        output_format="jsonl",
+        target=str(target),
+        yes=True,
+        allow_file_write=True,
+    )
+
+    expected = render_socks5_serve_output(result, output_format="jsonl")
+    assert target.read_text(encoding="utf-8") == expected
+    assert write_result == Socks5ServeOutputWriteResult(
+        status="written",
+        message="SOCKS5 serve output written",
+        target=str(target),
+        bytes_written=len(expected.encode("utf-8")),
+        performed_side_effects=True,
+    )
+
+
+def test_render_socks5_serve_output_write_result_is_structured():
+    result = Socks5ServeOutputWriteResult(
+        status="written",
+        message="SOCKS5 serve output written",
+        target="/tmp/serve.jsonl",
+        bytes_written=123,
+        performed_side_effects=True,
+    )
+
+    text = render_socks5_serve_output_write_result(result)
+
+    assert "SOCKS5 serve output write result" in text
+    assert "status: written" in text
+    assert "target: /tmp/serve.jsonl" in text
+    assert "bytes_written: 123" in text
+    assert "performed_side_effects: True" in text
 
 
 def test_run_socks5_serve_placeholder_defaults_to_dry_run_without_listening():

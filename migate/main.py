@@ -15,7 +15,9 @@ from migate.proxy.socks5_listener import (
     build_socks5_listener_plan,
     render_socks5_listener_plan,
     render_socks5_serve_output,
+    render_socks5_serve_output_write_result,
     run_socks5_serve_placeholder,
+    write_socks5_serve_output,
 )
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
 from migate.xray.config_cli import preview_xray_config, save_xray_config
@@ -180,6 +182,8 @@ def proxy_socks5_serve(
     max_clients: int = typer.Option(1, "--max-clients", min=1, help="Bounded number of local clients to handle before exiting."),
     client_timeout: float = typer.Option(5.0, "--client-timeout", min=0.001, help="Seconds to wait for each client protocol read before closing."),
     output_format: str = typer.Option("text", "--format", help="Render result as text, json, or jsonl."),
+    output: str | None = typer.Option(None, "--output", help="Optional file path to write rendered serve output."),
+    allow_file_write: bool = typer.Option(False, "--allow-file-write", help="Actually allow writing --output when combined with --yes."),
 ) -> None:
     if output_format not in {"text", "json", "jsonl"}:
         typer.echo(f"unsupported format: {output_format}")
@@ -194,7 +198,17 @@ def proxy_socks5_serve(
         client_timeout=client_timeout,
     )
     try:
-        typer.echo(render_socks5_serve_output(result, output_format=output_format), nl=False)
+        if output is not None:
+            write_result = write_socks5_serve_output(
+                result,
+                output_format=output_format,
+                target=output,
+                yes=yes,
+                allow_file_write=allow_file_write,
+            )
+            typer.echo(render_socks5_serve_output_write_result(write_result))
+        else:
+            typer.echo(render_socks5_serve_output(result, output_format=output_format), nl=False)
     except ValueError as exc:
         typer.echo(str(exc).replace("; ", "\n"))
         raise typer.Exit(code=1) from exc

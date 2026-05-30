@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 import asyncio
 import json
 
@@ -63,6 +64,15 @@ class Socks5ServeResult:
     max_clients: int
     client_timeout: float
     events: list[Socks5ServeEvent]
+    performed_side_effects: bool
+
+
+@dataclass(frozen=True)
+class Socks5ServeOutputWriteResult:
+    status: str
+    message: str
+    target: str
+    bytes_written: int
     performed_side_effects: bool
 
 
@@ -251,6 +261,48 @@ def render_socks5_serve_output(result: Socks5ServeResult, *, output_format: str)
     if output_format == "jsonl":
         return render_socks5_serve_jsonl(result)
     raise ValueError(f"unsupported format: {output_format}; supported formats: text, json, jsonl")
+
+
+def write_socks5_serve_output(
+    result: Socks5ServeResult,
+    *,
+    output_format: str,
+    target: str,
+    yes: bool = False,
+    allow_file_write: bool = False,
+) -> Socks5ServeOutputWriteResult:
+    if not yes or not allow_file_write:
+        return Socks5ServeOutputWriteResult(
+            status="rejected",
+            message="SOCKS5 serve output write requires yes=True and allow_file_write=True",
+            target=target,
+            bytes_written=0,
+            performed_side_effects=False,
+        )
+    rendered = render_socks5_serve_output(result, output_format=output_format)
+    target_path = Path(target)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_text(rendered, encoding="utf-8")
+    return Socks5ServeOutputWriteResult(
+        status="written",
+        message="SOCKS5 serve output written",
+        target=target,
+        bytes_written=len(rendered.encode("utf-8")),
+        performed_side_effects=True,
+    )
+
+
+def render_socks5_serve_output_write_result(result: Socks5ServeOutputWriteResult) -> str:
+    return "\n".join(
+        [
+            "SOCKS5 serve output write result",
+            f"status: {result.status}",
+            f"message: {result.message}",
+            f"target: {result.target}",
+            f"bytes_written: {result.bytes_written}",
+            f"performed_side_effects: {result.performed_side_effects}",
+        ]
+    )
 
 
 def render_socks5_serve_result(result: Socks5ServeResult) -> str:
