@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from html import escape
 from pathlib import Path
 from uuid import uuid4
@@ -13,6 +14,7 @@ from migate.config import MiGateConfig
 from migate.xray.links import build_shadowsocks_link, build_trojan_link, build_vless_link
 from migate.xray.node_adapter import build_config_from_nodes
 from migate.xray.subscription import build_base64_subscription
+from migate.xray.validator import XrayValidationResult, validate_xray_config
 from migate.xray.writer import write_xray_config
 
 DEFAULT_DB_PATH = Path("/var/lib/migate/migate.db")
@@ -112,6 +114,9 @@ def _xray_preview_html(nodes: list[NodeRecord]) -> str:
     <form method="post" action="/xray/config/save">
       <button type="submit">保存 Xray 配置</button>
     </form>
+    <form method="post" action="/xray/config/validate">
+      <button type="submit">校验 Xray 配置</button>
+    </form>
     <pre>{escape(preview)}</pre>
   </section>
 """
@@ -187,9 +192,14 @@ def _build_link(protocol: str, host: str, port: int, name: str, credential: str)
     raise ValueError(f"unsupported protocol: {protocol}")
 
 
-def create_app(node_repository: NodeRepository | None = None, xray_config_path: str | Path | None = None) -> FastAPI:
+def create_app(
+    node_repository: NodeRepository | None = None,
+    xray_config_path: str | Path | None = None,
+    xray_validator: Callable[[Path], XrayValidationResult] | None = None,
+) -> FastAPI:
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
     config_path = Path(xray_config_path) if xray_config_path is not None else DEFAULT_XRAY_CONFIG_PATH
+    validator = xray_validator or validate_xray_config
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
@@ -243,5 +253,19 @@ def create_app(node_repository: NodeRepository | None = None, xray_config_path: 
   </section>
 """
         return _page_shell(_home_body(nodes=nodes, result_html=result))
+
+    @app.post("/xray/config/validate", response_class=HTMLResponse)
+    def validate_saved_xray_config() -> str:
+        result_value = validator(config_path)
+        output = "\n".join(part for part in [result_value.stdout, result_value.stderr] if part)
+        result = f"""
+  <section class="card">
+    <h2>Xray 配置校验结果</h2>
+    <p>状态：{escape(result_value.status)}</p>
+    <p>返回码：{escape(str(result_value.returncode))}</p>
+    <pre>{escape(output)}</pre>
+  </section>
+"""
+        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result))
 
     return app

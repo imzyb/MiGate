@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from migate.api.app import create_app
 from migate.database.repository import NodeRepository
+from migate.xray.validator import XrayValidationResult
 
 
 def test_panel_home_contains_beginner_node_form_and_status_cards():
@@ -73,6 +74,7 @@ def test_panel_persists_created_node_and_lists_it_on_home(tmp_path):
     assert '"port": 34501' in decoded_home
     assert '"freedom"' not in decoded_home
     assert "保存 Xray 配置" in decoded_home
+    assert "校验 Xray 配置" in decoded_home
 
 
 def test_panel_save_xray_config_writes_preview_to_config_path(tmp_path):
@@ -99,6 +101,25 @@ def test_panel_save_xray_config_writes_preview_to_config_path(tmp_path):
     assert str(config_path) in decoded
     assert '"protocol": "vless"' in config_path.read_text(encoding="utf-8")
     assert '"freedom"' not in config_path.read_text(encoding="utf-8")
+
+
+def test_panel_validate_xray_config_shows_result(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+
+    def validator(path):
+        assert path == config_path
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    client = TestClient(create_app(node_repository=repo, xray_config_path=config_path, xray_validator=validator))
+
+    response = client.post("/xray/config/validate")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Xray 配置校验结果" in decoded
+    assert "valid" in decoded
+    assert "config ok" in decoded
 
 
 def test_panel_create_trojan_node_returns_share_link():
