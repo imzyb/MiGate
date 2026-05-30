@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import platform
 
@@ -9,6 +10,7 @@ import uvicorn
 from migate.config import MiGateConfig
 from migate.xray.install_executor import dry_run_xray_install_plan
 from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
+from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult, run_xray_install_plan
 
 app = typer.Typer(help="MiGate smart egress gateway")
 xray_app = typer.Typer(help="Xray runtime and installer commands")
@@ -52,10 +54,56 @@ def _echo_dry_run_report(plan: XrayInstallPlan) -> None:
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
 
 
+def run_xray_install_cli(
+    *,
+    yes: bool,
+    allow_system_changes: bool,
+    dry_run: bool,
+    system: str | None = None,
+    machine: str | None = None,
+    version: str = "latest",
+    command_runner: Callable[[list[str]], XrayInstallCommandResult] | None = None,
+    existing_binary_checker: Callable[[str], bool] | None = None,
+) -> XrayInstallResult:
+    plan = build_xray_install_cli_plan(system=system, machine=machine, version=version)
+    if dry_run or not yes or not allow_system_changes:
+        return XrayInstallResult(
+            status="rejected",
+            message="real installer requires yes=True and allow_system_changes=True",
+            steps=[],
+            performed_side_effects=False,
+        )
+    return run_xray_install_plan(
+        plan,
+        runner=command_runner,
+        allow_side_effects=True,
+        existing_binary_checker=existing_binary_checker,
+    )
+
+
+def _echo_install_result(result: XrayInstallResult) -> None:
+    typer.echo(f"status: {result.status}")
+    typer.echo(f"message: {result.message}")
+    typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+    if result.backup_path:
+        typer.echo(f"backup_path: {result.backup_path}")
+    for step in result.steps:
+        typer.echo(
+            f"- {step.action}: {step.status} returncode={step.returncode} command={' '.join(step.command)} stdout={step.stdout} stderr={step.stderr}"
+        )
+    if result.rollback_steps:
+        typer.echo("rollback_steps:")
+        for step in result.rollback_steps:
+            typer.echo(
+                f"- {step.action}: {step.status} returncode={step.returncode} command={' '.join(step.command)} stdout={step.stdout} stderr={step.stderr}"
+            )
+
+
 @xray_app.command("install")
 def xray_install(
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview installer steps without running commands."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge that real installation may modify the system."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually run installer commands when combined with --yes."),
     version: str = typer.Option("latest", "--version", help="Xray-core release version, e.g. v1.8.24 or latest."),
     system: str | None = typer.Option(None, "--system", help="Override detected OS for planning."),
     machine: str | None = typer.Option(None, "--machine", help="Override detected CPU architecture for planning."),
@@ -65,9 +113,20 @@ def xray_install(
     if not yes:
         _echo_dry_run_report(plan)
         return
-    typer.echo("真实安装 CLI 已就绪，但当前未接入默认执行器。")
-    typer.echo("请先使用 --dry-run 检查计划；后续版本会通过 allow_side_effects 门控接入真实执行。")
-    typer.echo("allow_side_effects=False")
+    if not allow_system_changes:
+        typer.echo("真实安装 CLI 已就绪，但当前未启用系统修改。")
+        typer.echo("如果确认要修改系统，请同时传入 --yes --allow-system-changes。")
+        typer.echo("allow_side_effects=False")
+        return
+    result = run_xray_install_cli(
+        yes=yes,
+        allow_system_changes=allow_system_changes,
+        dry_run=False,
+        system=system,
+        machine=machine,
+        version=version,
+    )
+    _echo_install_result(result)
 
 
 @app.command()
