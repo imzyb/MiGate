@@ -15,6 +15,7 @@ from migate.proxy.run import render_proxy_run_result, run_proxy_placeholder
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
 from migate.remote.doctor import render_remote_doctor_report, run_remote_doctor
+from migate.remote.egress_plan import build_remote_egress_dry_run_plan, render_remote_egress_plan
 from migate.remote.install_plan import build_remote_install_dry_run_plan, render_remote_install_plan
 from migate.remote.install_runner import RemoteInstallCommandResult, RemoteInstallRunResult, render_remote_install_run_result, run_remote_install_plan
 from migate.remote.lifecycle_plan import build_remote_lifecycle_dry_run_plan, render_remote_lifecycle_plan
@@ -53,6 +54,7 @@ proxy_service_app = typer.Typer(help="MiGate local proxy systemd service preview
 proxy_socks5_app = typer.Typer(help="SOCKS5 local listener planning commands")
 egress_app = typer.Typer(help="MiGate VPN egress lifecycle commands")
 remote_app = typer.Typer(help="Remote test VPS lifecycle planning commands")
+remote_egress_app = typer.Typer(help="Remote test VPS egress planning commands")
 app.add_typer(xray_app, name="xray")
 app.add_typer(proxy_app, name="proxy")
 app.add_typer(egress_app, name="egress")
@@ -63,6 +65,7 @@ xray_app.add_typer(xray_config_app, name="config")
 xray_app.add_typer(xray_service_app, name="service")
 xray_app.add_typer(xray_systemctl_app, name="systemctl")
 xray_app.add_typer(xray_apply_app, name="apply")
+remote_app.add_typer(remote_egress_app, name="egress")
 
 
 @app.callback()
@@ -89,6 +92,10 @@ def build_xray_install_cli_plan(*, system: str | None = None, machine: str | Non
         machine=machine or platform.machine(),
         version=version,
     )
+
+
+def build_remote_egress_cli_plan(*, action: str, host: str = "166.88.232.2", port: int = 22, user: str = "root"):
+    return build_remote_egress_dry_run_plan(host=host, port=port, user=user, action=action)
 
 
 def build_remote_install_cli_plan(
@@ -265,6 +272,31 @@ def _echo_install_result(result: XrayInstallResult) -> None:
             typer.echo(
                 f"- {step.action}: {step.status} returncode={step.returncode} command={' '.join(step.command)} stdout={step.stdout} stderr={step.stderr}"
             )
+
+
+def _echo_remote_egress_plan(action: str, host: str, port: int, user: str) -> None:
+    plan = build_remote_egress_cli_plan(action=action, host=host, port=port, user=user)
+    typer.echo(render_remote_egress_plan(plan), nl=False)
+    if plan.status == "rejected":
+        raise typer.Exit(code=1)
+
+
+@remote_egress_app.command("up")
+def remote_egress_up(
+    host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
+    port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
+    user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+) -> None:
+    _echo_remote_egress_plan("up", host, port, user)
+
+
+@remote_egress_app.command("down")
+def remote_egress_down(
+    host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
+    port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
+    user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+) -> None:
+    _echo_remote_egress_plan("down", host, port, user)
 
 
 @remote_app.command("install")
