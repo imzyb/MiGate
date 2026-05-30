@@ -12,10 +12,15 @@ from fastapi.responses import HTMLResponse
 
 from migate.database.repository import NodeRecord, NodeRepository
 from migate.config import MiGateConfig
+from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusReport, run_egress_status
+from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
+from migate.routing.policy_plan import build_policy_routing_plan
 from migate.systemd.manager import SystemdResult, daemon_reload, restart_service, service_status
 from migate.systemd.units import build_panel_unit, build_xray_unit, write_unit_file
 from migate.xray.install_executor import XrayInstallDryRunResult, dry_run_xray_install_plan
+from migate.vpn.process_plan import build_openvpn_start_plan
+from migate.vpn.process_stop import build_openvpn_stop_plan
 from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
 from migate.xray.links import build_shadowsocks_link, build_trojan_link, build_vless_link
 from migate.xray.node_adapter import build_config_from_nodes
@@ -27,6 +32,11 @@ from migate.xray.writer import write_xray_config
 DEFAULT_DB_PATH = Path("/var/lib/migate/migate.db")
 DEFAULT_XRAY_CONFIG_PATH = Path("/etc/migate/xray/config.json")
 DEFAULT_SYSTEMD_UNIT_DIR = Path("/etc/systemd/system")
+DEFAULT_RUNTIME_DIR = Path("/var/lib/migate/runtime")
+DEFAULT_OPENVPN_CONFIG_PATH = DEFAULT_RUNTIME_DIR / "active.ovpn"
+DEFAULT_OPENVPN_PID_PATH = DEFAULT_RUNTIME_DIR / "openvpn.pid"
+DEFAULT_OPENVPN_STATUS_PATH = DEFAULT_RUNTIME_DIR / "openvpn.status"
+DEFAULT_OPENVPN_LOG_PATH = DEFAULT_RUNTIME_DIR / "openvpn.log"
 
 
 def _page_shell(body: str) -> str:
@@ -147,6 +157,7 @@ def _home_body(
     xray_install_plan_html: str = "",
     xray_install_dry_run_html: str = "",
     egress_status_html: str = "",
+    egress_dry_run_html: str = "",
 ) -> str:
     current_nodes = nodes or []
     nodes_html = _nodes_html(current_nodes)
@@ -198,6 +209,7 @@ def _home_body(
   {xray_install_plan_html}
   {xray_install_dry_run_html}
   {egress_status_html}
+  {egress_dry_run_html}
   {service_status_html}
   {nodes_html}
   {preview_html}
@@ -374,6 +386,75 @@ def _egress_status_html(status_loader: Callable[[], EgressStatusReport], *, refr
 """
 
 
+def _egress_dry_run_controls_html() -> str:
+    return """
+  <section class="card">
+    <h2>Egress Dry-run 预览</h2>
+    <p>这里只预览将来 Egress Up/Down 会涉及的 OpenVPN 与策略路由命令，不会执行命令，也不会修改系统。</p>
+    <form method="post" action="/egress/up/dry-run">
+      <button type="submit">Dry-run Egress Up</button>
+    </form>
+    <form method="post" action="/egress/down/dry-run">
+      <button type="submit">Dry-run Egress Down</button>
+    </form>
+  </section>
+"""
+
+
+def _egress_dry_run_result_html(title: str, result_loader: Callable[[], EgressLifecycleResult]) -> str:
+    result = result_loader()
+    commands = "\n".join(result.commands_executed)
+    preview = "\n".join(
+        [
+            f"status: {result.status}",
+            f"message: {result.message}",
+            "commands:",
+            commands,
+            f"performed_side_effects: {result.performed_side_effects}",
+        ]
+    )
+    return f"""
+  <section class="card">
+    <h2>{escape(title)}</h2>
+    <p>Dry-run 只展示计划，不执行 OpenVPN、ip rule、ip route 或 kill 命令。</p>
+    <pre>{escape(preview)}</pre>
+  </section>
+"""
+
+
+def _default_egress_up_dry_run(config: MiGateConfig) -> EgressLifecycleResult:
+    start_plan = build_openvpn_start_plan(
+        config,
+        config_path=str(DEFAULT_OPENVPN_CONFIG_PATH),
+        pid_path=str(DEFAULT_OPENVPN_PID_PATH),
+        status_path=str(DEFAULT_OPENVPN_STATUS_PATH),
+        log_path=str(DEFAULT_OPENVPN_LOG_PATH),
+    )
+    routing_plan = build_policy_routing_plan(config)
+    return EgressLifecycleResult(
+        status="dry_run",
+        message="planned only; no egress up commands executed",
+        phases=[],
+        commands_executed=[" ".join(start_plan.command), *(" ".join(command) for command in routing_plan.commands)],
+        performed_side_effects=False,
+    )
+
+
+def _default_egress_down_dry_run(config: MiGateConfig) -> EgressLifecycleResult:
+    cleanup_plan = build_policy_routing_cleanup_plan(config)
+    stop_plan = build_openvpn_stop_plan(pid_file=DEFAULT_OPENVPN_PID_PATH)
+    return EgressLifecycleResult(
+        status="dry_run",
+        message="planned only; no egress down commands executed",
+        phases=[],
+        commands_executed=[
+            *(" ".join(command) for command in cleanup_plan.commands),
+            f"kill -{stop_plan.kill_signal} <pid from {stop_plan.pid_file}>",
+        ],
+        performed_side_effects=False,
+    )
+
+
 def _result_output(*parts: object) -> str:
     values = []
     for part in parts:
@@ -396,6 +477,8 @@ def create_app(
     xray_install_plan_loader: Callable[[], XrayInstallPlan] | None = None,
     xray_install_dry_run_loader: Callable[[], XrayInstallDryRunResult] | None = None,
     egress_status_loader: Callable[[], EgressStatusReport] | None = None,
+    egress_up_dry_run_loader: Callable[[], EgressLifecycleResult] | None = None,
+    egress_down_dry_run_loader: Callable[[], EgressLifecycleResult] | None = None,
 ) -> FastAPI:
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
     config_path = Path(xray_config_path) if xray_config_path is not None else DEFAULT_XRAY_CONFIG_PATH
@@ -415,6 +498,8 @@ def create_app(
     )
     dry_run_loader = xray_install_dry_run_loader or (lambda: dry_run_xray_install_plan(plan_loader()))
     egress_loader = egress_status_loader or (lambda: run_egress_status(migate_config))
+    egress_up_loader = egress_up_dry_run_loader or (lambda: _default_egress_up_dry_run(migate_config))
+    egress_down_loader = egress_down_dry_run_loader or (lambda: _default_egress_down_dry_run(migate_config))
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
@@ -426,6 +511,7 @@ def create_app(
                 xray_runtime_html=_xray_runtime_html(runtime_loader),
                 xray_install_plan_html=_xray_install_plan_html(plan_loader),
                 egress_status_html=_egress_status_html(egress_loader),
+                egress_dry_run_html=_egress_dry_run_controls_html(),
                 service_status_html=_service_status_html(status_loader),
                 systemd_html=_systemd_preview_html(migate_config),
             )
@@ -577,6 +663,35 @@ def create_app(
                 xray_runtime_html=_xray_runtime_html(runtime_loader),
                 xray_install_plan_html=_xray_install_plan_html(plan_loader),
                 egress_status_html=_egress_status_html(egress_loader, refreshed=True),
+                egress_dry_run_html=_egress_dry_run_controls_html(),
+                service_status_html=_service_status_html(status_loader),
+                systemd_html=_systemd_preview_html(migate_config),
+            )
+        )
+
+    @app.post("/egress/up/dry-run", response_class=HTMLResponse)
+    def dry_run_egress_up() -> str:
+        return _page_shell(
+            _home_body(
+                nodes=repo.list_nodes(),
+                xray_runtime_html=_xray_runtime_html(runtime_loader),
+                xray_install_plan_html=_xray_install_plan_html(plan_loader),
+                egress_status_html=_egress_status_html(egress_loader),
+                egress_dry_run_html=_egress_dry_run_result_html("Egress Up dry-run 结果", egress_up_loader),
+                service_status_html=_service_status_html(status_loader),
+                systemd_html=_systemd_preview_html(migate_config),
+            )
+        )
+
+    @app.post("/egress/down/dry-run", response_class=HTMLResponse)
+    def dry_run_egress_down() -> str:
+        return _page_shell(
+            _home_body(
+                nodes=repo.list_nodes(),
+                xray_runtime_html=_xray_runtime_html(runtime_loader),
+                xray_install_plan_html=_xray_install_plan_html(plan_loader),
+                egress_status_html=_egress_status_html(egress_loader),
+                egress_dry_run_html=_egress_dry_run_result_html("Egress Down dry-run 结果", egress_down_loader),
                 service_status_html=_service_status_html(status_loader),
                 systemd_html=_systemd_preview_html(migate_config),
             )

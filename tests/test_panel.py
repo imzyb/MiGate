@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from migate.api.app import create_app
 from migate.database.repository import NodeRepository
+from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusCheck, EgressStatusReport
 from migate.systemd.manager import SystemdResult
 from migate.xray.install_executor import XrayInstallDryRunResult, XrayInstallDryRunStep
@@ -466,6 +467,86 @@ def test_panel_egress_status_refresh_renders_latest_readonly_report(tmp_path):
     assert "performed_side_effects: False" in decoded
     assert "启动 Egress" not in decoded
     assert "停止 Egress" not in decoded
+
+
+def test_panel_home_shows_egress_dry_run_controls_without_real_actions(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    client = TestClient(create_app(node_repository=repo))
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Egress Dry-run 预览" in decoded
+    assert "Dry-run Egress Up" in decoded
+    assert "Dry-run Egress Down" in decoded
+    assert 'action="/egress/up/dry-run"' in decoded
+    assert 'action="/egress/down/dry-run"' in decoded
+    assert "真正启动 Egress" not in decoded
+    assert "真正停止 Egress" not in decoded
+
+
+def test_panel_egress_up_dry_run_renders_planned_openvpn_and_routing_commands(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def egress_up_dry_run_loader() -> EgressLifecycleResult:
+        calls.append("egress-up-dry-run")
+        return EgressLifecycleResult(
+            status="dry_run",
+            message="planned only; no egress up commands executed",
+            phases=[],
+            commands_executed=[
+                "openvpn --config /var/lib/migate/runtime/active.ovpn --writepid /var/lib/migate/runtime/openvpn.pid",
+                "ip rule add fwmark 0x66 table 100",
+                "ip route add default dev tun-migate table 100",
+            ],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(create_app(node_repository=repo, egress_up_dry_run_loader=egress_up_dry_run_loader))
+
+    response = client.post("/egress/up/dry-run")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Egress Up dry-run 结果" in decoded
+    assert "planned only; no egress up commands executed" in decoded
+    assert "openvpn --config /var/lib/migate/runtime/active.ovpn" in decoded
+    assert "ip rule add fwmark 0x66 table 100" in decoded
+    assert "ip route add default dev tun-migate table 100" in decoded
+    assert "performed_side_effects: False" in decoded
+    assert calls == ["egress-up-dry-run"]
+
+
+def test_panel_egress_down_dry_run_renders_planned_cleanup_and_stop_commands(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+
+    def egress_down_dry_run_loader() -> EgressLifecycleResult:
+        return EgressLifecycleResult(
+            status="dry_run",
+            message="planned only; no egress down commands executed",
+            phases=[],
+            commands_executed=[
+                "ip route del default dev tun-migate table 100",
+                "ip rule del fwmark 0x66 table 100",
+                "kill -TERM <pid from /var/lib/migate/runtime/openvpn.pid>",
+            ],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(create_app(node_repository=repo, egress_down_dry_run_loader=egress_down_dry_run_loader))
+
+    response = client.post("/egress/down/dry-run")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Egress Down dry-run 结果" in decoded
+    assert "planned only; no egress down commands executed" in decoded
+    assert "ip route del default dev tun-migate table 100" in decoded
+    assert "ip rule del fwmark 0x66 table 100" in decoded
+    assert "kill -TERM <pid from /var/lib/migate/runtime/openvpn.pid>" in decoded
+    assert "performed_side_effects: False" in decoded
 
 
 def test_panel_home_shows_validation_gated_xray_restart_action(tmp_path):
