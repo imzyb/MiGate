@@ -73,6 +73,8 @@ class Socks5ServeOutputWriteResult:
     message: str
     target: str
     bytes_written: int
+    serve_performed_side_effects: bool
+    file_performed_side_effects: bool
     performed_side_effects: bool
 
 
@@ -277,7 +279,9 @@ def write_socks5_serve_output(
             message="SOCKS5 serve output write requires yes=True and allow_file_write=True",
             target=target,
             bytes_written=0,
-            performed_side_effects=False,
+            serve_performed_side_effects=result.performed_side_effects,
+            file_performed_side_effects=False,
+            performed_side_effects=result.performed_side_effects,
         )
     rendered = render_socks5_serve_output(result, output_format=output_format)
     target_path = Path(target)
@@ -288,6 +292,8 @@ def write_socks5_serve_output(
         message="SOCKS5 serve output written",
         target=target,
         bytes_written=len(rendered.encode("utf-8")),
+        serve_performed_side_effects=result.performed_side_effects,
+        file_performed_side_effects=True,
         performed_side_effects=True,
     )
 
@@ -300,6 +306,8 @@ def render_socks5_serve_output_write_result(result: Socks5ServeOutputWriteResult
             f"message: {result.message}",
             f"target: {result.target}",
             f"bytes_written: {result.bytes_written}",
+            f"serve_performed_side_effects: {result.serve_performed_side_effects}",
+            f"file_performed_side_effects: {result.file_performed_side_effects}",
             f"performed_side_effects: {result.performed_side_effects}",
         ]
     )

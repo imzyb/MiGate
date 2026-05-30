@@ -811,11 +811,61 @@ def test_proxy_socks5_serve_command_writes_output_file_when_double_gated(tmp_pat
     assert "SOCKS5 serve output write result" in result.output
     assert "status: written" in result.output
     assert f"target: {target}" in result.output
+    assert "serve_performed_side_effects: False" in result.output
+    assert "file_performed_side_effects: True" in result.output
     assert "performed_side_effects: True" in result.output
     lines = [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()]
     assert lines[0]["type"] == "summary"
     assert lines[0]["status"] == "dry_run"
     assert lines[0]["upstream_connections"] == 0
+
+
+def test_proxy_socks5_serve_command_writes_injected_real_result_events_to_output_file(tmp_path, monkeypatch):
+    target = tmp_path / "serve.jsonl"
+
+    def fake_run_socks5_serve_placeholder(*_args, **_kwargs):
+        return Socks5ServeResult(
+            status="stopped",
+            message="handled one client",
+            bind_host="127.0.0.1",
+            bind_port=34501,
+            listener_started=True,
+            accepted_connections=1,
+            upstream_connections=0,
+            timed_out_connections=0,
+            max_clients=1,
+            client_timeout=5.0,
+            events=[Socks5ServeEvent(1, "connect", "accepted", "example.com", 443, False)],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(main_module, "run_socks5_serve_placeholder", fake_run_socks5_serve_placeholder)
+
+    result = runner.invoke(
+        app,
+        [
+            "proxy",
+            "socks5",
+            "serve",
+            "--no-dry-run",
+            "--yes",
+            "--allow-network-listen",
+            "--allow-file-write",
+            "--format",
+            "jsonl",
+            "--output",
+            str(target),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "serve_performed_side_effects: True" in result.output
+    assert "file_performed_side_effects: True" in result.output
+    lines = [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()]
+    assert lines[0]["status"] == "stopped"
+    assert lines[0]["upstream_connections"] == 0
+    assert lines[1]["status"] == "accepted"
+    assert lines[1]["target_host"] == "example.com"
 
 
 def test_proxy_socks5_serve_command_accepts_max_clients_option_in_dry_run():
