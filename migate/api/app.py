@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from html import escape
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
 
+from migate.database.repository import NodeRecord, NodeRepository
 from migate.xray.links import build_shadowsocks_link, build_trojan_link, build_vless_link
 from migate.xray.subscription import build_base64_subscription
+
+DEFAULT_DB_PATH = Path("/var/lib/migate/migate.db")
 
 
 def _page_shell(body: str) -> str:
@@ -37,6 +41,8 @@ def _page_shell(body: str) -> str:
     button {{ grid-column:1/-1; border:0; border-radius:14px; padding:14px 18px; background:linear-gradient(135deg,#65d6ad,#63a4ff); color:#06111f; font-weight:800; cursor:pointer; }}
     pre {{ white-space:pre-wrap; word-break:break-all; background:#080d1c; border-radius:14px; padding:14px; border:1px solid rgba(143,163,200,.16); }}
     .wide {{ grid-column: 1/-1; }}
+    .node {{ display:grid; grid-template-columns: 1fr; gap:8px; margin-top:12px; padding:14px; background:#0d1429; border-radius:14px; border:1px solid rgba(143,163,200,.16); }}
+    .node-title {{ font-weight:800; }}
     @media (max-width: 720px) {{ form {{ grid-template-columns: 1fr; }} .hero {{ flex-direction:column; }} }}
   </style>
 </head>
@@ -48,7 +54,40 @@ def _page_shell(body: str) -> str:
 </html>"""
 
 
-def _home_body(result_html: str = "") -> str:
+def _nodes_html(nodes: list[NodeRecord]) -> str:
+    if not nodes:
+        return """
+  <section class="card">
+    <h2>已创建节点</h2>
+    <p>还没有节点。请先使用上面的表单生成第一个节点。</p>
+  </section>
+"""
+
+    items = []
+    for node in nodes:
+        address = f"{escape(node.host)}:{node.port}"
+        items.append(
+            f"""
+    <article class="node">
+      <div class="node-title">{escape(node.name)} <span class="label">#{node.id}</span></div>
+      <div class="label">协议：{escape(node.protocol)} ｜ 地址：{address} ｜ 状态：{'启用' if node.enabled else '禁用'}</div>
+      <div class="label">分享链接</div>
+      <pre>{escape(node.share_link)}</pre>
+      <div class="label">订阅内容</div>
+      <pre>{escape(node.subscription)}</pre>
+    </article>
+"""
+        )
+    return f"""
+  <section class="card">
+    <h2>已创建节点</h2>
+    {''.join(items)}
+  </section>
+"""
+
+
+def _home_body(*, nodes: list[NodeRecord] | None = None, result_html: str = "") -> str:
+    nodes_html = _nodes_html(nodes or [])
     return f"""
   <section class="hero">
     <div>
@@ -87,30 +126,41 @@ def _home_body(result_html: str = "") -> str:
       <label class="wide">UUID / 密码（留空自动生成）
         <input name="credential" placeholder="VLESS 填 UUID；Trojan/SS 填密码；留空自动生成">
       </label>
-      <button type="submit">生成节点</button>
+      <button type="submit">生成并保存节点</button>
     </form>
   </section>
 
   {result_html}
+  {nodes_html}
 """
+
+
+def _credential_for_protocol(protocol: str, credential: str) -> str:
+    if credential:
+        return credential
+    if protocol == "vless":
+        return str(uuid4())
+    return uuid4().hex
 
 
 def _build_link(protocol: str, host: str, port: int, name: str, credential: str) -> str:
     if protocol == "vless":
-        return build_vless_link(uuid=credential or str(uuid4()), host=host, port=port, name=name)
+        return build_vless_link(uuid=credential, host=host, port=port, name=name)
     if protocol == "trojan":
-        return build_trojan_link(password=credential or uuid4().hex, host=host, port=port, name=name)
+        return build_trojan_link(password=credential, host=host, port=port, name=name)
     if protocol == "shadowsocks":
-        return build_shadowsocks_link(method="aes-128-gcm", password=credential or uuid4().hex, host=host, port=port, name=name)
+        return build_shadowsocks_link(method="aes-128-gcm", password=credential, host=host, port=port, name=name)
     raise ValueError(f"unsupported protocol: {protocol}")
 
 
-def create_app() -> FastAPI:
+def create_app(node_repository: NodeRepository | None = None) -> FastAPI:
+    repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
+    repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:
-        return _page_shell(_home_body())
+        return _page_shell(_home_body(nodes=repo.list_nodes()))
 
     @app.post("/nodes/create", response_class=HTMLResponse)
     def create_node(
@@ -120,18 +170,30 @@ def create_app() -> FastAPI:
         name: str = Form("MiGate Node"),
         credential: str = Form(""),
     ) -> str:
-        link = _build_link(protocol=protocol, host=host.strip(), port=port, name=name.strip() or "MiGate Node", credential=credential.strip())
+        cleaned_name = name.strip() or "MiGate Node"
+        cleaned_host = host.strip()
+        cleaned_credential = _credential_for_protocol(protocol, credential.strip())
+        link = _build_link(protocol=protocol, host=cleaned_host, port=port, name=cleaned_name, credential=cleaned_credential)
         subscription = build_base64_subscription([link])
+        node = repo.create_node(
+            protocol=protocol,
+            name=cleaned_name,
+            host=cleaned_host,
+            port=port,
+            credential=cleaned_credential,
+            share_link=link,
+            subscription=subscription,
+        )
         result = f"""
   <section class="card">
     <h2>节点已生成</h2>
-    <p>复制下面的分享链接，或复制订阅内容导入客户端。</p>
+    <p>节点 #{node.id} 已保存。复制下面的分享链接，或复制订阅内容导入客户端。</p>
     <div class="label">分享链接</div>
     <pre>{escape(link)}</pre>
     <div class="label">订阅内容</div>
     <pre>{escape(subscription)}</pre>
   </section>
 """
-        return _page_shell(_home_body(result))
+        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result))
 
     return app

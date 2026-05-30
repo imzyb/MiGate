@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from migate.api.app import create_app
+from migate.database.repository import NodeRepository
 
 
 def test_panel_home_contains_beginner_node_form_and_status_cards():
@@ -39,6 +40,30 @@ def test_panel_create_vless_node_returns_share_link_and_subscription():
     assert "节点已生成" in response.text
     assert "vless://00000000-0000-4000-8000-000000000001@example.com:443" in response.text
     assert "订阅内容" in response.text
+
+
+def test_panel_persists_created_node_and_lists_it_on_home(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    client = TestClient(create_app(node_repository=repo))
+
+    response = client.post(
+        "/nodes/create",
+        data={
+            "protocol": "vless",
+            "host": "example.com",
+            "port": "443",
+            "name": "MiGate JP",
+            "credential": "00000000-0000-4000-8000-000000000001",
+        },
+    )
+    home = client.get("/")
+
+    assert response.status_code == 200
+    assert home.status_code == 200
+    assert "已创建节点" in home.text
+    assert "MiGate JP" in home.text
+    assert "vless" in home.text
+    assert "example.com:443" in home.text
 
 
 def test_panel_create_trojan_node_returns_share_link():
