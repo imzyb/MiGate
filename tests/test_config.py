@@ -6,7 +6,9 @@ def test_default_config_routes_xray_to_migate_socks():
 
     assert cfg.xray.default_outbound_tag == "migate-vpngate"
     assert cfg.proxy.socks_host == "127.0.0.1"
-    assert cfg.proxy.socks_port == 7929
+    assert cfg.proxy.socks_port == 34501
+    assert cfg.proxy.http_host == "127.0.0.1"
+    assert cfg.proxy.http_port == 34502
     assert cfg.security.fail_policy == "block"
 
 
