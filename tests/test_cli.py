@@ -11,6 +11,7 @@ from migate.main import (
     build_remote_install_cli_plan,
     build_remote_lifecycle_cli_plan,
     build_xray_install_cli_plan,
+    run_remote_egress_cli,
     run_remote_install_cli,
     run_remote_lifecycle_cli,
     run_xray_install_cli,
@@ -20,6 +21,7 @@ from migate.egress.status import EgressStatusCheck, EgressStatusReport
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
 from migate.xray.doctor import DoctorCheck, DoctorReport
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult
+from migate.remote.egress_runner import RemoteEgressCommandResult
 from migate.remote.install_runner import RemoteInstallCommandResult
 
 
@@ -70,6 +72,66 @@ def test_remote_egress_command_rejects_embedded_credentials():
     assert result.exit_code == 1
     assert "embedded credentials are not allowed" in result.output
     assert "secret" not in result.output
+
+
+def test_run_remote_egress_cli_rejects_real_execution_without_double_gate():
+    calls: list[str] = []
+
+    result = run_remote_egress_cli(
+        action="up",
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=False,
+        command_runner=lambda command: calls.append(command) or RemoteEgressCommandResult(0, "ok", ""),
+    )
+
+    assert result.status == "rejected"
+    assert result.message == "remote egress requires yes=True and allow_remote_changes=True"
+    assert result.commands_executed == []
+    assert result.performed_side_effects is False
+    assert calls == []
+
+
+def test_remote_egress_command_real_path_uses_runner_shell_with_double_gate(monkeypatch):
+    calls: list[str] = []
+
+    def fake_run_remote_egress_cli(**kwargs):
+        return main_module.run_remote_egress_plan(
+            main_module.build_remote_egress_cli_plan(
+                action=kwargs["action"],
+                host=kwargs["host"],
+                port=kwargs["port"],
+                user=kwargs["user"],
+            ),
+            dry_run=kwargs["dry_run"],
+            yes=kwargs["yes"],
+            allow_remote_changes=kwargs["allow_remote_changes"],
+            runner=lambda command: calls.append(command) or RemoteEgressCommandResult(0, "ok", ""),
+        )
+
+    monkeypatch.setattr(main_module, "run_remote_egress_cli", fake_run_remote_egress_cli)
+
+    result = runner.invoke(app, ["remote", "egress", "up", "--no-dry-run", "--yes", "--allow-remote-changes"])
+
+    assert result.exit_code == 0
+    assert "Remote egress result" in result.output
+    assert "status: success" in result.output
+    assert "action: up" in result.output
+    assert "performed_side_effects: True" in result.output
+    assert "- egress_up: success returncode=0" in result.output
+    assert calls[0] == "migate remote doctor --host 166.88.232.2 --port 22 --user root"
+    assert len(calls) == 3
+
+
+def test_remote_egress_command_real_path_rejects_without_allow_remote_changes():
+    result = runner.invoke(app, ["remote", "egress", "down", "--no-dry-run", "--yes"])
+
+    assert result.exit_code == 1
+    assert "remote egress requires yes=True and allow_remote_changes=True" in result.output
+    assert "performed_side_effects: False" in result.output
 
 
 def test_build_remote_install_cli_plan_defaults_to_dedicated_test_vps_redacted():

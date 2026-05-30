@@ -49,6 +49,15 @@ migate remote egress down
 
 These commands print side-effect-free plans with `commands_executed: []` and `performed_side_effects: False`. They preview the future remote calls to gated local commands such as `migate egress up --no-dry-run --yes --allow-system-changes`, but the remote planning layer itself never SSHs, starts OpenVPN, changes policy routing, or performs leak tests.
 
+A gated remote egress runner shell is available only with all remote-change gates:
+
+```bash
+migate remote egress up --no-dry-run --yes --allow-remote-changes
+migate remote egress down --no-dry-run --yes --allow-remote-changes
+```
+
+This path executes the planned command previews in order through the runner layer and stops on the first failed step. Treat it as a test-VPS-only shell for the already-gated local `migate egress` commands. It still does not own credentials, implement rollback, verify traffic leaks, or bypass the local `--yes --allow-system-changes` gates.
+
 ### Remote lifecycle dry-run
 
 Preview the dedicated test VPS lifecycle without opening SSH or changing either host:

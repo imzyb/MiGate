@@ -16,6 +16,7 @@ from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, 
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
 from migate.remote.doctor import render_remote_doctor_report, run_remote_doctor
 from migate.remote.egress_plan import build_remote_egress_dry_run_plan, render_remote_egress_plan
+from migate.remote.egress_runner import RemoteEgressCommandResult, RemoteEgressRunResult, render_remote_egress_run_result, run_remote_egress_plan
 from migate.remote.install_plan import build_remote_install_dry_run_plan, render_remote_install_plan
 from migate.remote.install_runner import RemoteInstallCommandResult, RemoteInstallRunResult, render_remote_install_run_result, run_remote_install_plan
 from migate.remote.lifecycle_plan import build_remote_lifecycle_dry_run_plan, render_remote_lifecycle_plan
@@ -110,6 +111,27 @@ def build_remote_install_cli_plan(
 
 def build_remote_lifecycle_cli_plan(*, host: str = "166.88.232.2", port: int = 22, user: str = "root"):
     return build_remote_lifecycle_dry_run_plan(host=host, port=port, user=user)
+
+
+def run_remote_egress_cli(
+    *,
+    action: str,
+    host: str,
+    port: int,
+    user: str,
+    dry_run: bool,
+    yes: bool,
+    allow_remote_changes: bool,
+    command_runner: Callable[[str], RemoteEgressCommandResult] | None = None,
+) -> RemoteEgressRunResult:
+    plan = build_remote_egress_cli_plan(action=action, host=host, port=port, user=user)
+    return run_remote_egress_plan(
+        plan,
+        dry_run=dry_run,
+        yes=yes,
+        allow_remote_changes=allow_remote_changes,
+        runner=command_runner,
+    )
 
 
 def run_remote_install_cli(
@@ -274,10 +296,25 @@ def _echo_install_result(result: XrayInstallResult) -> None:
             )
 
 
-def _echo_remote_egress_plan(action: str, host: str, port: int, user: str) -> None:
-    plan = build_remote_egress_cli_plan(action=action, host=host, port=port, user=user)
-    typer.echo(render_remote_egress_plan(plan), nl=False)
-    if plan.status == "rejected":
+def _echo_remote_egress(action: str, host: str, port: int, user: str, dry_run: bool, yes: bool, allow_remote_changes: bool) -> None:
+    if dry_run:
+        plan = build_remote_egress_cli_plan(action=action, host=host, port=port, user=user)
+        typer.echo(render_remote_egress_plan(plan), nl=False)
+        if plan.status == "rejected":
+            raise typer.Exit(code=1)
+        return
+
+    result = run_remote_egress_cli(
+        action=action,
+        host=host,
+        port=port,
+        user=user,
+        dry_run=dry_run,
+        yes=yes,
+        allow_remote_changes=allow_remote_changes,
+    )
+    typer.echo(render_remote_egress_run_result(result), nl=False)
+    if result.status != "success":
         raise typer.Exit(code=1)
 
 
@@ -286,8 +323,11 @@ def remote_egress_up(
     host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
     port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
     user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge remote egress command execution."),
+    allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote egress runner shell."),
 ) -> None:
-    _echo_remote_egress_plan("up", host, port, user)
+    _echo_remote_egress("up", host, port, user, dry_run, yes, allow_remote_changes)
 
 
 @remote_egress_app.command("down")
@@ -295,8 +335,11 @@ def remote_egress_down(
     host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
     port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
     user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge remote egress command execution."),
+    allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote egress runner shell."),
 ) -> None:
-    _echo_remote_egress_plan("down", host, port, user)
+    _echo_remote_egress("down", host, port, user, dry_run, yes, allow_remote_changes)
 
 
 @remote_app.command("install")
