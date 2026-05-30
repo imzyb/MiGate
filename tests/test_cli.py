@@ -789,6 +789,28 @@ def test_proxy_socks5_serve_command_rejects_output_file_without_file_write_gate(
     assert not target.exists()
 
 
+def test_proxy_socks5_serve_command_rejects_sensitive_output_path_even_when_double_gated():
+    result = runner.invoke(
+        app,
+        [
+            "proxy",
+            "socks5",
+            "serve",
+            "--format",
+            "jsonl",
+            "--output",
+            "/etc/migate/serve.jsonl",
+            "--yes",
+            "--allow-file-write",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "status: rejected" in result.output
+    assert "SOCKS5 serve output target path is not allowed" in result.output
+    assert "file_performed_side_effects: False" in result.output
+
+
 def test_proxy_socks5_serve_command_writes_output_file_when_double_gated(tmp_path):
     target = tmp_path / "serve.jsonl"
 

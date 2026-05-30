@@ -6,6 +6,7 @@ from migate.proxy.socks5_listener import (
     Socks5ServeEventSummary,
     Socks5ServeResult,
     Socks5ServeOutputWriteResult,
+    Socks5ServeOutputPathPolicy,
     render_socks5_serve_json,
     render_socks5_serve_jsonl,
     render_socks5_serve_output,
@@ -268,6 +269,110 @@ def test_write_socks5_serve_output_rejects_without_double_file_write_gate(tmp_pa
         performed_side_effects=False,
     )
     assert not target.exists()
+
+
+def test_write_socks5_serve_output_writes_project_relative_path_when_double_gated(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    target = "artifacts/serve.jsonl"
+    result = Socks5ServeResult(
+        status="dry_run",
+        message="SOCKS5 listener dry-run; no socket opened",
+        bind_host="127.0.0.1",
+        bind_port=34501,
+        listener_started=False,
+        accepted_connections=0,
+        upstream_connections=0,
+        timed_out_connections=0,
+        max_clients=1,
+        client_timeout=5.0,
+        events=[],
+        performed_side_effects=False,
+    )
+
+    write_result = write_socks5_serve_output(
+        result,
+        output_format="jsonl",
+        target=target,
+        yes=True,
+        allow_file_write=True,
+        path_policy=Socks5ServeOutputPathPolicy(project_root=project_root),
+    )
+
+    resolved = project_root / target
+    assert resolved.read_text(encoding="utf-8") == render_socks5_serve_output(result, output_format="jsonl")
+    assert write_result.status == "written"
+    assert write_result.target == str(resolved)
+
+
+def test_write_socks5_serve_output_rejects_sensitive_system_paths_even_when_double_gated(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    target = "/etc/migate/serve.jsonl"
+    result = Socks5ServeResult(
+        status="dry_run",
+        message="SOCKS5 listener dry-run; no socket opened",
+        bind_host="127.0.0.1",
+        bind_port=34501,
+        listener_started=False,
+        accepted_connections=0,
+        upstream_connections=0,
+        timed_out_connections=0,
+        max_clients=1,
+        client_timeout=5.0,
+        events=[],
+        performed_side_effects=False,
+    )
+
+    write_result = write_socks5_serve_output(
+        result,
+        output_format="jsonl",
+        target=target,
+        yes=True,
+        allow_file_write=True,
+        path_policy=Socks5ServeOutputPathPolicy(project_root=project_root),
+    )
+
+    assert write_result.status == "rejected"
+    assert write_result.message == "SOCKS5 serve output target path is not allowed"
+    assert write_result.target == target
+    assert write_result.bytes_written == 0
+    assert write_result.file_performed_side_effects is False
+    assert not (project_root / "etc").exists()
+
+
+def test_write_socks5_serve_output_rejects_paths_outside_project_root(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    target = "../outside/serve.jsonl"
+    result = Socks5ServeResult(
+        status="dry_run",
+        message="SOCKS5 listener dry-run; no socket opened",
+        bind_host="127.0.0.1",
+        bind_port=34501,
+        listener_started=False,
+        accepted_connections=0,
+        upstream_connections=0,
+        timed_out_connections=0,
+        max_clients=1,
+        client_timeout=5.0,
+        events=[],
+        performed_side_effects=False,
+    )
+
+    write_result = write_socks5_serve_output(
+        result,
+        output_format="jsonl",
+        target=target,
+        yes=True,
+        allow_file_write=True,
+        path_policy=Socks5ServeOutputPathPolicy(project_root=project_root),
+    )
+
+    assert write_result.status == "rejected"
+    assert write_result.message == "SOCKS5 serve output target path is not allowed"
+    assert write_result.target == target
+    assert write_result.file_performed_side_effects is False
 
 
 def test_write_socks5_serve_output_writes_rendered_output_when_double_gated(tmp_path):
