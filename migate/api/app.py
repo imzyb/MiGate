@@ -13,8 +13,10 @@ from migate.config import MiGateConfig
 from migate.xray.links import build_shadowsocks_link, build_trojan_link, build_vless_link
 from migate.xray.node_adapter import build_config_from_nodes
 from migate.xray.subscription import build_base64_subscription
+from migate.xray.writer import write_xray_config
 
 DEFAULT_DB_PATH = Path("/var/lib/migate/migate.db")
+DEFAULT_XRAY_CONFIG_PATH = Path("/etc/migate/xray/config.json")
 
 
 def _page_shell(body: str) -> str:
@@ -89,6 +91,10 @@ def _nodes_html(nodes: list[NodeRecord]) -> str:
 """
 
 
+def _xray_config_for_nodes(nodes: list[NodeRecord]) -> dict[str, object]:
+    return build_config_from_nodes(MiGateConfig(), [node for node in nodes if node.enabled])
+
+
 def _xray_preview_html(nodes: list[NodeRecord]) -> str:
     enabled_nodes = [node for node in nodes if node.enabled]
     if not enabled_nodes:
@@ -98,11 +104,14 @@ def _xray_preview_html(nodes: list[NodeRecord]) -> str:
     <p>暂无启用节点。创建节点后这里会显示即将写入 Xray 的配置。</p>
   </section>
 """
-    preview = json.dumps(build_config_from_nodes(MiGateConfig(), enabled_nodes), ensure_ascii=False, indent=2)
+    preview = json.dumps(_xray_config_for_nodes(enabled_nodes), ensure_ascii=False, indent=2)
     return f"""
   <section class="card">
     <h2>Xray 配置预览</h2>
-    <p>当前仅预览，不会写入磁盘或重载 Xray。安全约束：不生成 freedom 出站，默认路由到 MiGate SOCKS5。</p>
+    <p>当前仅预览，不会重载 Xray。安全约束：不生成 freedom 出站，默认路由到 MiGate SOCKS5。</p>
+    <form method="post" action="/xray/config/save">
+      <button type="submit">保存 Xray 配置</button>
+    </form>
     <pre>{escape(preview)}</pre>
   </section>
 """
@@ -178,8 +187,9 @@ def _build_link(protocol: str, host: str, port: int, name: str, credential: str)
     raise ValueError(f"unsupported protocol: {protocol}")
 
 
-def create_app(node_repository: NodeRepository | None = None) -> FastAPI:
+def create_app(node_repository: NodeRepository | None = None, xray_config_path: str | Path | None = None) -> FastAPI:
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
+    config_path = Path(xray_config_path) if xray_config_path is not None else DEFAULT_XRAY_CONFIG_PATH
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
@@ -220,5 +230,18 @@ def create_app(node_repository: NodeRepository | None = None) -> FastAPI:
   </section>
 """
         return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result))
+
+    @app.post("/xray/config/save", response_class=HTMLResponse)
+    def save_xray_config() -> str:
+        nodes = repo.list_nodes()
+        written = write_xray_config(_xray_config_for_nodes(nodes), config_path)
+        result = f"""
+  <section class="card">
+    <h2>Xray 配置已保存</h2>
+    <p>配置已写入：{escape(str(written))}</p>
+    <p>当前步骤仅写盘，不会自动重载 Xray 服务。</p>
+  </section>
+"""
+        return _page_shell(_home_body(nodes=nodes, result_html=result))
 
     return app
