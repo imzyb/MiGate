@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from html import escape
+import platform
 from pathlib import Path
 from uuid import uuid4
 
@@ -13,6 +14,7 @@ from migate.database.repository import NodeRecord, NodeRepository
 from migate.config import MiGateConfig
 from migate.systemd.manager import SystemdResult, daemon_reload, restart_service, service_status
 from migate.systemd.units import build_panel_unit, build_xray_unit, write_unit_file
+from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
 from migate.xray.links import build_shadowsocks_link, build_trojan_link, build_vless_link
 from migate.xray.node_adapter import build_config_from_nodes
 from migate.xray.subscription import build_base64_subscription
@@ -140,6 +142,7 @@ def _home_body(
     systemd_html: str = "",
     service_status_html: str = "",
     xray_runtime_html: str = "",
+    xray_install_plan_html: str = "",
 ) -> str:
     current_nodes = nodes or []
     nodes_html = _nodes_html(current_nodes)
@@ -188,6 +191,7 @@ def _home_body(
 
   {result_html}
   {xray_runtime_html}
+  {xray_install_plan_html}
   {service_status_html}
   {nodes_html}
   {preview_html}
@@ -284,6 +288,36 @@ def _xray_runtime_html(runtime_loader: Callable[[], XrayRuntimeStatus], *, refre
 """
 
 
+def _xray_install_plan_html(plan_loader: Callable[[], XrayInstallPlan], *, refreshed: bool = False) -> str:
+    plan = plan_loader()
+    heading = "Xray 安装计划已刷新" if refreshed else "Xray 安装计划预览"
+    steps = "\n".join(f"- {step.description}" for step in plan.steps)
+    preview = "\n".join(
+        [
+            f"版本：{plan.version}",
+            f"架构：{plan.system}-{plan.arch}",
+            f"目标路径：{plan.bin_path}",
+            f"配置目录：{plan.config_dir}",
+            f"压缩包：{plan.archive_name}",
+            f"下载地址：{plan.download_url}",
+            f"commands: {plan.commands}",
+            f"performs_side_effects: {plan.performs_side_effects}",
+            "操作步骤：",
+            steps,
+        ]
+    )
+    return f"""
+  <section class="card">
+    <h2>{heading}</h2>
+    <p>当前不会执行安装，只展示将来安装器会执行的计划。</p>
+    <form method="post" action="/xray/install-plan/refresh">
+      <button type="submit">刷新 Xray 安装计划</button>
+    </form>
+    <pre>{escape(preview)}</pre>
+  </section>
+"""
+
+
 def _result_output(*parts: object) -> str:
     values = []
     for part in parts:
@@ -303,6 +337,7 @@ def create_app(
     systemd_daemon_reloader: Callable[[], SystemdResult] | None = None,
     systemd_restarter: Callable[[str], SystemdResult] | None = None,
     xray_runtime_loader: Callable[[], XrayRuntimeStatus] | None = None,
+    xray_install_plan_loader: Callable[[], XrayInstallPlan] | None = None,
 ) -> FastAPI:
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
     config_path = Path(xray_config_path) if xray_config_path is not None else DEFAULT_XRAY_CONFIG_PATH
@@ -313,6 +348,13 @@ def create_app(
     restarter = systemd_restarter or restart_service
     migate_config = MiGateConfig()
     runtime_loader = xray_runtime_loader or (lambda: detect_xray_runtime(migate_config.xray.bin_path))
+    plan_loader = xray_install_plan_loader or (
+        lambda: build_xray_install_plan(
+            migate_config,
+            system=platform.system(),
+            machine=platform.machine(),
+        )
+    )
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
@@ -322,6 +364,7 @@ def create_app(
             _home_body(
                 nodes=repo.list_nodes(),
                 xray_runtime_html=_xray_runtime_html(runtime_loader),
+                xray_install_plan_html=_xray_install_plan_html(plan_loader),
                 service_status_html=_service_status_html(status_loader),
                 systemd_html=_systemd_preview_html(migate_config),
             )
@@ -470,6 +513,19 @@ def create_app(
             _home_body(
                 nodes=repo.list_nodes(),
                 xray_runtime_html=_xray_runtime_html(runtime_loader, refreshed=True),
+                xray_install_plan_html=_xray_install_plan_html(plan_loader),
+                service_status_html=_service_status_html(status_loader),
+                systemd_html=_systemd_preview_html(migate_config),
+            )
+        )
+
+    @app.post("/xray/install-plan/refresh", response_class=HTMLResponse)
+    def refresh_xray_install_plan() -> str:
+        return _page_shell(
+            _home_body(
+                nodes=repo.list_nodes(),
+                xray_runtime_html=_xray_runtime_html(runtime_loader),
+                xray_install_plan_html=_xray_install_plan_html(plan_loader, refreshed=True),
                 service_status_html=_service_status_html(status_loader),
                 systemd_html=_systemd_preview_html(migate_config),
             )

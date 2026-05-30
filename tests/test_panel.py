@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from migate.api.app import create_app
 from migate.database.repository import NodeRepository
 from migate.systemd.manager import SystemdResult
+from migate.xray.install_plan import XrayInstallPlan, XrayInstallStep
 from migate.xray.runtime import XrayRuntimeStatus
 from migate.xray.validator import XrayValidationResult
 
@@ -238,6 +239,73 @@ def test_panel_xray_runtime_refresh_shows_not_installed_guidance(tmp_path):
     assert "请先安装 xray-core，或修改 MiGate Xray bin_path" in decoded
     assert "下载 Xray" not in decoded
     assert "安装 Xray" not in decoded
+
+
+def test_panel_home_shows_xray_install_plan_preview_without_side_effects(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def install_plan_loader() -> XrayInstallPlan:
+        calls.append("install-plan")
+        return XrayInstallPlan(
+            version="latest",
+            system="linux",
+            arch="arm64-v8a",
+            bin_path="/usr/local/bin/xray",
+            config_dir="/etc/migate/xray",
+            archive_name="Xray-linux-arm64-v8a.zip",
+            download_url="https://github.com/XTLS/Xray-core/releases/download/latest/Xray-linux-arm64-v8a.zip",
+            steps=[XrayInstallStep("download_archive", "下载 xray-core zip")],
+            commands=[],
+            performs_side_effects=False,
+        )
+
+    client = TestClient(create_app(node_repository=repo, xray_install_plan_loader=install_plan_loader))
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Xray 安装计划预览" in decoded
+    assert "linux-arm64-v8a" in decoded
+    assert "Xray-linux-arm64-v8a.zip" in decoded
+    assert "https://github.com/XTLS/Xray-core/releases/download/latest/Xray-linux-arm64-v8a.zip" in decoded
+    assert "下载 xray-core zip" in decoded
+    assert "当前不会执行安装" in decoded
+    assert ">执行安装<" not in decoded
+    assert "下载并安装" not in decoded
+    assert calls == ["install-plan"]
+
+
+def test_panel_xray_install_plan_refresh_shows_preview(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+
+    def install_plan_loader() -> XrayInstallPlan:
+        return XrayInstallPlan(
+            version="v1.8.24",
+            system="linux",
+            arch="64",
+            bin_path="/usr/local/bin/xray",
+            config_dir="/etc/migate/xray",
+            archive_name="Xray-linux-64.zip",
+            download_url="https://github.com/XTLS/Xray-core/releases/download/v1.8.24/Xray-linux-64.zip",
+            steps=[XrayInstallStep("verify_version", "xray version 验证")],
+            commands=[],
+            performs_side_effects=False,
+        )
+
+    client = TestClient(create_app(node_repository=repo, xray_install_plan_loader=install_plan_loader))
+
+    response = client.post("/xray/install-plan/refresh")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Xray 安装计划已刷新" in decoded
+    assert "v1.8.24" in decoded
+    assert "linux-64" in decoded
+    assert "xray version 验证" in decoded
+    assert "commands: []" in decoded
+    assert "performs_side_effects: False" in decoded
 
 
 def test_panel_service_status_refresh_shows_structured_results(tmp_path):
