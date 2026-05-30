@@ -624,7 +624,35 @@ def test_proxy_socks5_serve_command_rejects_unknown_format():
 
     assert result.exit_code == 1
     assert "unsupported format: yaml" in result.output
-    assert "supported formats: text, json" in result.output
+    assert "supported formats: text, json, jsonl" in result.output
+
+
+def test_proxy_socks5_serve_command_outputs_jsonl_dry_run_summary_only():
+    result = runner.invoke(app, ["proxy", "socks5", "serve", "--format", "jsonl"])
+
+    assert result.exit_code == 0
+    lines = [json.loads(line) for line in result.output.splitlines()]
+    assert lines == [
+        {
+            "type": "summary",
+            "status": "dry_run",
+            "message": "SOCKS5 listener dry-run; no socket opened",
+            "bind_host": "127.0.0.1",
+            "bind_port": 34501,
+            "listener_started": False,
+            "accepted_connections": 0,
+            "upstream_connections": 0,
+            "timed_out_connections": 0,
+            "max_clients": 1,
+            "client_timeout": 5.0,
+            "total_events": 0,
+            "accepted_events": 0,
+            "rejected_events": 0,
+            "timed_out_events": 0,
+            "upstream_connected_events": 0,
+            "performed_side_effects": False,
+        }
+    ]
 
 
 def test_proxy_socks5_serve_command_rejects_real_listen_without_gate():
@@ -707,6 +735,44 @@ def test_proxy_socks5_serve_command_json_includes_injected_real_result_events(mo
         }
     ]
     assert payload["performed_side_effects"] is True
+
+
+def test_proxy_socks5_serve_command_jsonl_includes_injected_real_result_events(monkeypatch):
+    def fake_run_socks5_serve_placeholder(*_args, **_kwargs):
+        return Socks5ServeResult(
+            status="stopped",
+            message="handled one client",
+            bind_host="127.0.0.1",
+            bind_port=34501,
+            listener_started=True,
+            accepted_connections=1,
+            upstream_connections=0,
+            timed_out_connections=0,
+            max_clients=1,
+            client_timeout=5.0,
+            events=[Socks5ServeEvent(1, "connect", "accepted", "example.com", 443, False)],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(main_module, "run_socks5_serve_placeholder", fake_run_socks5_serve_placeholder)
+
+    result = runner.invoke(app, ["proxy", "socks5", "serve", "--no-dry-run", "--yes", "--allow-network-listen", "--format", "jsonl"])
+
+    assert result.exit_code == 0
+    lines = [json.loads(line) for line in result.output.splitlines()]
+    assert lines[0]["type"] == "summary"
+    assert lines[0]["status"] == "stopped"
+    assert lines[0]["accepted_events"] == 1
+    assert lines[0]["upstream_connected_events"] == 0
+    assert lines[1] == {
+        "type": "event",
+        "client_id": 1,
+        "phase": "connect",
+        "status": "accepted",
+        "target_host": "example.com",
+        "target_port": 443,
+        "upstream_connected": False,
+    }
 
 
 def test_proxy_socks5_serve_command_accepts_max_clients_option_in_dry_run():

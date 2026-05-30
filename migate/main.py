@@ -179,11 +179,11 @@ def proxy_socks5_serve(
     ),
     max_clients: int = typer.Option(1, "--max-clients", min=1, help="Bounded number of local clients to handle before exiting."),
     client_timeout: float = typer.Option(5.0, "--client-timeout", min=0.001, help="Seconds to wait for each client protocol read before closing."),
-    output_format: str = typer.Option("text", "--format", help="Render result as text or json."),
+    output_format: str = typer.Option("text", "--format", help="Render result as text, json, or jsonl."),
 ) -> None:
-    if output_format not in {"text", "json"}:
+    if output_format not in {"text", "json", "jsonl"}:
         typer.echo(f"unsupported format: {output_format}")
-        typer.echo("supported formats: text, json")
+        typer.echo("supported formats: text, json, jsonl")
         raise typer.Exit(code=1)
     result = run_socks5_serve_placeholder(
         MiGateConfig(),

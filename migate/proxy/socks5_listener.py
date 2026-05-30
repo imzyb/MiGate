@@ -133,6 +133,44 @@ def render_socks5_serve_json(result: Socks5ServeResult) -> str:
     return json.dumps(socks5_serve_result_to_dict(result), sort_keys=True) + "\n"
 
 
+def render_socks5_serve_jsonl(result: Socks5ServeResult) -> str:
+    summary = summarize_socks5_serve_events(result.events)
+    rows: list[dict[str, object]] = [
+        {
+            "type": "summary",
+            "status": result.status,
+            "message": result.message,
+            "bind_host": result.bind_host,
+            "bind_port": result.bind_port,
+            "listener_started": result.listener_started,
+            "accepted_connections": result.accepted_connections,
+            "upstream_connections": result.upstream_connections,
+            "timed_out_connections": result.timed_out_connections,
+            "max_clients": result.max_clients,
+            "client_timeout": result.client_timeout,
+            "total_events": summary.total_events,
+            "accepted_events": summary.accepted_events,
+            "rejected_events": summary.rejected_events,
+            "timed_out_events": summary.timed_out_events,
+            "upstream_connected_events": summary.upstream_connected_events,
+            "performed_side_effects": result.performed_side_effects,
+        }
+    ]
+    rows.extend(
+        {
+            "type": "event",
+            "client_id": event.client_id,
+            "phase": event.phase,
+            "status": event.status,
+            "target_host": event.target_host,
+            "target_port": event.target_port,
+            "upstream_connected": event.upstream_connected,
+        }
+        for event in result.events
+    )
+    return "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows)
+
+
 def render_socks5_listener_plan(plan: Socks5ListenerPlan) -> str:
     return "\n".join(
         [
@@ -210,7 +248,9 @@ def render_socks5_serve_output(result: Socks5ServeResult, *, output_format: str)
         return render_socks5_serve_result(result) + "\n"
     if output_format == "json":
         return render_socks5_serve_json(result)
-    raise ValueError(f"unsupported format: {output_format}; supported formats: text, json")
+    if output_format == "jsonl":
+        return render_socks5_serve_jsonl(result)
+    raise ValueError(f"unsupported format: {output_format}; supported formats: text, json, jsonl")
 
 
 def render_socks5_serve_result(result: Socks5ServeResult) -> str:

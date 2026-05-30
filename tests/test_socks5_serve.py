@@ -6,6 +6,7 @@ from migate.proxy.socks5_listener import (
     Socks5ServeEventSummary,
     Socks5ServeResult,
     render_socks5_serve_json,
+    render_socks5_serve_jsonl,
     render_socks5_serve_output,
     render_socks5_serve_result,
     socks5_serve_result_to_dict,
@@ -121,7 +122,70 @@ def test_render_socks5_serve_json_matches_result_dict_contract():
     assert text.endswith("\n")
 
 
-def test_render_socks5_serve_output_dispatches_text_and_json_formats():
+def test_render_socks5_serve_jsonl_emits_summary_then_event_rows():
+    result = Socks5ServeResult(
+        status="stopped",
+        message="handled two clients",
+        bind_host="127.0.0.1",
+        bind_port=34501,
+        listener_started=True,
+        accepted_connections=2,
+        upstream_connections=0,
+        timed_out_connections=1,
+        max_clients=2,
+        client_timeout=0.5,
+        events=[
+            Socks5ServeEvent(1, "connect", "accepted", "example.com", 443, False),
+            Socks5ServeEvent(2, "greeting", "timed_out", None, None, False),
+        ],
+        performed_side_effects=True,
+    )
+
+    lines = [json.loads(line) for line in render_socks5_serve_jsonl(result).splitlines()]
+
+    assert lines == [
+        {
+            "type": "summary",
+            "status": "stopped",
+            "message": "handled two clients",
+            "bind_host": "127.0.0.1",
+            "bind_port": 34501,
+            "listener_started": True,
+            "accepted_connections": 2,
+            "upstream_connections": 0,
+            "timed_out_connections": 1,
+            "max_clients": 2,
+            "client_timeout": 0.5,
+            "total_events": 2,
+            "accepted_events": 1,
+            "rejected_events": 0,
+            "timed_out_events": 1,
+            "upstream_connected_events": 0,
+            "performed_side_effects": True,
+        },
+        {
+            "type": "event",
+            "client_id": 1,
+            "phase": "connect",
+            "status": "accepted",
+            "target_host": "example.com",
+            "target_port": 443,
+            "upstream_connected": False,
+        },
+        {
+            "type": "event",
+            "client_id": 2,
+            "phase": "greeting",
+            "status": "timed_out",
+            "target_host": None,
+            "target_port": None,
+            "upstream_connected": False,
+        },
+    ]
+    assert render_socks5_serve_jsonl(result).endswith("\n")
+
+
+def test_render_socks5_serve_output_dispatches_text_json_and_jsonl_formats():
     result = Socks5ServeResult(
         status="dry_run",
         message="SOCKS5 listener dry-run; no socket opened",
@@ -139,6 +203,7 @@ def test_render_socks5_serve_output_dispatches_text_and_json_formats():
 
     assert render_socks5_serve_output(result, output_format="text") == render_socks5_serve_result(result) + "\n"
     assert render_socks5_serve_output(result, output_format="json") == render_socks5_serve_json(result)
+    assert render_socks5_serve_output(result, output_format="jsonl") == render_socks5_serve_jsonl(result)
 
 
 def test_render_socks5_serve_output_rejects_unknown_format_without_side_effects():
@@ -160,7 +225,7 @@ def test_render_socks5_serve_output_rejects_unknown_format_without_side_effects(
     try:
         render_socks5_serve_output(result, output_format="yaml")
     except ValueError as exc:
-        assert str(exc) == "unsupported format: yaml; supported formats: text, json"
+        assert str(exc) == "unsupported format: yaml; supported formats: text, json, jsonl"
     else:
         raise AssertionError("expected ValueError for unsupported format")
 
