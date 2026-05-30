@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from migate.api.app import create_app
 from migate.database.repository import NodeRepository
 from migate.systemd.manager import SystemdResult
+from migate.xray.install_executor import XrayInstallDryRunResult, XrayInstallDryRunStep
 from migate.xray.install_plan import XrayInstallPlan, XrayInstallStep
 from migate.xray.runtime import XrayRuntimeStatus
 from migate.xray.validator import XrayValidationResult
@@ -306,6 +307,78 @@ def test_panel_xray_install_plan_refresh_shows_preview(tmp_path):
     assert "xray version 验证" in decoded
     assert "commands: []" in decoded
     assert "performs_side_effects: False" in decoded
+
+
+def test_panel_xray_install_dry_run_shows_structured_preview_without_side_effects(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def dry_run_loader() -> XrayInstallDryRunResult:
+        calls.append("dry-run")
+        return XrayInstallDryRunResult(
+            status="dry_run",
+            message="planned only; no commands executed",
+            steps=[
+                XrayInstallDryRunStep(
+                    action="download_archive",
+                    description="下载 xray-core zip",
+                    status="planned",
+                    command_preview="curl -fsSL https://example.invalid/xray.zip -o /tmp/xray.zip",
+                ),
+                XrayInstallDryRunStep(
+                    action="install_binary",
+                    description="写入 /usr/local/bin/xray",
+                    status="planned",
+                    command_preview="install -m 0755 /tmp/xray /usr/local/bin/xray",
+                ),
+            ],
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(create_app(node_repository=repo, xray_install_dry_run_loader=dry_run_loader))
+
+    response = client.post("/xray/install/dry-run")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Xray 安装 dry-run 结果" in decoded
+    assert "dry_run" in decoded
+    assert "planned only; no commands executed" in decoded
+    assert "download_archive" in decoded
+    assert "curl -fsSL https://example.invalid/xray.zip -o /tmp/xray.zip" in decoded
+    assert "install -m 0755 /tmp/xray /usr/local/bin/xray" in decoded
+    assert "commands_executed: []" in decoded
+    assert "performed_side_effects: False" in decoded
+    assert "真正安装" not in decoded
+    assert ">执行安装<" not in decoded
+    assert calls == ["dry-run"]
+
+
+def test_panel_xray_install_dry_run_rejection_is_rendered_safely(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+
+    def dry_run_loader() -> XrayInstallDryRunResult:
+        return XrayInstallDryRunResult(
+            status="rejected",
+            message="dry-run executor refuses plans with side effects",
+            steps=[],
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(create_app(node_repository=repo, xray_install_dry_run_loader=dry_run_loader))
+
+    response = client.post("/xray/install/dry-run")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Xray 安装 dry-run 结果" in decoded
+    assert "rejected" in decoded
+    assert "refuses plans with side effects" in decoded
+    assert "commands_executed: []" in decoded
+    assert "performed_side_effects: False" in decoded
+    assert ">执行安装<" not in decoded
 
 
 def test_panel_service_status_refresh_shows_structured_results(tmp_path):
