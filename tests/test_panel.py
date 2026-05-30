@@ -1,3 +1,5 @@
+from html import unescape
+
 from fastapi.testclient import TestClient
 
 from migate.api.app import create_app
@@ -64,6 +66,12 @@ def test_panel_persists_created_node_and_lists_it_on_home(tmp_path):
     assert "MiGate JP" in home.text
     assert "vless" in home.text
     assert "example.com:443" in home.text
+    decoded_home = unescape(home.text)
+    assert "Xray 配置预览" in decoded_home
+    assert '"protocol": "vless"' in decoded_home
+    assert '"protocol": "socks"' in decoded_home
+    assert '"port": 34501' in decoded_home
+    assert '"freedom"' not in decoded_home
 
 
 def test_panel_create_trojan_node_returns_share_link():
