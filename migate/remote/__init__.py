@@ -11,6 +11,13 @@ from migate.remote.egress_plan import (
     build_remote_egress_dry_run_plan,
     render_remote_egress_plan,
 )
+from migate.remote.egress_runner import (
+    RemoteEgressCommandResult,
+    RemoteEgressRunResult,
+    RemoteEgressStepResult,
+    render_remote_egress_run_result,
+    run_remote_egress_plan,
+)
 from migate.remote.lifecycle_plan import (
     RemoteLifecyclePlan,
     RemoteLifecycleStep,
@@ -40,8 +47,11 @@ from migate.remote.install_runner import (
 __all__ = [
     "RemoteDoctorCheck",
     "RemoteDoctorReport",
+    "RemoteEgressCommandResult",
     "RemoteEgressPlan",
+    "RemoteEgressRunResult",
     "RemoteEgressStep",
+    "RemoteEgressStepResult",
     "RemoteInstallPlan",
     "RemoteInstallCommandResult",
     "RemoteInstallRunResult",
@@ -57,11 +67,13 @@ __all__ = [
     "build_remote_ssh_probe_command",
     "render_remote_doctor_report",
     "render_remote_egress_plan",
+    "render_remote_egress_run_result",
     "render_remote_install_plan",
     "render_remote_install_run_result",
     "render_remote_lifecycle_plan",
     "render_remote_lifecycle_run_result",
     "run_remote_doctor",
+    "run_remote_egress_plan",
     "run_remote_install_plan",
     "run_remote_lifecycle",
 ]
