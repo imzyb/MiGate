@@ -415,6 +415,45 @@ def test_xray_apply_restart_command_prints_ordered_systemctl_results(monkeypatch
     assert "performed_side_effects: True" in result.output
 
 
+def test_xray_deploy_command_defaults_to_dry_run_without_side_effects():
+    result = runner.invoke(app, ["xray", "deploy", "--system", "Linux", "--machine", "x86_64", "--version", "v1.8.24"])
+
+    assert result.exit_code == 0
+    assert "Xray deploy dry-run" in result.output
+    assert "status: dry_run" in result.output
+    assert "- doctor: planned read-only" in result.output
+    assert "- install: planned side-effect" in result.output
+    assert "- config_save: planned side-effect" in result.output
+    assert "- service_save: planned side-effect" in result.output
+    assert "- apply_restart: planned side-effect" in result.output
+    assert "- status: planned read-only" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_xray_deploy_command_rejects_real_execution_for_now():
+    result = runner.invoke(
+        app,
+        [
+            "xray",
+            "deploy",
+            "--no-dry-run",
+            "--yes",
+            "--allow-system-changes",
+            "--system",
+            "Linux",
+            "--machine",
+            "x86_64",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "status: rejected" in result.output
+    assert "real xray deploy is not implemented" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
 def test_xray_doctor_command_reports_dependency_checks():
     result = runner.invoke(app, ["xray", "doctor"])
 

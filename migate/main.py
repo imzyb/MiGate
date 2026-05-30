@@ -10,6 +10,7 @@ import uvicorn
 from migate.config import MiGateConfig
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
 from migate.xray.config_cli import preview_xray_config, save_xray_config
+from migate.xray.deploy_cli import build_xray_deploy_dry_run_plan, render_xray_deploy_plan
 from migate.xray.doctor import DoctorReport, run_xray_install_doctor
 from migate.xray.install_executor import dry_run_xray_install_plan
 from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
@@ -236,6 +237,27 @@ def xray_apply_restart(
     allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually run daemon-reload and restart when combined with --yes."),
 ) -> None:
     _echo_apply_result(apply_validated_xray_restart(config, yes=yes, allow_system_changes=allow_system_changes))
+
+
+@xray_app.command("deploy")
+def xray_deploy(
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview full xray deployment without system changes."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge future real deploy side effects."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Allow future real deploy system changes when implemented."),
+    version: str = typer.Option("latest", "--version", help="Xray-core release version for install planning."),
+    system: str | None = typer.Option(None, "--system", help="Override detected OS for planning."),
+    machine: str | None = typer.Option(None, "--machine", help="Override detected CPU architecture for planning."),
+) -> None:
+    plan = build_xray_deploy_dry_run_plan(
+        MiGateConfig(),
+        system=system,
+        machine=machine,
+        version=version,
+        dry_run=dry_run,
+        yes=yes,
+        allow_system_changes=allow_system_changes,
+    )
+    typer.echo(render_xray_deploy_plan(plan))
 
 
 @xray_app.command("doctor")
