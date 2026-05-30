@@ -1,8 +1,9 @@
 from typer.testing import CliRunner
 
+import migate.main as main_module
 from migate.main import app, build_panel_server_config, build_xray_install_cli_plan, run_xray_install_cli
 from migate.xray.doctor import DoctorCheck, DoctorReport
-from migate.xray.install_runner import XrayInstallCommandResult
+from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult
 
 
 runner = CliRunner()
@@ -176,6 +177,53 @@ def test_run_xray_install_cli_refuses_real_runner_without_double_gate():
     assert result.performed_side_effects is False
     assert calls == []
     assert "allow_system_changes" in result.message
+
+
+def test_xray_install_command_with_real_gate_prints_doctor_report_before_result(monkeypatch):
+    doctor = DoctorReport(
+        status="failed",
+        checks=[DoctorCheck(name="command:unzip", status="missing", message="unzip not found")],
+    )
+    monkeypatch.setattr(main_module, "run_xray_install_doctor", lambda: doctor)
+
+    def fake_install_cli(**kwargs):
+        raise AssertionError("install runner should not be called when doctor fails")
+
+    monkeypatch.setattr(main_module, "run_xray_install_cli", fake_install_cli)
+
+    result = runner.invoke(app, ["xray", "install", "--yes", "--allow-system-changes", "--system", "Linux", "--machine", "x86_64"])
+
+    assert result.exit_code == 0
+    assert "Xray 安装前检查" in result.output
+    assert "command:unzip: missing - unzip not found" in result.output
+    assert "status: rejected" in result.output
+    assert "message: doctor failed" in result.output
+    assert result.output.index("Xray 安装前检查") < result.output.rindex("performed_side_effects:")
+
+
+def test_xray_install_command_with_real_gate_prints_doctor_report_then_success_result(monkeypatch):
+    doctor = DoctorReport(
+        status="ok",
+        checks=[DoctorCheck(name="command:curl", status="ok", message="curl found")],
+    )
+    monkeypatch.setattr(main_module, "run_xray_install_doctor", lambda: doctor)
+
+    install_result = XrayInstallResult(
+        status="success",
+        message="all installer steps completed",
+        steps=[],
+        performed_side_effects=True,
+    )
+    monkeypatch.setattr(main_module, "run_xray_install_cli", lambda **kwargs: install_result)
+
+    result = runner.invoke(app, ["xray", "install", "--yes", "--allow-system-changes", "--system", "Linux", "--machine", "x86_64"])
+
+    assert result.exit_code == 0
+    assert "Xray 安装前检查" in result.output
+    assert "command:curl: ok - curl found" in result.output
+    assert "status: success" in result.output
+    assert "message: all installer steps completed" in result.output
+    assert result.output.index("Xray 安装前检查") < result.output.rindex("status: success")
 
 
 def test_xray_doctor_command_reports_dependency_checks():

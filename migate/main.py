@@ -136,6 +136,19 @@ def xray_install(
         typer.echo("如果确认要修改系统，请同时传入 --yes --allow-system-changes。")
         typer.echo("allow_side_effects=False")
         return
+    doctor = run_xray_install_doctor()
+    typer.echo(doctor.to_report())
+    if doctor.status != "ok":
+        failed_checks = ", ".join(f"{check.name}={check.status}" for check in doctor.checks if check.status != "ok")
+        _echo_install_result(
+            XrayInstallResult(
+                status="rejected",
+                message=f"doctor failed: {failed_checks}",
+                steps=[],
+                performed_side_effects=False,
+            )
+        )
+        return
     result = run_xray_install_cli(
         yes=yes,
         allow_system_changes=allow_system_changes,
@@ -143,6 +156,7 @@ def xray_install(
         system=system,
         machine=machine,
         version=version,
+        doctor_loader=lambda: doctor,
     )
     _echo_install_result(result)
 
