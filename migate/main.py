@@ -184,6 +184,7 @@ def proxy_socks5_serve(
     output_format: str = typer.Option("text", "--format", help="Render result as text, json, or jsonl."),
     output: str | None = typer.Option(None, "--output", help="Optional file path to write rendered serve output."),
     allow_file_write: bool = typer.Option(False, "--allow-file-write", help="Actually allow writing --output when combined with --yes."),
+    allow_system_output_path: bool = typer.Option(False, "--allow-system-output-path", help="Reserved gate for future system log paths; currently still rejected with an explanatory message."),
 ) -> None:
     if output_format not in {"text", "json", "jsonl"}:
         typer.echo(f"unsupported format: {output_format}")
@@ -205,6 +206,7 @@ def proxy_socks5_serve(
                 target=output,
                 yes=yes,
                 allow_file_write=allow_file_write,
+                allow_system_output_path=allow_system_output_path,
             )
             typer.echo(render_socks5_serve_output_write_result(write_result))
         else:

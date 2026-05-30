@@ -341,6 +341,41 @@ def test_write_socks5_serve_output_rejects_sensitive_system_paths_even_when_doub
     assert not (project_root / "etc").exists()
 
 
+def test_write_socks5_serve_output_rejects_system_paths_with_reserved_gate_message(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    target = "/var/log/migate/serve.jsonl"
+    result = Socks5ServeResult(
+        status="dry_run",
+        message="SOCKS5 listener dry-run; no socket opened",
+        bind_host="127.0.0.1",
+        bind_port=34501,
+        listener_started=False,
+        accepted_connections=0,
+        upstream_connections=0,
+        timed_out_connections=0,
+        max_clients=1,
+        client_timeout=5.0,
+        events=[],
+        performed_side_effects=False,
+    )
+
+    write_result = write_socks5_serve_output(
+        result,
+        output_format="jsonl",
+        target=target,
+        yes=True,
+        allow_file_write=True,
+        allow_system_output_path=True,
+        path_policy=Socks5ServeOutputPathPolicy(project_root=project_root),
+    )
+
+    assert write_result.status == "rejected"
+    assert write_result.message == "SOCKS5 serve system output paths are intentionally unsupported until log rotation and ownership policy exist"
+    assert write_result.target == target
+    assert write_result.file_performed_side_effects is False
+
+
 def test_write_socks5_serve_output_rejects_paths_outside_project_root(tmp_path):
     project_root = tmp_path / "project"
     project_root.mkdir()

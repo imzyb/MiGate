@@ -320,6 +320,7 @@ def write_socks5_serve_output(
     target: str,
     yes: bool = False,
     allow_file_write: bool = False,
+    allow_system_output_path: bool = False,
     path_policy: Socks5ServeOutputPathPolicy | None = None,
 ) -> Socks5ServeOutputWriteResult:
     if not yes or not allow_file_write:
@@ -330,6 +331,12 @@ def write_socks5_serve_output(
         )
     resolved_target = _resolve_socks5_serve_output_target(target, path_policy or Socks5ServeOutputPathPolicy())
     if resolved_target is None:
+        if allow_system_output_path and Path(target).is_absolute():
+            return _reject_socks5_serve_output_write(
+                result,
+                target=target,
+                message="SOCKS5 serve system output paths are intentionally unsupported until log rotation and ownership policy exist",
+            )
         return _reject_socks5_serve_output_write(
             result,
             target=target,

@@ -811,6 +811,29 @@ def test_proxy_socks5_serve_command_rejects_sensitive_output_path_even_when_doub
     assert "file_performed_side_effects: False" in result.output
 
 
+def test_proxy_socks5_serve_command_rejects_reserved_system_output_path_gate():
+    result = runner.invoke(
+        app,
+        [
+            "proxy",
+            "socks5",
+            "serve",
+            "--format",
+            "jsonl",
+            "--output",
+            "/var/log/migate/serve.jsonl",
+            "--yes",
+            "--allow-file-write",
+            "--allow-system-output-path",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "status: rejected" in result.output
+    assert "system output paths are intentionally unsupported until log rotation and ownership policy exist" in result.output
+    assert "file_performed_side_effects: False" in result.output
+
+
 def test_proxy_socks5_serve_command_writes_output_file_when_double_gated(tmp_path):
     target = tmp_path / "serve.jsonl"
 
