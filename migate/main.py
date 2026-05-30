@@ -8,7 +8,7 @@ import typer
 import uvicorn
 
 from migate.config import MiGateConfig
-from migate.xray.doctor import run_xray_install_doctor
+from migate.xray.doctor import DoctorReport, run_xray_install_doctor
 from migate.xray.install_executor import dry_run_xray_install_plan
 from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult, run_xray_install_plan
@@ -65,12 +65,22 @@ def run_xray_install_cli(
     version: str = "latest",
     command_runner: Callable[[list[str]], XrayInstallCommandResult] | None = None,
     existing_binary_checker: Callable[[str], bool] | None = None,
+    doctor_loader: Callable[[], DoctorReport] | None = None,
 ) -> XrayInstallResult:
     plan = build_xray_install_cli_plan(system=system, machine=machine, version=version)
     if dry_run or not yes or not allow_system_changes:
         return XrayInstallResult(
             status="rejected",
             message="real installer requires yes=True and allow_system_changes=True",
+            steps=[],
+            performed_side_effects=False,
+        )
+    doctor = (doctor_loader or run_xray_install_doctor)()
+    if doctor.status != "ok":
+        failed_checks = ", ".join(f"{check.name}={check.status}" for check in doctor.checks if check.status != "ok")
+        return XrayInstallResult(
+            status="rejected",
+            message=f"doctor failed: {failed_checks}",
             steps=[],
             performed_side_effects=False,
         )

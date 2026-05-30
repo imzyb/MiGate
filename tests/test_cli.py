@@ -1,6 +1,7 @@
 from typer.testing import CliRunner
 
 from migate.main import app, build_panel_server_config, build_xray_install_cli_plan, run_xray_install_cli
+from migate.xray.doctor import DoctorCheck, DoctorReport
 from migate.xray.install_runner import XrayInstallCommandResult
 
 
@@ -96,6 +97,63 @@ def test_run_xray_install_cli_executes_runner_only_with_double_gate():
     assert calls
     assert calls[0][0] == "curl"
     assert calls[-1] == ["/usr/local/bin/xray", "version"]
+
+
+def test_run_xray_install_cli_blocks_real_runner_when_doctor_fails():
+    calls = []
+
+    def fake_runner(command: list[str]) -> XrayInstallCommandResult:
+        calls.append(command)
+        return XrayInstallCommandResult(returncode=0, stdout="ok", stderr="")
+
+    failed_doctor = DoctorReport(
+        status="failed",
+        checks=[DoctorCheck(name="command:unzip", status="missing", message="unzip not found")],
+    )
+
+    result = run_xray_install_cli(
+        yes=True,
+        allow_system_changes=True,
+        dry_run=False,
+        system="Linux",
+        machine="x86_64",
+        command_runner=fake_runner,
+        doctor_loader=lambda: failed_doctor,
+    )
+
+    assert result.status == "rejected"
+    assert result.performed_side_effects is False
+    assert calls == []
+    assert "doctor failed" in result.message
+    assert "command:unzip" in result.message
+
+
+def test_run_xray_install_cli_runs_real_runner_when_doctor_passes():
+    calls = []
+
+    def fake_runner(command: list[str]) -> XrayInstallCommandResult:
+        calls.append(command)
+        return XrayInstallCommandResult(returncode=0, stdout="ok", stderr="")
+
+    ok_doctor = DoctorReport(
+        status="ok",
+        checks=[DoctorCheck(name="command:curl", status="ok", message="curl found")],
+    )
+
+    result = run_xray_install_cli(
+        yes=True,
+        allow_system_changes=True,
+        dry_run=False,
+        system="Linux",
+        machine="x86_64",
+        command_runner=fake_runner,
+        existing_binary_checker=lambda path: False,
+        doctor_loader=lambda: ok_doctor,
+    )
+
+    assert result.status == "success"
+    assert result.performed_side_effects is True
+    assert calls
 
 
 def test_run_xray_install_cli_refuses_real_runner_without_double_gate():
