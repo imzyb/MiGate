@@ -10,7 +10,7 @@ import uvicorn
 from migate.config import MiGateConfig
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
 from migate.xray.config_cli import preview_xray_config, save_xray_config
-from migate.xray.deploy_cli import build_xray_deploy_dry_run_plan, render_xray_deploy_plan
+from migate.xray.deploy_cli import render_xray_deploy_plan, render_xray_deploy_result, run_xray_deploy
 from migate.xray.doctor import DoctorReport, run_xray_install_doctor
 from migate.xray.install_executor import dry_run_xray_install_plan
 from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
@@ -248,7 +248,7 @@ def xray_deploy(
     system: str | None = typer.Option(None, "--system", help="Override detected OS for planning."),
     machine: str | None = typer.Option(None, "--machine", help="Override detected CPU architecture for planning."),
 ) -> None:
-    plan = build_xray_deploy_dry_run_plan(
+    result = run_xray_deploy(
         MiGateConfig(),
         system=system,
         machine=machine,
@@ -257,7 +257,10 @@ def xray_deploy(
         yes=yes,
         allow_system_changes=allow_system_changes,
     )
-    typer.echo(render_xray_deploy_plan(plan))
+    if dry_run:
+        typer.echo(render_xray_deploy_plan(result))
+    else:
+        typer.echo(render_xray_deploy_result(result))
 
 
 @xray_app.command("doctor")

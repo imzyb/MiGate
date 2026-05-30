@@ -431,7 +431,22 @@ def test_xray_deploy_command_defaults_to_dry_run_without_side_effects():
     assert "performed_side_effects: False" in result.output
 
 
-def test_xray_deploy_command_rejects_real_execution_for_now():
+def test_xray_deploy_command_runs_real_orchestrator_when_double_gated(monkeypatch):
+    from migate.xray.deploy_cli import XrayDeployResult, XrayDeployStepResult
+
+    calls = []
+
+    def fake_deploy(*args, **kwargs):
+        calls.append((args, kwargs))
+        return XrayDeployResult(
+            status="success",
+            message="xray deploy completed",
+            steps=[XrayDeployStepResult("doctor", "success", "doctor ok", object())],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(main_module, "run_xray_deploy", fake_deploy)
+
     result = runner.invoke(
         app,
         [
@@ -448,10 +463,13 @@ def test_xray_deploy_command_rejects_real_execution_for_now():
     )
 
     assert result.exit_code == 0
-    assert "status: rejected" in result.output
-    assert "real xray deploy is not implemented" in result.output
-    assert "commands_executed: []" in result.output
-    assert "performed_side_effects: False" in result.output
+    assert "Xray deploy result" in result.output
+    assert "status: success" in result.output
+    assert "- doctor: success - doctor ok" in result.output
+    assert "performed_side_effects: True" in result.output
+    assert calls[0][1]["dry_run"] is False
+    assert calls[0][1]["yes"] is True
+    assert calls[0][1]["allow_system_changes"] is True
 
 
 def test_xray_doctor_command_reports_dependency_checks():
