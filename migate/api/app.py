@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse
 
 from migate.database.repository import NodeRecord, NodeRepository
 from migate.config import MiGateConfig
+from migate.egress.status import EgressStatusReport, run_egress_status
 from migate.systemd.manager import SystemdResult, daemon_reload, restart_service, service_status
 from migate.systemd.units import build_panel_unit, build_xray_unit, write_unit_file
 from migate.xray.install_executor import XrayInstallDryRunResult, dry_run_xray_install_plan
@@ -145,6 +146,7 @@ def _home_body(
     xray_runtime_html: str = "",
     xray_install_plan_html: str = "",
     xray_install_dry_run_html: str = "",
+    egress_status_html: str = "",
 ) -> str:
     current_nodes = nodes or []
     nodes_html = _nodes_html(current_nodes)
@@ -195,6 +197,7 @@ def _home_body(
   {xray_runtime_html}
   {xray_install_plan_html}
   {xray_install_dry_run_html}
+  {egress_status_html}
   {service_status_html}
   {nodes_html}
   {preview_html}
@@ -348,6 +351,29 @@ def _xray_install_dry_run_html(dry_run_loader: Callable[[], XrayInstallDryRunRes
 """
 
 
+def _egress_status_html(status_loader: Callable[[], EgressStatusReport], *, refreshed: bool = False) -> str:
+    report = status_loader()
+    heading = "Egress 出口状态已刷新" if refreshed else "Egress 出口状态"
+    checks = "\n".join(f"{check.name}: {check.status} - {check.message}" for check in report.checks)
+    preview = "\n".join(
+        [
+            f"status: {report.status}",
+            checks,
+            f"performed_side_effects: {report.performed_side_effects}",
+        ]
+    )
+    return f"""
+  <section class="card">
+    <h2>{heading}</h2>
+    <p>这里只读取隧道、OpenVPN 进程、策略路由计划和防泄漏判断；不会启动/停止 OpenVPN，也不会修改路由或防火墙。</p>
+    <form method="post" action="/egress/status/refresh">
+      <button type="submit">刷新 Egress 状态</button>
+    </form>
+    <pre>{escape(preview)}</pre>
+  </section>
+"""
+
+
 def _result_output(*parts: object) -> str:
     values = []
     for part in parts:
@@ -369,6 +395,7 @@ def create_app(
     xray_runtime_loader: Callable[[], XrayRuntimeStatus] | None = None,
     xray_install_plan_loader: Callable[[], XrayInstallPlan] | None = None,
     xray_install_dry_run_loader: Callable[[], XrayInstallDryRunResult] | None = None,
+    egress_status_loader: Callable[[], EgressStatusReport] | None = None,
 ) -> FastAPI:
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
     config_path = Path(xray_config_path) if xray_config_path is not None else DEFAULT_XRAY_CONFIG_PATH
@@ -387,6 +414,7 @@ def create_app(
         )
     )
     dry_run_loader = xray_install_dry_run_loader or (lambda: dry_run_xray_install_plan(plan_loader()))
+    egress_loader = egress_status_loader or (lambda: run_egress_status(migate_config))
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
@@ -397,6 +425,7 @@ def create_app(
                 nodes=repo.list_nodes(),
                 xray_runtime_html=_xray_runtime_html(runtime_loader),
                 xray_install_plan_html=_xray_install_plan_html(plan_loader),
+                egress_status_html=_egress_status_html(egress_loader),
                 service_status_html=_service_status_html(status_loader),
                 systemd_html=_systemd_preview_html(migate_config),
             )
@@ -534,7 +563,21 @@ def create_app(
             _home_body(
                 nodes=repo.list_nodes(),
                 xray_runtime_html=_xray_runtime_html(runtime_loader),
+                egress_status_html=_egress_status_html(egress_loader),
                 service_status_html=_service_status_html(status_loader, refreshed=True),
+                systemd_html=_systemd_preview_html(migate_config),
+            )
+        )
+
+    @app.post("/egress/status/refresh", response_class=HTMLResponse)
+    def refresh_egress_status() -> str:
+        return _page_shell(
+            _home_body(
+                nodes=repo.list_nodes(),
+                xray_runtime_html=_xray_runtime_html(runtime_loader),
+                xray_install_plan_html=_xray_install_plan_html(plan_loader),
+                egress_status_html=_egress_status_html(egress_loader, refreshed=True),
+                service_status_html=_service_status_html(status_loader),
                 systemd_html=_systemd_preview_html(migate_config),
             )
         )

@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from migate.api.app import create_app
 from migate.database.repository import NodeRepository
+from migate.egress.status import EgressStatusCheck, EgressStatusReport
 from migate.systemd.manager import SystemdResult
 from migate.xray.install_executor import XrayInstallDryRunResult, XrayInstallDryRunStep
 from migate.xray.install_plan import XrayInstallPlan, XrayInstallStep
@@ -400,6 +401,71 @@ def test_panel_service_status_refresh_shows_structured_results(tmp_path):
     assert "systemctl command not found" in decoded
     assert "active (running)" in decoded
     assert "重启服务" not in decoded
+
+
+def test_panel_home_shows_egress_status_card_without_start_stop_actions(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def egress_status_loader() -> EgressStatusReport:
+        calls.append("egress-status")
+        return EgressStatusReport(
+            status="observed",
+            checks=[
+                EgressStatusCheck("tun_interface", "failed", "tun-migate interface is missing"),
+                EgressStatusCheck("openvpn_process", "failed", "OpenVPN process for tun-migate is not running"),
+                EgressStatusCheck("policy_routing_plan", "ok", "policy routing plan targets table 200 fwmark 0x1 via tun-migate"),
+                EgressStatusCheck("egress_guard", "failed", "blocked: tunnel interface is missing"),
+            ],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(create_app(node_repository=repo, egress_status_loader=egress_status_loader))
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Egress 出口状态" in decoded
+    assert "刷新 Egress 状态" in decoded
+    assert "tun_interface" in decoded
+    assert "tun-migate interface is missing" in decoded
+    assert "policy_routing_plan" in decoded
+    assert "performed_side_effects: False" in decoded
+    assert "启动 Egress" not in decoded
+    assert "停止 Egress" not in decoded
+    assert calls == ["egress-status"]
+
+
+def test_panel_egress_status_refresh_renders_latest_readonly_report(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+
+    def egress_status_loader() -> EgressStatusReport:
+        return EgressStatusReport(
+            status="observed",
+            checks=[
+                EgressStatusCheck("tun_interface", "ok", "tun-migate interface exists"),
+                EgressStatusCheck("openvpn_process", "ok", "OpenVPN process for tun-migate is running"),
+                EgressStatusCheck("policy_routing_plan", "ok", "policy routing plan targets table 200 fwmark 0x1 via tun-migate"),
+                EgressStatusCheck("egress_guard", "ok", "egress is allowed"),
+            ],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(create_app(node_repository=repo, egress_status_loader=egress_status_loader))
+
+    response = client.post("/egress/status/refresh")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Egress 出口状态已刷新" in decoded
+    assert "observed" in decoded
+    assert "tun-migate interface exists" in decoded
+    assert "OpenVPN process for tun-migate is running" in decoded
+    assert "egress is allowed" in decoded
+    assert "performed_side_effects: False" in decoded
+    assert "启动 Egress" not in decoded
+    assert "停止 Egress" not in decoded
 
 
 def test_panel_home_shows_validation_gated_xray_restart_action(tmp_path):
