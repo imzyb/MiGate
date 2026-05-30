@@ -135,7 +135,8 @@ def test_panel_home_previews_systemd_units_without_starting_services(tmp_path):
     assert "migate-xray.service" in decoded
     assert "migate-panel.service" in decoded
     assert "ExecStart=/usr/local/bin/xray run -config /etc/migate/xray/config.json" in decoded
-    assert "uvicorn migate.api.app:create_app" in decoded
+    assert "ExecStart=/usr/local/bin/migate panel --host 127.0.0.1 --port 8787" in decoded
+    assert "uvicorn migate.api.app:create_app" not in decoded
     assert "保存 systemd 服务文件" in decoded
     assert "systemctl" not in decoded
 

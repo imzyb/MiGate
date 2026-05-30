@@ -18,15 +18,15 @@ def test_build_xray_unit_uses_migate_config_path_and_no_direct_fallback():
     assert "freedom" not in unit.content.lower()
 
 
-def test_build_panel_unit_binds_to_localhost_for_initial_safe_default():
+def test_build_panel_unit_uses_migate_panel_cli_and_binds_to_localhost():
     config = MiGateConfig()
 
     unit = build_panel_unit(config)
 
     assert unit.name == "migate-panel.service"
     assert "Description=MiGate web panel" in unit.content
-    assert "ExecStart=" in unit.content
-    assert "uvicorn migate.api.app:create_app" in unit.content
+    assert "ExecStart=/usr/local/bin/migate panel --host 127.0.0.1 --port 8787" in unit.content
+    assert "uvicorn migate.api.app:create_app" not in unit.content
     assert "--host 127.0.0.1" in unit.content
     assert "--port 8787" in unit.content
     assert "Restart=on-failure" in unit.content

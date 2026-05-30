@@ -44,7 +44,7 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=/root/projects/MiGate
-ExecStart=/usr/bin/env uvicorn migate.api.app:create_app --factory --host {config.security.web_bind} --port {config.security.web_port}
+ExecStart=/usr/local/bin/migate panel --host {config.security.web_bind} --port {config.security.web_port}
 Restart=on-failure
 RestartSec=3s
 
