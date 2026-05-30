@@ -13,12 +13,15 @@ from migate.xray.doctor import DoctorReport, run_xray_install_doctor
 from migate.xray.install_executor import dry_run_xray_install_plan
 from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult, run_xray_install_plan
+from migate.xray.service_cli import DEFAULT_XRAY_SERVICE_PATH, preview_xray_service_unit, save_xray_service_unit
 
 app = typer.Typer(help="MiGate smart egress gateway")
 xray_app = typer.Typer(help="Xray runtime and installer commands")
 xray_config_app = typer.Typer(help="Xray config preview and save commands")
+xray_service_app = typer.Typer(help="Xray systemd service preview and save commands")
 app.add_typer(xray_app, name="xray")
 xray_app.add_typer(xray_config_app, name="config")
+xray_app.add_typer(xray_service_app, name="service")
 
 
 @app.callback()
@@ -138,6 +141,27 @@ def xray_config_save(
     if result.backup_path:
         typer.echo(f"backup_path: {result.backup_path}")
     typer.echo(f"rollback_performed: {result.rollback_performed}")
+    typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+
+
+@xray_service_app.command("preview")
+def xray_service_preview() -> None:
+    typer.echo(preview_xray_service_unit(), nl=False)
+    typer.echo("systemctl_commands_executed: []")
+    typer.echo("performed_side_effects: False")
+
+
+@xray_service_app.command("save")
+def xray_service_save(
+    target: str = typer.Option(DEFAULT_XRAY_SERVICE_PATH, "--target", help="Target systemd unit path."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge that saving service writes to disk."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually write service unit when combined with --yes."),
+) -> None:
+    result = save_xray_service_unit(target, yes=yes, allow_system_changes=allow_system_changes)
+    typer.echo(f"status: {result.status}")
+    typer.echo(f"message: {result.message}")
+    typer.echo(f"target: {result.target}")
+    typer.echo(f"systemctl_commands_executed: {result.systemctl_commands_executed or []}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
 
 

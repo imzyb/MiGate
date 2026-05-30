@@ -271,6 +271,28 @@ def test_xray_config_save_command_shows_backup_and_rollback_fields(monkeypatch, 
     assert "rollback_performed: True" in result.output
 
 
+def test_xray_service_preview_command_prints_unit_without_systemctl():
+    result = runner.invoke(app, ["xray", "service", "preview"])
+
+    assert result.exit_code == 0
+    assert "Description=MiGate managed Xray service" in result.output
+    assert "ExecStart=/usr/local/bin/xray run -config /etc/migate/xray/config.json" in result.output
+    assert "ExecStart=systemctl" not in result.output
+    assert "daemon-reload" not in result.output
+    assert "systemctl restart" not in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_xray_service_save_command_requires_double_gate():
+    result = runner.invoke(app, ["xray", "service", "save"])
+
+    assert result.exit_code == 0
+    assert "status: rejected" in result.output
+    assert "service save requires yes=True and allow_system_changes=True" in result.output
+    assert "systemctl_commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
 def test_xray_doctor_command_reports_dependency_checks():
     result = runner.invoke(app, ["xray", "doctor"])
 
