@@ -1,0 +1,104 @@
+import subprocess
+
+from migate.xray.systemctl_cli import (
+    ALLOWED_XRAY_SERVICE_NAME,
+    SystemctlActionResult,
+    run_xray_systemctl_action,
+)
+
+
+def test_run_xray_systemctl_status_allows_read_without_double_gate():
+    calls = []
+
+    def runner(args):
+        calls.append(args)
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="active", stderr="")
+
+    result = run_xray_systemctl_action("status", service=ALLOWED_XRAY_SERVICE_NAME, runner=runner)
+
+    assert result == SystemctlActionResult(
+        status="success",
+        action="status",
+        service=ALLOWED_XRAY_SERVICE_NAME,
+        command=["systemctl", "status", ALLOWED_XRAY_SERVICE_NAME, "--no-pager"],
+        returncode=0,
+        stdout="active",
+        stderr="",
+        performed_side_effects=False,
+    )
+    assert calls == [["systemctl", "status", ALLOWED_XRAY_SERVICE_NAME, "--no-pager"]]
+
+
+def test_run_xray_systemctl_restart_requires_double_gate():
+    calls = []
+
+    def runner(args):
+        calls.append(args)
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="ok", stderr="")
+
+    result = run_xray_systemctl_action("restart", service=ALLOWED_XRAY_SERVICE_NAME, runner=runner)
+
+    assert result.status == "rejected"
+    assert result.action == "restart"
+    assert result.service == ALLOWED_XRAY_SERVICE_NAME
+    assert result.returncode is None
+    assert result.performed_side_effects is False
+    assert "allow_system_changes" in result.stderr
+    assert calls == []
+
+
+def test_run_xray_systemctl_daemon_reload_requires_double_gate():
+    calls = []
+
+    def runner(args):
+        calls.append(args)
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="ok", stderr="")
+
+    result = run_xray_systemctl_action("daemon-reload", service=ALLOWED_XRAY_SERVICE_NAME, runner=runner)
+
+    assert result.status == "rejected"
+    assert result.action == "daemon-reload"
+    assert result.performed_side_effects is False
+    assert calls == []
+
+
+def test_run_xray_systemctl_rejects_unknown_service():
+    result = run_xray_systemctl_action("status", service="nginx.service")
+
+    assert result.status == "rejected"
+    assert result.service == "nginx.service"
+    assert result.returncode is None
+    assert result.performed_side_effects is False
+    assert "unsupported service" in result.stderr
+
+
+def test_run_xray_systemctl_maps_file_not_found_to_systemctl_not_found():
+    def runner(args):
+        raise FileNotFoundError("systemctl missing")
+
+    result = run_xray_systemctl_action("status", service=ALLOWED_XRAY_SERVICE_NAME, runner=runner)
+
+    assert result.status == "systemctl_not_found"
+    assert result.returncode is None
+    assert result.stdout == ""
+    assert result.stderr == "systemctl command not found"
+    assert result.performed_side_effects is False
+
+
+def test_run_xray_systemctl_preserves_failure_stdout_stderr_and_returncode():
+    def runner(args):
+        return subprocess.CompletedProcess(args=args, returncode=5, stdout="partial", stderr="access denied")
+
+    result = run_xray_systemctl_action(
+        "restart",
+        service=ALLOWED_XRAY_SERVICE_NAME,
+        yes=True,
+        allow_system_changes=True,
+        runner=runner,
+    )
+
+    assert result.status == "failed"
+    assert result.returncode == 5
+    assert result.stdout == "partial"
+    assert result.stderr == "access denied"
+    assert result.performed_side_effects is True

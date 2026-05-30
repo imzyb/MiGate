@@ -293,6 +293,64 @@ def test_xray_service_save_command_requires_double_gate():
     assert "performed_side_effects: False" in result.output
 
 
+def test_xray_systemctl_status_command_prints_structured_status(monkeypatch):
+    from migate.xray.systemctl_cli import SystemctlActionResult
+
+    monkeypatch.setattr(
+        main_module,
+        "run_xray_systemctl_action",
+        lambda *args, **kwargs: SystemctlActionResult(
+            status="success",
+            action="status",
+            service="migate-xray.service",
+            command=["systemctl", "status", "migate-xray.service", "--no-pager"],
+            returncode=0,
+            stdout="active",
+            stderr="",
+            performed_side_effects=False,
+        ),
+    )
+
+    result = runner.invoke(app, ["xray", "systemctl", "status"])
+
+    assert result.exit_code == 0
+    assert "status: success" in result.output
+    assert "action: status" in result.output
+    assert "service: migate-xray.service" in result.output
+    assert "stdout: active" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_xray_systemctl_restart_command_requires_double_gate(monkeypatch):
+    calls = []
+
+    def fake_action(*args, **kwargs):
+        calls.append((args, kwargs))
+        from migate.xray.systemctl_cli import SystemctlActionResult
+
+        return SystemctlActionResult(
+            status="rejected",
+            action="restart",
+            service="migate-xray.service",
+            command=[],
+            returncode=None,
+            stdout="",
+            stderr="systemctl restart requires yes=True and allow_system_changes=True",
+            performed_side_effects=False,
+        )
+
+    monkeypatch.setattr(main_module, "run_xray_systemctl_action", fake_action)
+
+    result = runner.invoke(app, ["xray", "systemctl", "restart"])
+
+    assert result.exit_code == 0
+    assert "status: rejected" in result.output
+    assert "systemctl restart requires" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert calls[0][1]["yes"] is False
+    assert calls[0][1]["allow_system_changes"] is False
+
+
 def test_xray_doctor_command_reports_dependency_checks():
     result = runner.invoke(app, ["xray", "doctor"])
 
