@@ -76,6 +76,14 @@ migate remote doctor
 
 `remote doctor` uses SSH batch mode with a short connect timeout to inspect hostname, kernel, UID, and required command paths (`python3`, `systemctl`, `ip`, `openvpn`). It does not pass passwords, does not use `sshpass`, and reports `performed_side_effects: False`.
 
+For post-install readiness, run the read-only promotion probe:
+
+```bash
+migate remote readiness
+```
+
+`remote readiness` checks whether the test VPS can see the MiGate CLI, Xray, OpenVPN, systemd, `ip`, service previews, and local egress status. It still uses SSH batch mode, performs no install/start/route/firewall changes, and reports `performed_side_effects: False`.
+
 Custom target preview:
 
 ```bash
