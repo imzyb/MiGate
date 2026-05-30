@@ -16,6 +16,7 @@ from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, 
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
 from migate.remote.doctor import render_remote_doctor_report, run_remote_doctor
 from migate.remote.lifecycle_plan import build_remote_lifecycle_dry_run_plan, render_remote_lifecycle_plan
+from migate.remote.lifecycle_runner import render_remote_lifecycle_run_result, run_remote_lifecycle
 from migate.proxy.socks5_listener import (
     build_socks5_listener_plan,
     render_socks5_listener_plan,
@@ -90,6 +91,27 @@ def build_xray_install_cli_plan(*, system: str | None = None, machine: str | Non
 
 def build_remote_lifecycle_cli_plan(*, host: str = "166.88.232.2", port: int = 22, user: str = "root"):
     return build_remote_lifecycle_dry_run_plan(host=host, port=port, user=user)
+
+
+def run_remote_lifecycle_cli(
+    *,
+    host: str,
+    port: int,
+    user: str,
+    dry_run: bool,
+    yes: bool,
+    allow_remote_changes: bool,
+    doctor_runner: Callable[[], object] | None = None,
+):
+    return run_remote_lifecycle(
+        host=host,
+        port=port,
+        user=user,
+        dry_run=dry_run,
+        yes=yes,
+        allow_remote_changes=allow_remote_changes,
+        doctor_runner=doctor_runner,
+    )
 
 
 def _default_openvpn_start_plan(config: MiGateConfig):
@@ -217,10 +239,28 @@ def remote_lifecycle(
     host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
     port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
     user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge remote command execution."),
+    allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the first real remote lifecycle layer to run remote doctor only."),
 ) -> None:
-    plan = build_remote_lifecycle_cli_plan(host=host, port=port, user=user)
-    typer.echo(render_remote_lifecycle_plan(plan), nl=False)
-    if plan.status == "rejected":
+    if dry_run:
+        plan = build_remote_lifecycle_cli_plan(host=host, port=port, user=user)
+        typer.echo(render_remote_lifecycle_plan(plan), nl=False)
+        if plan.status == "rejected":
+            raise typer.Exit(code=1)
+        return
+
+    result = run_remote_lifecycle_cli(
+        host=host,
+        port=port,
+        user=user,
+        dry_run=dry_run,
+        yes=yes,
+        allow_remote_changes=allow_remote_changes,
+        doctor_runner=lambda: run_remote_doctor(host=host, port=port, user=user),
+    )
+    typer.echo(render_remote_lifecycle_run_result(result), nl=False)
+    if result.status != "success":
         raise typer.Exit(code=1)
 
 

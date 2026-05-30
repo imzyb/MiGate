@@ -4,7 +4,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 import migate.main as main_module
-from migate.main import app, build_panel_server_config, build_remote_lifecycle_cli_plan, build_xray_install_cli_plan, run_xray_install_cli
+from migate.main import app, build_panel_server_config, build_remote_lifecycle_cli_plan, run_remote_lifecycle_cli, build_xray_install_cli_plan, run_xray_install_cli
 from migate.egress.lifecycle import EgressLifecyclePhase, EgressLifecycleResult
 from migate.egress.status import EgressStatusCheck, EgressStatusReport
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
@@ -55,6 +55,63 @@ def test_remote_lifecycle_command_rejects_embedded_credentials():
     assert result.exit_code == 1
     assert "embedded credentials are not allowed" in result.output
     assert "secret" not in result.output
+
+
+def test_run_remote_lifecycle_cli_rejects_real_execution_without_double_gate(monkeypatch):
+    from migate.remote.doctor import RemoteDoctorCheck, RemoteDoctorReport
+
+    calls = []
+    report = RemoteDoctorReport("ok", "root@166.88.232.2:22", [RemoteDoctorCheck("ssh", "ok", "ok")], [], False)
+
+    result = run_remote_lifecycle_cli(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=False,
+        doctor_runner=lambda: calls.append("doctor") or report,
+    )
+
+    assert result.status == "rejected"
+    assert result.performed_side_effects is False
+    assert calls == []
+
+
+def test_remote_lifecycle_command_real_path_runs_only_doctor_with_double_gate(monkeypatch):
+    from migate.remote.doctor import RemoteDoctorCheck, RemoteDoctorReport
+
+    calls = []
+    report = RemoteDoctorReport(
+        status="ok",
+        target="root@166.88.232.2:22",
+        checks=[RemoteDoctorCheck("ssh_connectivity", "ok", "SSH probe succeeded")],
+        commands_executed=["ssh -p 22 root@166.88.232.2 ..."],
+        performed_side_effects=False,
+    )
+    monkeypatch.setattr(main_module, "run_remote_doctor", lambda **kwargs: calls.append(kwargs) or report)
+
+    result = runner.invoke(app, ["remote", "lifecycle", "--no-dry-run", "--yes", "--allow-remote-changes"])
+
+    assert result.exit_code == 0
+    assert "Remote lifecycle result" in result.output
+    assert "status: success" in result.output
+    assert "- doctor: success - remote doctor ok" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert "not implemented" in result.output
+    assert len(calls) == 1
+
+
+def test_remote_lifecycle_command_real_path_rejects_without_allow_remote_changes(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main_module, "run_remote_doctor", lambda **kwargs: calls.append(kwargs))
+
+    result = runner.invoke(app, ["remote", "lifecycle", "--no-dry-run", "--yes"])
+
+    assert result.exit_code == 1
+    assert "remote lifecycle requires yes=True and allow_remote_changes=True" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert calls == []
 
 
 def test_remote_doctor_command_renders_injected_read_only_report(monkeypatch):
