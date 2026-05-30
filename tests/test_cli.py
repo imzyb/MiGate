@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 import migate.main as main_module
 from migate.main import app, build_panel_server_config, build_xray_install_cli_plan, run_xray_install_cli
 from migate.egress.lifecycle import EgressLifecyclePhase, EgressLifecycleResult
+from migate.egress.status import EgressStatusCheck, EgressStatusReport
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
 from migate.xray.doctor import DoctorCheck, DoctorReport
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult
@@ -124,6 +125,47 @@ def test_egress_down_command_requires_double_gate_before_orchestration(monkeypat
     assert "egress down requires yes=True and allow_system_changes=True" in result.output
     assert "performed_side_effects: False" in result.output
     assert calls == []
+
+
+def test_egress_doctor_command_renders_read_only_report(monkeypatch):
+    report = EgressStatusReport(
+        status="failed",
+        checks=[
+            EgressStatusCheck("tun_interface", "failed", "tun-migate interface is missing"),
+            EgressStatusCheck("egress_guard", "failed", "tun-migate interface is missing; egress blocked"),
+        ],
+        performed_side_effects=False,
+    )
+    monkeypatch.setattr(main_module, "run_egress_doctor", lambda: report)
+
+    result = runner.invoke(app, ["egress", "doctor"])
+
+    assert result.exit_code == 0
+    assert "Egress doctor" in result.output
+    assert "status: failed" in result.output
+    assert "tun_interface: failed - tun-migate interface is missing" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_egress_status_command_renders_observational_report(monkeypatch):
+    report = EgressStatusReport(
+        status="observed",
+        checks=[
+            EgressStatusCheck("openvpn_process", "failed", "OpenVPN process for tun-migate is not running"),
+            EgressStatusCheck("policy_routing_plan", "ok", "policy routing plan targets table 100 fwmark 0x66 via tun-migate"),
+        ],
+        performed_side_effects=False,
+    )
+    monkeypatch.setattr(main_module, "run_egress_status", lambda: report)
+
+    result = runner.invoke(app, ["egress", "status"])
+
+    assert result.exit_code == 0
+    assert "Egress status" in result.output
+    assert "status: observed" in result.output
+    assert "openvpn_process: failed - OpenVPN process for tun-migate is not running" in result.output
+    assert "policy_routing_plan: ok - policy routing plan targets table 100 fwmark 0x66 via tun-migate" in result.output
+    assert "performed_side_effects: False" in result.output
 
 
 def test_panel_command_accepts_safe_default_host_and_port_without_starting_server():

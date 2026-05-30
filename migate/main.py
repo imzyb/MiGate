@@ -10,6 +10,7 @@ import uvicorn
 
 from migate.config import MiGateConfig
 from migate.egress.lifecycle import EgressLifecycleResult, bring_down_egress, bring_up_egress
+from migate.egress.status import render_egress_status_report, run_egress_doctor, run_egress_status
 from migate.proxy.run import render_proxy_run_result, run_proxy_placeholder
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
@@ -299,6 +300,16 @@ def proxy_service_save(
     typer.echo(f"target: {result.target}")
     typer.echo(f"systemctl_commands_executed: {result.systemctl_commands_executed or []}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+
+
+@egress_app.command("doctor")
+def egress_doctor() -> None:
+    typer.echo(render_egress_status_report("Egress doctor", run_egress_doctor()))
+
+
+@egress_app.command("status")
+def egress_status() -> None:
+    typer.echo(render_egress_status_report("Egress status", run_egress_status()))
 
 
 @egress_app.command("up")
