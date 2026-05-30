@@ -28,7 +28,7 @@ Preview the full remote promotion flow without SSHing or changing the test VPS:
 migate remote rollout
 ```
 
-The dry-run rollout orders the currently available building blocks as `remote install -> remote readiness -> remote egress up`. It renders planned read-only vs planned side-effect phases, keeps `commands_executed: []`, and reports `performed_side_effects: False`.
+The dry-run rollout orders the currently available building blocks as `remote install -> remote readiness -> remote egress up -> remote leak-check`. It renders planned read-only vs planned side-effect phases, keeps `commands_executed: []`, and reports `performed_side_effects: False`.
 
 The gated rollout runner shell is available only with all remote-change gates:
 
@@ -36,7 +36,7 @@ The gated rollout runner shell is available only with all remote-change gates:
 migate remote rollout --no-dry-run --yes --allow-remote-changes
 ```
 
-This orchestration calls the already-gated remote install phase, then the read-only readiness probe, then the already-gated remote egress up phase. It stops on the first failed phase and reports aggregated `commands_executed` plus `performed_side_effects`.
+This orchestration calls the already-gated remote install phase, then the read-only readiness probe, then the already-gated remote egress up phase, then the read-only public-IP leak check. It stops on the first failed phase and reports aggregated `commands_executed` plus `performed_side_effects`.
 
 ### Remote install dry-run
 
@@ -54,7 +54,7 @@ The first gated runner shell is available only with all remote-change gates:
 migate remote install --no-dry-run --yes --allow-remote-changes
 ```
 
-This path executes the planned command previews in order through the runner layer and stops on the first failed step. Treat it as a test-VPS-only orchestration shell, not a production installer. It still does not implement rollback, ownership cleanup, firewall changes, policy routing, OpenVPN startup, or leak tests.
+This path executes the planned command previews in order through the runner layer and stops on the first failed step. Treat it as a test-VPS-only orchestration shell, not a production installer. It still does not implement rollback, ownership cleanup, firewall changes, policy routing, or OpenVPN startup.
 
 ### Remote egress dry-run
 
@@ -74,7 +74,7 @@ migate remote egress up --no-dry-run --yes --allow-remote-changes
 migate remote egress down --no-dry-run --yes --allow-remote-changes
 ```
 
-This path executes the planned command previews in order through the runner layer and stops on the first failed step. Treat it as a test-VPS-only shell for the already-gated local `migate egress` commands. It still does not own credentials, implement rollback, verify traffic leaks, or bypass the local `--yes --allow-system-changes` gates.
+This path executes the planned command previews in order through the runner layer and stops on the first failed step. Treat it as a test-VPS-only shell for the already-gated local `migate egress` commands. It still does not own credentials, implement rollback, or bypass the local `--yes --allow-system-changes` gates.
 
 ### Remote lifecycle dry-run
 
@@ -101,6 +101,14 @@ migate remote readiness
 ```
 
 `remote readiness` checks whether the test VPS can see the MiGate CLI, Xray, OpenVPN, systemd, `ip`, service previews, and local egress status. It still uses SSH batch mode, performs no install/start/route/firewall changes, and reports `performed_side_effects: False`.
+
+Run the read-only remote leak check after egress is up:
+
+```bash
+migate remote leak-check
+```
+
+`remote leak-check` uses SSH batch mode to compare the VPS native public IP with the public IP observed through the remote local SOCKS listener. It performs no systemd, OpenVPN, routing, firewall, or file changes. If the egress IP matches the native IP, or if the egress IP cannot be verified, the check fails closed and reports `performed_side_effects: False`.
 
 Custom target preview:
 

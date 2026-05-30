@@ -60,7 +60,13 @@ def evaluate_egress_guard(state: EgressGuardState) -> EgressGuardDecision:
             "OpenVPN is not running; egress blocked",
             ["openvpn"],
         )
-    if state.native_public_ip and state.egress_public_ip and state.native_public_ip == state.egress_public_ip:
+    if not state.native_public_ip or not state.egress_public_ip:
+        return _block(
+            "egress_ip_unverified",
+            "egress public IP could not be verified; egress blocked",
+            ["egress_ip"],
+        )
+    if state.native_public_ip == state.egress_public_ip:
         return _block(
             "native_ip_leak_detected",
             "egress public IP matches native VPS public IP; egress blocked",

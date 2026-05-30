@@ -78,6 +78,25 @@ def test_egress_guard_blocks_when_egress_ip_matches_native_vps_ip():
     assert decision.message == "egress public IP matches native VPS public IP; egress blocked"
 
 
+def test_egress_guard_blocks_when_egress_ip_cannot_be_verified():
+    decision = evaluate_egress_guard(
+        EgressGuardState(
+            leak_guard_enabled=True,
+            fail_policy="block",
+            tun_interface="tun-migate",
+            tun_interface_exists=True,
+            openvpn_running=True,
+            native_public_ip="203.0.113.10",
+            egress_public_ip=None,
+        )
+    )
+
+    assert decision.allowed is False
+    assert decision.reason == "egress_ip_unverified"
+    assert decision.blocked_by == ["egress_ip"]
+    assert decision.message == "egress public IP could not be verified; egress blocked"
+
+
 def test_egress_guard_blocks_when_fail_policy_is_not_block():
     decision = evaluate_egress_guard(
         EgressGuardState(

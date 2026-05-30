@@ -6,7 +6,7 @@ from migate.remote.rollout_plan import (
 )
 
 
-def test_remote_rollout_dry_run_orders_install_readiness_then_egress_up_without_side_effects():
+def test_remote_rollout_dry_run_orders_install_readiness_egress_up_then_leak_check_without_side_effects():
     plan = build_remote_rollout_dry_run_plan(
         host="166.88.232.2",
         port=22,
@@ -39,6 +39,12 @@ def test_remote_rollout_dry_run_orders_install_readiness_then_egress_up_without_
                 command_preview="migate remote egress up --host 166.88.232.2 --port 22 --user root --no-dry-run --yes --allow-remote-changes",
                 performs_side_effects=True,
             ),
+            RemoteRolloutStep(
+                action="leak_check",
+                description="run read-only remote public-IP leak check and fail closed on unverified egress",
+                command_preview="migate remote leak-check --host 166.88.232.2 --port 22 --user root",
+                performs_side_effects=False,
+            ),
         ],
         commands_executed=[],
         performed_side_effects=False,
@@ -57,9 +63,10 @@ def test_remote_rollout_dry_run_accepts_custom_target_and_staging_dir():
     assert plan.target == "ubuntu@203.0.113.10:62422"
     assert plan.staging_dir == "/tmp/migate-rollout"
     assert plan.credential_hint == "[REDACTED]"
-    assert [step.action for step in plan.steps] == ["install", "readiness", "egress_up"]
+    assert [step.action for step in plan.steps] == ["install", "readiness", "egress_up", "leak_check"]
     assert plan.steps[0].command_preview.startswith("migate remote install --host 203.0.113.10 --port 62422 --user ubuntu")
     assert plan.steps[2].command_preview.startswith("migate remote egress up --host 203.0.113.10 --port 62422 --user ubuntu")
+    assert plan.steps[3].command_preview == "migate remote leak-check --host 203.0.113.10 --port 62422 --user ubuntu"
 
 
 def test_remote_rollout_rejects_embedded_credentials_without_leaking_secret():
@@ -116,5 +123,6 @@ def test_render_remote_rollout_plan_marks_planned_side_effects_without_execution
     assert "- install: planned side-effect - run gated remote install shell" in rendered
     assert "- readiness: planned read-only - run read-only post-install readiness probe" in rendered
     assert "- egress_up: planned side-effect - start remote egress through gated remote egress shell" in rendered
+    assert "- leak_check: planned read-only - run read-only remote public-IP leak check and fail closed on unverified egress" in rendered
     assert "sshpass" not in rendered.lower()
     assert "password" not in rendered.lower()

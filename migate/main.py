@@ -18,7 +18,13 @@ from migate.remote.doctor import render_remote_doctor_report, run_remote_doctor
 from migate.remote.egress_plan import build_remote_egress_dry_run_plan, render_remote_egress_plan
 from migate.remote.egress_runner import RemoteEgressCommandResult, RemoteEgressRunResult, render_remote_egress_run_result, run_remote_egress_plan
 from migate.remote.install_plan import build_remote_install_dry_run_plan, render_remote_install_plan
-from migate.remote.install_runner import RemoteInstallCommandResult, RemoteInstallRunResult, render_remote_install_run_result, run_remote_install_plan
+from migate.remote.install_runner import (
+    RemoteInstallCommandResult,
+    RemoteInstallRunResult,
+    render_remote_install_run_result,
+    run_remote_install_plan,
+)
+from migate.remote.leak_check import RemoteLeakCheckReport, render_remote_leak_check_report, run_remote_leak_check
 from migate.remote.lifecycle_plan import build_remote_lifecycle_dry_run_plan, render_remote_lifecycle_plan
 from migate.remote.lifecycle_runner import render_remote_lifecycle_run_result, run_remote_lifecycle
 from migate.remote.readiness import render_remote_readiness_report, run_remote_readiness
@@ -173,6 +179,16 @@ def run_remote_install_cli(
     )
 
 
+def run_remote_leak_check_cli(
+    *,
+    host: str,
+    port: int,
+    user: str,
+    socks_port: int,
+) -> RemoteLeakCheckReport:
+    return run_remote_leak_check(host=host, port=port, user=user, socks_port=socks_port)
+
+
 def run_remote_rollout_cli(
     *,
     host: str,
@@ -185,6 +201,7 @@ def run_remote_rollout_cli(
     install_runner: Callable[[], PhaseResultLike] | None = None,
     readiness_runner: Callable[[], RemoteReadinessReport] | None = None,
     egress_up_runner: Callable[[], PhaseResultLike] | None = None,
+    leak_check_runner: Callable[[], RemoteLeakCheckReport] | None = None,
 ) -> RemoteRolloutRunResult:
     plan = build_remote_rollout_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir)
     return run_remote_rollout_plan(
@@ -197,6 +214,7 @@ def run_remote_rollout_cli(
         readiness_runner=readiness_runner or (lambda: run_remote_readiness(host=host, port=port, user=user)),
         egress_up_runner=egress_up_runner
         or (lambda: run_remote_egress_cli(action="up", host=host, port=port, user=user, dry_run=False, yes=True, allow_remote_changes=True)),
+        leak_check_runner=leak_check_runner or (lambda: run_remote_leak_check_cli(host=host, port=port, user=user, socks_port=MiGateConfig().socks_port)),
     )
 
 
@@ -499,6 +517,19 @@ def remote_readiness(
 ) -> None:
     report = run_remote_readiness(host=host, port=port, user=user)
     typer.echo(render_remote_readiness_report(report), nl=False)
+    if report.status != "ok":
+        raise typer.Exit(code=1)
+
+
+@remote_app.command("leak-check")
+def remote_leak_check(
+    host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
+    port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
+    user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+    socks_port: int = typer.Option(34501, "--socks-port", min=1, help="Remote local SOCKS5 port used for the egress public-IP probe."),
+) -> None:
+    report = run_remote_leak_check(host=host, port=port, user=user, socks_port=socks_port)
+    typer.echo(render_remote_leak_check_report(report), nl=False)
     if report.status != "ok":
         raise typer.Exit(code=1)
 

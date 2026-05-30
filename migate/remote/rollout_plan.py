@@ -72,6 +72,12 @@ def build_remote_rollout_dry_run_plan(*, host: str, port: int, user: str, stagin
             command_preview=f"migate remote egress up --host {host} --port {port} --user {user} --no-dry-run --yes --allow-remote-changes",
             performs_side_effects=True,
         ),
+        RemoteRolloutStep(
+            action="leak_check",
+            description="run read-only remote public-IP leak check and fail closed on unverified egress",
+            command_preview=f"migate remote leak-check --host {host} --port {port} --user {user}",
+            performs_side_effects=False,
+        ),
     ]
     return RemoteRolloutPlan(
         status="dry_run",

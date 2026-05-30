@@ -25,6 +25,7 @@ from migate.xray.doctor import DoctorCheck, DoctorReport
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult
 from migate.remote.egress_runner import RemoteEgressCommandResult
 from migate.remote.install_runner import RemoteInstallCommandResult
+from migate.remote.leak_check import RemoteLeakCheck, RemoteLeakCheckReport
 from migate.remote.readiness import RemoteReadinessCheck, RemoteReadinessReport
 from migate.remote.rollout_runner import RemoteRolloutPhaseResult
 
@@ -70,7 +71,66 @@ def test_remote_readiness_command_exits_nonzero_when_failed(monkeypatch):
     assert "performed_side_effects: False" in result.output
 
 
-def test_build_remote_rollout_cli_plan_defaults_to_install_readiness_egress_up():
+def test_remote_leak_check_command_runs_read_only_probe_with_socks_port(monkeypatch):
+    captured = {}
+    report = RemoteLeakCheckReport(
+        status="ok",
+        target="root@166.88.232.2:22",
+        native_public_ip="198.51.100.10",
+        egress_public_ip="203.0.113.20",
+        checks=[RemoteLeakCheck("egress_guard", "ok", "egress guard passed")],
+        commands_executed=["ssh leak-check --socks-port 34502"],
+        performed_side_effects=False,
+    )
+
+    def fake_run_remote_leak_check(**kwargs):
+        captured.update(kwargs)
+        return report
+
+    monkeypatch.setattr(main_module, "run_remote_leak_check", fake_run_remote_leak_check)
+
+    result = runner.invoke(app, ["remote", "leak-check", "--socks-port", "34502"])
+
+    assert result.exit_code == 0
+    assert captured == {"host": "166.88.232.2", "port": 22, "user": "root", "socks_port": 34502}
+    assert "Remote leak check" in result.output
+    assert "status: ok" in result.output
+    assert "egress_public_ip: 203.0.113.20" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert "- egress_guard: ok - egress guard passed" in result.output
+    assert "sshpass" not in result.output.lower()
+    assert "password" not in result.output.lower()
+
+
+def test_remote_leak_check_command_exits_nonzero_when_failed(monkeypatch):
+    report = RemoteLeakCheckReport(
+        status="failed",
+        target="root@166.88.232.2:22",
+        native_public_ip="198.51.100.10",
+        egress_public_ip=None,
+        checks=[RemoteLeakCheck("egress_guard", "failed", "egress public IP could not be verified; egress blocked")],
+        commands_executed=["ssh leak-check"],
+        performed_side_effects=False,
+    )
+    monkeypatch.setattr(main_module, "run_remote_leak_check", lambda **kwargs: report)
+
+    result = runner.invoke(app, ["remote", "leak-check"])
+
+    assert result.exit_code == 1
+    assert "status: failed" in result.output
+    assert "egress public IP could not be verified; egress blocked" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_remote_leak_check_command_rejects_embedded_credentials():
+    result = runner.invoke(app, ["remote", "leak-check", "--host", "root:secret@203.0.113.10"])
+
+    assert result.exit_code == 1
+    assert "embedded credentials are not allowed" in result.output
+    assert "secret" not in result.output
+
+
+def test_build_remote_rollout_cli_plan_defaults_to_install_readiness_egress_up_leak_check():
     plan = build_remote_rollout_cli_plan()
 
     assert plan.status == "dry_run"
@@ -78,7 +138,7 @@ def test_build_remote_rollout_cli_plan_defaults_to_install_readiness_egress_up()
     assert plan.staging_dir == "/tmp/migate-install"
     assert plan.commands_executed == []
     assert plan.performed_side_effects is False
-    assert [step.action for step in plan.steps] == ["install", "readiness", "egress_up"]
+    assert [step.action for step in plan.steps] == ["install", "readiness", "egress_up", "leak_check"]
 
 
 def test_remote_rollout_command_defaults_to_dry_run_without_remote_side_effects():
@@ -93,9 +153,11 @@ def test_remote_rollout_command_defaults_to_dry_run_without_remote_side_effects(
     assert "- install: planned side-effect" in result.output
     assert "- readiness: planned read-only" in result.output
     assert "- egress_up: planned side-effect" in result.output
+    assert "- leak_check: planned read-only" in result.output
     assert "migate remote install --host 166.88.232.2 --port 22 --user root" in result.output
     assert "migate remote readiness --host 166.88.232.2 --port 22 --user root" in result.output
     assert "migate remote egress up --host 166.88.232.2 --port 22 --user root" in result.output
+    assert "migate remote leak-check --host 166.88.232.2 --port 22 --user root" in result.output
     assert "sshpass" not in result.output.lower()
     assert "password" not in result.output.lower()
 
@@ -114,6 +176,7 @@ def test_run_remote_rollout_cli_rejects_real_execution_without_double_gate():
         install_runner=lambda: calls.append("install"),
         readiness_runner=lambda: calls.append("readiness"),
         egress_up_runner=lambda: calls.append("egress_up"),
+        leak_check_runner=lambda: calls.append("leak_check"),
     )
 
     assert result.status == "rejected"
@@ -143,6 +206,16 @@ def test_remote_rollout_command_real_path_uses_phase_runners_with_double_gate(mo
             or RemoteReadinessReport("ok", "root@166.88.232.2:22", [], ["readiness command"], False),
             egress_up_runner=lambda: calls.append("egress_up")
             or RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+            leak_check_runner=lambda: calls.append("leak_check")
+            or RemoteLeakCheckReport(
+                "ok",
+                "root@166.88.232.2:22",
+                "198.51.100.10",
+                "203.0.113.20",
+                [RemoteLeakCheck("egress_guard", "ok", "egress guard passed")],
+                ["leak check command"],
+                False,
+            ),
         )
 
     monkeypatch.setattr(main_module, "run_remote_rollout_cli", fake_run_remote_rollout_cli)
@@ -156,7 +229,8 @@ def test_remote_rollout_command_real_path_uses_phase_runners_with_double_gate(mo
     assert "- install: success - installed" in result.output
     assert "- readiness: success - readiness ok" in result.output
     assert "- egress_up: success - egress up" in result.output
-    assert calls == ["install", "readiness", "egress_up"]
+    assert "- leak_check: success - leak_check ok" in result.output
+    assert calls == ["install", "readiness", "egress_up", "leak_check"]
 
 
 def test_remote_rollout_command_real_path_rejects_without_allow_remote_changes():
