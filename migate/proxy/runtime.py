@@ -8,6 +8,7 @@ import socket
 from pathlib import Path
 
 from migate.config import MiGateConfig
+from migate.routing.leak_guard import EgressGuardState, evaluate_egress_guard
 
 
 @dataclass(frozen=True)
@@ -34,11 +35,18 @@ def _default_interface_exists(name: str) -> bool:
     return Path("/sys/class/net", name).exists()
 
 
+def _default_openvpn_running() -> bool:
+    return False
+
+
 def _build_proxy_runtime_checks(
     config: MiGateConfig,
     *,
     port_listening: Callable[[str, int], bool],
     interface_exists: Callable[[str], bool],
+    openvpn_running: Callable[[], bool],
+    native_public_ip: str | None = None,
+    egress_public_ip: str | None = None,
 ) -> list[ProxyRuntimeCheck]:
     checks: list[ProxyRuntimeCheck] = []
 
@@ -89,6 +97,25 @@ def _build_proxy_runtime_checks(
         )
     )
 
+    egress_decision = evaluate_egress_guard(
+        EgressGuardState(
+            leak_guard_enabled=config.security.leak_guard,
+            fail_policy=config.security.fail_policy,
+            tun_interface=config.vpn.interface,
+            tun_interface_exists=tun_ok,
+            openvpn_running=openvpn_running(),
+            native_public_ip=native_public_ip,
+            egress_public_ip=egress_public_ip,
+        )
+    )
+    checks.append(
+        ProxyRuntimeCheck(
+            "egress_guard",
+            "ok" if egress_decision.allowed else "failed",
+            egress_decision.message,
+        )
+    )
+
     return checks
 
 
@@ -97,12 +124,18 @@ def run_proxy_doctor(
     *,
     port_listening: Callable[[str, int], bool] | None = None,
     interface_exists: Callable[[str], bool] | None = None,
+    openvpn_running: Callable[[], bool] | None = None,
+    native_public_ip: str | None = None,
+    egress_public_ip: str | None = None,
 ) -> ProxyRuntimeReport:
     cfg = config or MiGateConfig()
     checks = _build_proxy_runtime_checks(
         cfg,
         port_listening=port_listening or _default_port_listening,
         interface_exists=interface_exists or _default_interface_exists,
+        openvpn_running=openvpn_running or _default_openvpn_running,
+        native_public_ip=native_public_ip,
+        egress_public_ip=egress_public_ip,
     )
     return ProxyRuntimeReport(
         status="ok" if all(check.status == "ok" for check in checks) else "failed",
@@ -116,12 +149,18 @@ def run_proxy_status(
     *,
     port_listening: Callable[[str, int], bool] | None = None,
     interface_exists: Callable[[str], bool] | None = None,
+    openvpn_running: Callable[[], bool] | None = None,
+    native_public_ip: str | None = None,
+    egress_public_ip: str | None = None,
 ) -> ProxyRuntimeReport:
     cfg = config or MiGateConfig()
     checks = _build_proxy_runtime_checks(
         cfg,
         port_listening=port_listening or _default_port_listening,
         interface_exists=interface_exists or _default_interface_exists,
+        openvpn_running=openvpn_running or _default_openvpn_running,
+        native_public_ip=native_public_ip,
+        egress_public_ip=egress_public_ip,
     )
     return ProxyRuntimeReport(status="observed", checks=checks, performed_side_effects=False)
 

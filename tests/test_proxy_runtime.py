@@ -25,6 +25,7 @@ def test_proxy_doctor_reports_ports_tun_and_leak_policy_without_side_effects():
             ProxyRuntimeCheck("tun_interface", "failed", "tun-migate interface is missing"),
             ProxyRuntimeCheck("fail_policy", "ok", "fail_policy is block"),
             ProxyRuntimeCheck("leak_guard", "ok", "leak_guard is enabled"),
+            ProxyRuntimeCheck("egress_guard", "failed", "tun-migate interface is missing; egress blocked"),
         ],
         performed_side_effects=False,
     )
@@ -58,6 +59,20 @@ def test_proxy_status_is_observational_and_does_not_require_all_checks_to_pass()
     assert report.status == "observed"
     assert report.performed_side_effects is False
     assert any(check.name == "socks_listen" and check.status == "failed" for check in report.checks)
+
+
+def test_proxy_doctor_reports_egress_guard_decision_without_side_effects():
+    config = MiGateConfig()
+
+    report = run_proxy_doctor(
+        config,
+        port_listening=lambda host, port: True,
+        interface_exists=lambda name: True,
+    )
+
+    assert report.status == "failed"
+    assert ProxyRuntimeCheck("egress_guard", "failed", "OpenVPN is not running; egress blocked") in report.checks
+    assert report.performed_side_effects is False
 
 
 def test_render_proxy_runtime_report_is_human_readable():
