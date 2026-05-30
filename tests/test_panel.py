@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from migate.api.app import create_app
 from migate.database.repository import NodeRepository
 from migate.systemd.manager import SystemdResult
+from migate.xray.runtime import XrayRuntimeStatus
 from migate.xray.validator import XrayValidationResult
 
 
@@ -180,6 +181,63 @@ def test_panel_home_shows_safe_service_status_actions_without_restart(tmp_path):
     assert "刷新服务状态" in decoded
     assert "重启服务" not in decoded
     assert "daemon-reload" not in decoded
+
+
+def test_panel_home_shows_xray_runtime_status_without_install_side_effects(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def runtime_loader() -> XrayRuntimeStatus:
+        calls.append("runtime")
+        return XrayRuntimeStatus(
+            status="installed",
+            bin_path="/usr/local/bin/xray",
+            version="1.8.24",
+            message="xray is installed",
+            returncode=0,
+            stdout="Xray 1.8.24\n",
+            stderr="",
+        )
+
+    client = TestClient(create_app(node_repository=repo, xray_runtime_loader=runtime_loader))
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Xray 运行时" in decoded
+    assert "installed" in decoded
+    assert "/usr/local/bin/xray" in decoded
+    assert "1.8.24" in decoded
+    assert "刷新 Xray 运行时" in decoded
+    assert "下载 Xray" not in decoded
+    assert "安装 Xray" not in decoded
+    assert calls == ["runtime"]
+
+
+def test_panel_xray_runtime_refresh_shows_not_installed_guidance(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+
+    def runtime_loader() -> XrayRuntimeStatus:
+        return XrayRuntimeStatus(
+            status="not_installed",
+            bin_path="/usr/local/bin/xray",
+            version=None,
+            message="xray binary not found: /usr/local/bin/xray",
+        )
+
+    client = TestClient(create_app(node_repository=repo, xray_runtime_loader=runtime_loader))
+
+    response = client.post("/xray/runtime/refresh")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Xray 运行时已刷新" in decoded
+    assert "not_installed" in decoded
+    assert "xray binary not found" in decoded
+    assert "请先安装 xray-core，或修改 MiGate Xray bin_path" in decoded
+    assert "下载 Xray" not in decoded
+    assert "安装 Xray" not in decoded
 
 
 def test_panel_service_status_refresh_shows_structured_results(tmp_path):

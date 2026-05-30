@@ -16,6 +16,7 @@ from migate.systemd.units import build_panel_unit, build_xray_unit, write_unit_f
 from migate.xray.links import build_shadowsocks_link, build_trojan_link, build_vless_link
 from migate.xray.node_adapter import build_config_from_nodes
 from migate.xray.subscription import build_base64_subscription
+from migate.xray.runtime import XrayRuntimeStatus, detect_xray_runtime
 from migate.xray.validator import XrayValidationResult, validate_xray_config
 from migate.xray.writer import write_xray_config
 
@@ -138,6 +139,7 @@ def _home_body(
     result_html: str = "",
     systemd_html: str = "",
     service_status_html: str = "",
+    xray_runtime_html: str = "",
 ) -> str:
     current_nodes = nodes or []
     nodes_html = _nodes_html(current_nodes)
@@ -185,6 +187,7 @@ def _home_body(
   </section>
 
   {result_html}
+  {xray_runtime_html}
   {service_status_html}
   {nodes_html}
   {preview_html}
@@ -256,6 +259,31 @@ def _service_status_html(status_loader: Callable[[str], SystemdResult], *, refre
 """
 
 
+def _xray_runtime_html(runtime_loader: Callable[[], XrayRuntimeStatus], *, refreshed: bool = False) -> str:
+    status = runtime_loader()
+    heading = "Xray 运行时已刷新" if refreshed else "Xray 运行时"
+    version = status.version or "未识别 / 未安装"
+    guidance = ""
+    if status.status == "not_installed":
+        guidance = "<p>请先安装 xray-core，或修改 MiGate Xray bin_path。</p>"
+    output = "\n".join(part for part in [status.stdout, status.stderr] if part)
+    return f"""
+  <section class="card">
+    <h2>{heading}</h2>
+    <p>这里只检测本机 Xray 二进制和版本，不会下载、安装或修改系统。</p>
+    <form method="post" action="/xray/runtime/refresh">
+      <button type="submit">刷新 Xray 运行时</button>
+    </form>
+    <div class="label">状态：{escape(status.status)} ｜ 返回码：{escape(str(status.returncode))}</div>
+    <div class="label">路径：{escape(status.bin_path)}</div>
+    <div class="label">版本：{escape(version)}</div>
+    <p>{escape(status.message)}</p>
+    {guidance}
+    <pre>{escape(output)}</pre>
+  </section>
+"""
+
+
 def _result_output(*parts: object) -> str:
     values = []
     for part in parts:
@@ -274,6 +302,7 @@ def create_app(
     systemd_status_loader: Callable[[str], SystemdResult] | None = None,
     systemd_daemon_reloader: Callable[[], SystemdResult] | None = None,
     systemd_restarter: Callable[[str], SystemdResult] | None = None,
+    xray_runtime_loader: Callable[[], XrayRuntimeStatus] | None = None,
 ) -> FastAPI:
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
     config_path = Path(xray_config_path) if xray_config_path is not None else DEFAULT_XRAY_CONFIG_PATH
@@ -283,6 +312,7 @@ def create_app(
     daemon_reloader = systemd_daemon_reloader or daemon_reload
     restarter = systemd_restarter or restart_service
     migate_config = MiGateConfig()
+    runtime_loader = xray_runtime_loader or (lambda: detect_xray_runtime(migate_config.xray.bin_path))
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
@@ -291,6 +321,7 @@ def create_app(
         return _page_shell(
             _home_body(
                 nodes=repo.list_nodes(),
+                xray_runtime_html=_xray_runtime_html(runtime_loader),
                 service_status_html=_service_status_html(status_loader),
                 systemd_html=_systemd_preview_html(migate_config),
             )
@@ -427,7 +458,19 @@ def create_app(
         return _page_shell(
             _home_body(
                 nodes=repo.list_nodes(),
+                xray_runtime_html=_xray_runtime_html(runtime_loader),
                 service_status_html=_service_status_html(status_loader, refreshed=True),
+                systemd_html=_systemd_preview_html(migate_config),
+            )
+        )
+
+    @app.post("/xray/runtime/refresh", response_class=HTMLResponse)
+    def refresh_xray_runtime() -> str:
+        return _page_shell(
+            _home_body(
+                nodes=repo.list_nodes(),
+                xray_runtime_html=_xray_runtime_html(runtime_loader, refreshed=True),
+                service_status_html=_service_status_html(status_loader),
                 systemd_html=_systemd_preview_html(migate_config),
             )
         )
