@@ -8,6 +8,7 @@ import typer
 import uvicorn
 
 from migate.config import MiGateConfig
+from migate.proxy.run import render_proxy_run_result, run_proxy_placeholder
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
@@ -137,6 +138,14 @@ def proxy_doctor() -> None:
 @proxy_app.command("status")
 def proxy_status() -> None:
     typer.echo(render_proxy_runtime_report("Proxy status", run_proxy_status(MiGateConfig())))
+
+
+@proxy_app.command("run")
+def proxy_run() -> None:
+    result = run_proxy_placeholder(MiGateConfig())
+    typer.echo(render_proxy_run_result(result))
+    if result.status == "rejected":
+        raise typer.Exit(code=1)
 
 
 @proxy_service_app.command("preview")
