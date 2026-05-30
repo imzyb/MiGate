@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-import socket
 from pathlib import Path
+import socket
+import subprocess
+from typing import Protocol
 
 from migate.config import MiGateConfig
 from migate.routing.leak_guard import EgressGuardState, evaluate_egress_guard
@@ -25,6 +27,23 @@ class ProxyRuntimeReport:
     performed_side_effects: bool = False
 
 
+class CommandResult(Protocol):
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+@dataclass(frozen=True)
+class OpenVPNProcessStatus:
+    status: str
+    message: str
+    command: list[str]
+    returncode: int | None
+    stdout: str
+    stderr: str
+    performed_side_effects: bool = False
+
+
 def _default_port_listening(host: str, port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.2)
@@ -35,8 +54,74 @@ def _default_interface_exists(name: str) -> bool:
     return Path("/sys/class/net", name).exists()
 
 
-def _default_openvpn_running() -> bool:
-    return False
+def _subprocess_runner(argv: list[str]) -> CommandResult:
+    return subprocess.run(argv, capture_output=True, text=True, check=False)
+
+
+def detect_openvpn_process(
+    tun_interface: str,
+    *,
+    runner: Callable[[list[str]], CommandResult] = _subprocess_runner,
+) -> OpenVPNProcessStatus:
+    command = ["pgrep", "-f", f"openvpn.*{tun_interface}"]
+    try:
+        result = runner(command)
+    except FileNotFoundError as exc:
+        return OpenVPNProcessStatus(
+            status="error",
+            message=f"OpenVPN process probe failed for {tun_interface}",
+            command=command,
+            returncode=None,
+            stdout="",
+            stderr=str(exc),
+            performed_side_effects=False,
+        )
+
+    stdout = result.stdout.strip()
+    stderr = result.stderr.strip()
+    if result.returncode == 0:
+        return OpenVPNProcessStatus(
+            status="running",
+            message=f"OpenVPN process for {tun_interface} is running",
+            command=command,
+            returncode=result.returncode,
+            stdout=stdout,
+            stderr=stderr,
+            performed_side_effects=False,
+        )
+    if result.returncode == 1:
+        return OpenVPNProcessStatus(
+            status="stopped",
+            message=f"OpenVPN process for {tun_interface} is not running",
+            command=command,
+            returncode=result.returncode,
+            stdout=stdout,
+            stderr=stderr,
+            performed_side_effects=False,
+        )
+    return OpenVPNProcessStatus(
+        status="error",
+        message=f"OpenVPN process probe failed for {tun_interface}",
+        command=command,
+        returncode=result.returncode,
+        stdout=stdout,
+        stderr=stderr,
+        performed_side_effects=False,
+    )
+
+
+def _openvpn_status_from_bool(tun_interface: str, is_running: bool) -> OpenVPNProcessStatus:
+    return OpenVPNProcessStatus(
+        status="running" if is_running else "stopped",
+        message=f"OpenVPN process for {tun_interface} is running"
+        if is_running
+        else f"OpenVPN process for {tun_interface} is not running",
+        command=[],
+        returncode=0 if is_running else 1,
+        stdout="",
+        stderr="",
+        performed_side_effects=False,
+    )
 
 
 def _build_proxy_runtime_checks(
@@ -44,7 +129,7 @@ def _build_proxy_runtime_checks(
     *,
     port_listening: Callable[[str, int], bool],
     interface_exists: Callable[[str], bool],
-    openvpn_running: Callable[[], bool],
+    openvpn_status: Callable[[str], OpenVPNProcessStatus],
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> list[ProxyRuntimeCheck]:
@@ -97,13 +182,23 @@ def _build_proxy_runtime_checks(
         )
     )
 
+    openvpn_process = openvpn_status(config.vpn.interface)
+    openvpn_ok = openvpn_process.status == "running"
+    checks.append(
+        ProxyRuntimeCheck(
+            "openvpn_process",
+            "ok" if openvpn_ok else "failed",
+            openvpn_process.message,
+        )
+    )
+
     egress_decision = evaluate_egress_guard(
         EgressGuardState(
             leak_guard_enabled=config.security.leak_guard,
             fail_policy=config.security.fail_policy,
             tun_interface=config.vpn.interface,
             tun_interface_exists=tun_ok,
-            openvpn_running=openvpn_running(),
+            openvpn_running=openvpn_ok,
             native_public_ip=native_public_ip,
             egress_public_ip=egress_public_ip,
         )
@@ -129,11 +224,16 @@ def run_proxy_doctor(
     egress_public_ip: str | None = None,
 ) -> ProxyRuntimeReport:
     cfg = config or MiGateConfig()
+    openvpn_status = (
+        (lambda tun_interface: _openvpn_status_from_bool(tun_interface, openvpn_running()))
+        if openvpn_running is not None
+        else detect_openvpn_process
+    )
     checks = _build_proxy_runtime_checks(
         cfg,
         port_listening=port_listening or _default_port_listening,
         interface_exists=interface_exists or _default_interface_exists,
-        openvpn_running=openvpn_running or _default_openvpn_running,
+        openvpn_status=openvpn_status,
         native_public_ip=native_public_ip,
         egress_public_ip=egress_public_ip,
     )
@@ -154,11 +254,16 @@ def run_proxy_status(
     egress_public_ip: str | None = None,
 ) -> ProxyRuntimeReport:
     cfg = config or MiGateConfig()
+    openvpn_status = (
+        (lambda tun_interface: _openvpn_status_from_bool(tun_interface, openvpn_running()))
+        if openvpn_running is not None
+        else detect_openvpn_process
+    )
     checks = _build_proxy_runtime_checks(
         cfg,
         port_listening=port_listening or _default_port_listening,
         interface_exists=interface_exists or _default_interface_exists,
-        openvpn_running=openvpn_running or _default_openvpn_running,
+        openvpn_status=openvpn_status,
         native_public_ip=native_public_ip,
         egress_public_ip=egress_public_ip,
     )
