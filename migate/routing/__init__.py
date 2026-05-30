@@ -12,6 +12,12 @@ from migate.routing.policy_cleanup import (
     build_policy_routing_cleanup_plan,
     dry_run_policy_routing_cleanup_plan,
 )
+from migate.routing.policy_cleanup_runner import (
+    PolicyRoutingCleanupApplyResult,
+    PolicyRoutingCleanupApplyStep,
+    PolicyRoutingCleanupCommandResult,
+    apply_policy_routing_cleanup_plan,
+)
 from migate.routing.policy_plan import (
     PolicyRoutingDryRunResult,
     PolicyRoutingDryRunStep,
@@ -25,6 +31,9 @@ __all__ = [
     "EgressGuardState",
     "PolicyRoutingApplyResult",
     "PolicyRoutingApplyStep",
+    "PolicyRoutingCleanupApplyResult",
+    "PolicyRoutingCleanupApplyStep",
+    "PolicyRoutingCleanupCommandResult",
     "PolicyRoutingCleanupDryRunResult",
     "PolicyRoutingCleanupDryRunStep",
     "PolicyRoutingCleanupPlan",
@@ -33,6 +42,7 @@ __all__ = [
     "PolicyRoutingDryRunStep",
     "PolicyRoutingPlan",
     "apply_policy_routing_plan",
+    "apply_policy_routing_cleanup_plan",
     "build_policy_routing_plan",
     "build_policy_routing_cleanup_plan",
     "dry_run_policy_routing_cleanup_plan",
