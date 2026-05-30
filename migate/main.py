@@ -22,6 +22,7 @@ from migate.remote.install_runner import RemoteInstallCommandResult, RemoteInsta
 from migate.remote.lifecycle_plan import build_remote_lifecycle_dry_run_plan, render_remote_lifecycle_plan
 from migate.remote.lifecycle_runner import render_remote_lifecycle_run_result, run_remote_lifecycle
 from migate.remote.readiness import render_remote_readiness_report, run_remote_readiness
+from migate.remote.rollout_plan import build_remote_rollout_dry_run_plan, render_remote_rollout_plan
 from migate.proxy.socks5_listener import (
     build_socks5_listener_plan,
     render_socks5_listener_plan,
@@ -98,6 +99,16 @@ def build_xray_install_cli_plan(*, system: str | None = None, machine: str | Non
 
 def build_remote_egress_cli_plan(*, action: str, host: str = "166.88.232.2", port: int = 22, user: str = "root"):
     return build_remote_egress_dry_run_plan(host=host, port=port, user=user, action=action)
+
+
+def build_remote_rollout_cli_plan(
+    *,
+    host: str = "166.88.232.2",
+    port: int = 22,
+    user: str = "root",
+    staging_dir: str = "/tmp/migate-install",
+):
+    return build_remote_rollout_dry_run_plan(host=host, port=port, user=user, staging_dir=staging_dir)
 
 
 def build_remote_install_cli_plan(
@@ -341,6 +352,34 @@ def remote_egress_down(
     allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote egress runner shell."),
 ) -> None:
     _echo_remote_egress("down", host, port, user, dry_run, yes, allow_remote_changes)
+
+
+@remote_app.command("rollout")
+def remote_rollout(
+    host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
+    port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
+    user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+    staging_dir: str = typer.Option("/tmp/migate-install", "--staging-dir", help="Remote staging directory preview; must stay under /tmp/ for this dry-run layer."),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; real rollout runner is not implemented yet."),
+    yes: bool = typer.Option(False, "--yes", help="Reserved for future rollout execution."),
+    allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Reserved for future rollout execution."),
+) -> None:
+    plan = build_remote_rollout_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir)
+    if not dry_run:
+        plan = type(plan)(
+            status="rejected",
+            message="real remote rollout execution is not implemented; run without --no-dry-run",
+            target=plan.target,
+            credential_hint=plan.credential_hint,
+            staging_dir=plan.staging_dir,
+            steps=plan.steps,
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+    typer.echo(render_remote_rollout_plan(plan), nl=False)
+    if plan.status != "dry_run":
+        raise typer.Exit(code=1)
+    _ = (yes, allow_remote_changes)
 
 
 @remote_app.command("install")
