@@ -11,6 +11,7 @@ from migate.config import MiGateConfig
 from migate.proxy.run import render_proxy_run_result, run_proxy_placeholder
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
+from migate.proxy.socks5_listener import build_socks5_listener_plan, render_socks5_listener_plan
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
 from migate.xray.config_cli import preview_xray_config, save_xray_config
 from migate.xray.deploy_cli import render_xray_deploy_plan, render_xray_deploy_result, run_xray_deploy
@@ -29,9 +30,11 @@ xray_systemctl_app = typer.Typer(help="Safe systemctl controls for MiGate Xray s
 xray_apply_app = typer.Typer(help="Validation-gated Xray apply operations")
 proxy_app = typer.Typer(help="MiGate local proxy runtime status commands")
 proxy_service_app = typer.Typer(help="MiGate local proxy systemd service preview and save commands")
+proxy_socks5_app = typer.Typer(help="SOCKS5 local listener planning commands")
 app.add_typer(xray_app, name="xray")
 app.add_typer(proxy_app, name="proxy")
 proxy_app.add_typer(proxy_service_app, name="service")
+proxy_app.add_typer(proxy_socks5_app, name="socks5")
 xray_app.add_typer(xray_config_app, name="config")
 xray_app.add_typer(xray_service_app, name="service")
 xray_app.add_typer(xray_systemctl_app, name="systemctl")
@@ -153,6 +156,11 @@ def proxy_service_preview() -> None:
     typer.echo(preview_proxy_service_unit(), nl=False)
     typer.echo("systemctl_commands_executed: []")
     typer.echo("performed_side_effects: False")
+
+
+@proxy_socks5_app.command("plan")
+def proxy_socks5_plan() -> None:
+    typer.echo(render_socks5_listener_plan(build_socks5_listener_plan(MiGateConfig())))
 
 
 @proxy_service_app.command("save")

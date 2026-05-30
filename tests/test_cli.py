@@ -568,6 +568,19 @@ def test_proxy_run_command_reports_placeholder_when_preflight_passes(monkeypatch
     assert "forwarding_started: False" in result.output
 
 
+def test_proxy_socks5_plan_command_prints_dry_run_listener_plan():
+    result = runner.invoke(app, ["proxy", "socks5", "plan"])
+
+    assert result.exit_code == 0
+    assert "SOCKS5 listener plan" in result.output
+    assert "bind_host: 127.0.0.1" in result.output
+    assert "bind_port: 34501" in result.output
+    assert "connection_driver: Socks5Connection" in result.output
+    assert "will_listen: False" in result.output
+    assert "will_connect_upstream: False" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
 def test_proxy_service_preview_command_prints_unit_without_systemctl():
     result = runner.invoke(app, ["proxy", "service", "preview"])
 
