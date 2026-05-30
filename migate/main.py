@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import platform
 
 import typer
 import uvicorn
 
 from migate.config import MiGateConfig
+from migate.xray.install_executor import dry_run_xray_install_plan
+from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
 
 app = typer.Typer(help="MiGate smart egress gateway")
+xray_app = typer.Typer(help="Xray runtime and installer commands")
+app.add_typer(xray_app, name="xray")
 
 
 @app.callback()
@@ -25,6 +30,44 @@ class PanelServerConfig:
 
 def build_panel_server_config(host: str, port: int) -> PanelServerConfig:
     return PanelServerConfig(app="migate.api.app:create_app", host=host, port=port, factory=True)
+
+
+def build_xray_install_cli_plan(*, system: str | None = None, machine: str | None = None, version: str = "latest") -> XrayInstallPlan:
+    return build_xray_install_plan(
+        MiGateConfig(),
+        system=system or platform.system(),
+        machine=machine or platform.machine(),
+        version=version,
+    )
+
+
+def _echo_install_plan(plan: XrayInstallPlan) -> None:
+    typer.echo(plan.to_preview())
+
+
+def _echo_dry_run_report(plan: XrayInstallPlan) -> None:
+    result = dry_run_xray_install_plan(plan)
+    typer.echo(result.to_report())
+    typer.echo(f"commands_executed: {result.commands_executed}")
+    typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+
+
+@xray_app.command("install")
+def xray_install(
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview installer steps without running commands."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge that real installation may modify the system."),
+    version: str = typer.Option("latest", "--version", help="Xray-core release version, e.g. v1.8.24 or latest."),
+    system: str | None = typer.Option(None, "--system", help="Override detected OS for planning."),
+    machine: str | None = typer.Option(None, "--machine", help="Override detected CPU architecture for planning."),
+) -> None:
+    plan = build_xray_install_cli_plan(system=system, machine=machine, version=version)
+    _echo_install_plan(plan)
+    if not yes:
+        _echo_dry_run_report(plan)
+        return
+    typer.echo("真实安装 CLI 已就绪，但当前未接入默认执行器。")
+    typer.echo("请先使用 --dry-run 检查计划；后续版本会通过 allow_side_effects 门控接入真实执行。")
+    typer.echo("allow_side_effects=False")
 
 
 @app.command()
