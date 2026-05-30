@@ -8,6 +8,7 @@ import typer
 import uvicorn
 
 from migate.config import MiGateConfig
+from migate.xray.doctor import run_xray_install_doctor
 from migate.xray.install_executor import dry_run_xray_install_plan
 from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult, run_xray_install_plan
@@ -97,6 +98,13 @@ def _echo_install_result(result: XrayInstallResult) -> None:
             typer.echo(
                 f"- {step.action}: {step.status} returncode={step.returncode} command={' '.join(step.command)} stdout={step.stdout} stderr={step.stderr}"
             )
+
+
+@xray_app.command("doctor")
+def xray_doctor() -> None:
+    report = run_xray_install_doctor()
+    typer.echo(report.to_report())
+    typer.echo("performed_side_effects: False")
 
 
 @xray_app.command("install")
