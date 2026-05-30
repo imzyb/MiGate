@@ -1,5 +1,6 @@
 from migate.config import MiGateConfig
 from migate.proxy.socks5_listener import (
+    Socks5ServeEvent,
     Socks5ServeResult,
     render_socks5_serve_result,
     run_socks5_serve_placeholder,
@@ -23,6 +24,7 @@ def test_run_socks5_serve_placeholder_defaults_to_dry_run_without_listening():
         timed_out_connections=0,
         max_clients=1,
         client_timeout=5.0,
+        events=[],
         performed_side_effects=False,
     )
     assert calls == []
@@ -62,6 +64,7 @@ def test_run_socks5_serve_placeholder_calls_injected_server_starter_only_when_do
             timed_out_connections=0,
             max_clients=max_clients,
             client_timeout=client_timeout,
+            events=[],
             performed_side_effects=True,
         )
 
@@ -96,6 +99,7 @@ def test_start_socks5_placeholder_server_delegates_to_asyncio_server(monkeypatch
             timed_out_connections=0,
             max_clients=max_clients,
             client_timeout=client_timeout,
+            events=[],
             performed_side_effects=True,
         )
 
@@ -125,6 +129,16 @@ def test_render_socks5_serve_result_is_structured_and_mentions_no_upstream_conne
         timed_out_connections=0,
         max_clients=1,
         client_timeout=5.0,
+        events=[
+            Socks5ServeEvent(
+                client_id=1,
+                phase="connect",
+                status="accepted",
+                target_host="example.com",
+                target_port=443,
+                upstream_connected=False,
+            )
+        ],
         performed_side_effects=False,
     )
 
@@ -138,4 +152,6 @@ def test_render_socks5_serve_result_is_structured_and_mentions_no_upstream_conne
     assert "timed_out_connections: 0" in text
     assert "max_clients: 1" in text
     assert "client_timeout: 5.0" in text
+    assert "events: 1" in text
+    assert "event[1]: client_id=1 phase=connect status=accepted target=example.com:443 upstream_connected=False" in text
     assert "performed_side_effects: False" in text

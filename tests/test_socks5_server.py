@@ -7,6 +7,47 @@ from migate.proxy.socks5_server import serve_socks5_bounded, serve_socks5_once
 
 
 @pytest.mark.asyncio
+async def test_serve_socks5_bounded_records_connect_and_timeout_events():
+    server_task = asyncio.create_task(serve_socks5_bounded("127.0.0.1", 0, max_clients=2, client_timeout=0.05))
+    await asyncio.sleep(0)
+    server = await asyncio.wait_for(serve_socks5_bounded.current_server(), timeout=1)
+    bound_host, bound_port = server.sockets[0].getsockname()[:2]
+
+    reader1, writer1 = await asyncio.open_connection(bound_host, bound_port)
+    writer1.write(b"\x05\x01\x00")
+    await writer1.drain()
+    await reader1.readexactly(2)
+    writer1.write(b"\x05\x01\x00\x03\x0bexample.com\x01\xbb")
+    await writer1.drain()
+    await reader1.readexactly(10)
+    await reader1.read()
+    writer1.close()
+    await writer1.wait_closed()
+
+    reader2, writer2 = await asyncio.open_connection(bound_host, bound_port)
+    await asyncio.wait_for(reader2.read(), timeout=1)
+    writer2.close()
+    await writer2.wait_closed()
+
+    result = await asyncio.wait_for(server_task, timeout=1)
+
+    assert result.upstream_connections == 0
+    assert len(result.events) == 2
+    assert result.events[0].client_id == 1
+    assert result.events[0].phase == "connect"
+    assert result.events[0].status == "accepted"
+    assert result.events[0].target_host == "example.com"
+    assert result.events[0].target_port == 443
+    assert result.events[0].upstream_connected is False
+    assert result.events[1].client_id == 2
+    assert result.events[1].phase == "greeting"
+    assert result.events[1].status == "timed_out"
+    assert result.events[1].target_host is None
+    assert result.events[1].target_port is None
+    assert result.events[1].upstream_connected is False
+
+
+@pytest.mark.asyncio
 async def test_serve_socks5_bounded_times_out_idle_client_and_stops():
     server_task = asyncio.create_task(serve_socks5_bounded("127.0.0.1", 0, max_clients=1, client_timeout=0.05))
     await asyncio.sleep(0)

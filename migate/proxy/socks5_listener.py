@@ -30,6 +30,16 @@ class Socks5ListenerPlan:
 
 
 @dataclass(frozen=True)
+class Socks5ServeEvent:
+    client_id: int
+    phase: str
+    status: str
+    target_host: str | None
+    target_port: int | None
+    upstream_connected: bool
+
+
+@dataclass(frozen=True)
 class Socks5ServeResult:
     status: str
     message: str
@@ -41,6 +51,7 @@ class Socks5ServeResult:
     timed_out_connections: int
     max_clients: int
     client_timeout: float
+    events: list[Socks5ServeEvent]
     performed_side_effects: bool
 
 
@@ -100,6 +111,7 @@ def run_socks5_serve_placeholder(
             timed_out_connections=0,
             max_clients=max_clients,
             client_timeout=client_timeout,
+            events=[],
             performed_side_effects=False,
         )
     if not yes or not allow_network_listen:
@@ -114,6 +126,7 @@ def run_socks5_serve_placeholder(
             timed_out_connections=0,
             max_clients=max_clients,
             client_timeout=client_timeout,
+            events=[],
             performed_side_effects=False,
         )
     starter = server_starter or start_socks5_placeholder_server
@@ -131,19 +144,25 @@ def start_socks5_placeholder_server(bind_host: str, bind_port: int, max_clients:
 
 
 def render_socks5_serve_result(result: Socks5ServeResult) -> str:
-    return "\n".join(
-        [
-            "SOCKS5 serve result",
-            f"status: {result.status}",
-            f"message: {result.message}",
-            f"bind_host: {result.bind_host}",
-            f"bind_port: {result.bind_port}",
-            f"listener_started: {result.listener_started}",
-            f"accepted_connections: {result.accepted_connections}",
-            f"upstream_connections: {result.upstream_connections}",
-            f"timed_out_connections: {result.timed_out_connections}",
-            f"max_clients: {result.max_clients}",
-            f"client_timeout: {result.client_timeout}",
-            f"performed_side_effects: {result.performed_side_effects}",
-        ]
-    )
+    lines = [
+        "SOCKS5 serve result",
+        f"status: {result.status}",
+        f"message: {result.message}",
+        f"bind_host: {result.bind_host}",
+        f"bind_port: {result.bind_port}",
+        f"listener_started: {result.listener_started}",
+        f"accepted_connections: {result.accepted_connections}",
+        f"upstream_connections: {result.upstream_connections}",
+        f"timed_out_connections: {result.timed_out_connections}",
+        f"max_clients: {result.max_clients}",
+        f"client_timeout: {result.client_timeout}",
+        f"events: {len(result.events)}",
+    ]
+    for index, event in enumerate(result.events, start=1):
+        target = f"{event.target_host}:{event.target_port}" if event.target_host is not None else "none"
+        lines.append(
+            f"event[{index}]: client_id={event.client_id} phase={event.phase} status={event.status} "
+            f"target={target} upstream_connected={event.upstream_connected}"
+        )
+    lines.append(f"performed_side_effects: {result.performed_side_effects}")
+    return "\n".join(lines)
