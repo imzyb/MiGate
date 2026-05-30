@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 import platform
 
 import typer
 import uvicorn
 
 from migate.config import MiGateConfig
+from migate.egress.lifecycle import EgressLifecycleResult, bring_down_egress, bring_up_egress
 from migate.proxy.run import render_proxy_run_result, run_proxy_placeholder
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
@@ -20,6 +22,10 @@ from migate.proxy.socks5_listener import (
     run_socks5_serve_placeholder,
     write_socks5_serve_output,
 )
+from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
+from migate.routing.policy_plan import build_policy_routing_plan
+from migate.vpn.process_plan import build_openvpn_start_plan
+from migate.vpn.process_stop import build_openvpn_stop_plan
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
 from migate.xray.config_cli import preview_xray_config, save_xray_config
 from migate.xray.deploy_cli import render_xray_deploy_plan, render_xray_deploy_result, run_xray_deploy
@@ -39,8 +45,10 @@ xray_apply_app = typer.Typer(help="Validation-gated Xray apply operations")
 proxy_app = typer.Typer(help="MiGate local proxy runtime status commands")
 proxy_service_app = typer.Typer(help="MiGate local proxy systemd service preview and save commands")
 proxy_socks5_app = typer.Typer(help="SOCKS5 local listener planning commands")
+egress_app = typer.Typer(help="MiGate VPN egress lifecycle commands")
 app.add_typer(xray_app, name="xray")
 app.add_typer(proxy_app, name="proxy")
+app.add_typer(egress_app, name="egress")
 proxy_app.add_typer(proxy_service_app, name="service")
 proxy_app.add_typer(proxy_socks5_app, name="socks5")
 xray_app.add_typer(xray_config_app, name="config")
@@ -73,6 +81,60 @@ def build_xray_install_cli_plan(*, system: str | None = None, machine: str | Non
         machine=machine or platform.machine(),
         version=version,
     )
+
+
+def _default_openvpn_start_plan(config: MiGateConfig):
+    return build_openvpn_start_plan(
+        config,
+        config_path="/var/lib/migate/runtime/active.ovpn",
+        pid_path="/var/lib/migate/runtime/openvpn.pid",
+        status_path="/var/lib/migate/runtime/status.json",
+        log_path="/var/log/migate/openvpn.log",
+    )
+
+
+def _render_egress_result(result: EgressLifecycleResult) -> str:
+    lines = [
+        f"status: {result.status}",
+        f"message: {result.message}",
+        f"commands_executed: {result.commands_executed}",
+        f"performed_side_effects: {result.performed_side_effects}",
+    ]
+    if result.phases:
+        lines.append("phases:")
+        for phase in result.phases:
+            lines.append(f"- phase: {phase.name} status: {phase.status}")
+    return "\n".join(lines) + "\n"
+
+
+def _render_egress_up_dry_run(config: MiGateConfig) -> str:
+    openvpn_plan = _default_openvpn_start_plan(config)
+    routing_plan = build_policy_routing_plan(config)
+    lines = [
+        "status: dry_run",
+        "message: egress up dry-run preview",
+        "commands_executed: []",
+        "performed_side_effects: False",
+        "phases:",
+        f"- openvpn start: {' '.join(openvpn_plan.command)}",
+        *[f"- policy routing apply: {' '.join(command)}" for command in routing_plan.commands],
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _render_egress_down_dry_run(config: MiGateConfig, pid_file: Path) -> str:
+    cleanup_plan = build_policy_routing_cleanup_plan(config)
+    stop_plan = build_openvpn_stop_plan(pid_file=pid_file)
+    lines = [
+        "status: dry_run",
+        "message: egress down dry-run preview",
+        "commands_executed: []",
+        "performed_side_effects: False",
+        "phases:",
+        *[f"- policy routing cleanup: {' '.join(command)}" for command in cleanup_plan.commands],
+        f"- openvpn stop: kill -{stop_plan.kill_signal} <pid from {stop_plan.pid_file}>",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _echo_install_plan(plan: XrayInstallPlan) -> None:
@@ -237,6 +299,56 @@ def proxy_service_save(
     typer.echo(f"target: {result.target}")
     typer.echo(f"systemctl_commands_executed: {result.systemctl_commands_executed or []}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+
+
+@egress_app.command("up")
+def egress_up(
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview egress bring-up without system changes."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge egress bring-up side effects."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually allow egress bring-up when combined with --no-dry-run and --yes."),
+) -> None:
+    config = MiGateConfig()
+    if dry_run:
+        typer.echo(_render_egress_up_dry_run(config), nl=False)
+        return
+    if not yes or not allow_system_changes:
+        typer.echo("status: rejected")
+        typer.echo("message: egress up requires yes=True and allow_system_changes=True")
+        typer.echo("commands_executed: []")
+        typer.echo("performed_side_effects: False")
+        return
+    result = bring_up_egress(
+        _default_openvpn_start_plan(config),
+        build_policy_routing_plan(config),
+        allow_side_effects=True,
+    )
+    typer.echo(_render_egress_result(result), nl=False)
+
+
+@egress_app.command("down")
+def egress_down(
+    pid_file: str = typer.Option("/var/lib/migate/runtime/openvpn.pid", "--pid-file", help="OpenVPN pid file path for stop planning."),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview egress bring-down without system changes."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge egress bring-down side effects."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually allow egress bring-down when combined with --no-dry-run and --yes."),
+) -> None:
+    config = MiGateConfig()
+    pid_path = Path(pid_file)
+    if dry_run:
+        typer.echo(_render_egress_down_dry_run(config, pid_path), nl=False)
+        return
+    if not yes or not allow_system_changes:
+        typer.echo("status: rejected")
+        typer.echo("message: egress down requires yes=True and allow_system_changes=True")
+        typer.echo("commands_executed: []")
+        typer.echo("performed_side_effects: False")
+        return
+    result = bring_down_egress(
+        build_policy_routing_cleanup_plan(config),
+        build_openvpn_stop_plan(pid_file=pid_path),
+        allow_side_effects=True,
+    )
+    typer.echo(_render_egress_result(result), nl=False)
 
 
 @xray_config_app.command("preview")

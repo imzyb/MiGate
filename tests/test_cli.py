@@ -1,15 +1,129 @@
 import json
+from pathlib import Path
 
 from typer.testing import CliRunner
 
 import migate.main as main_module
 from migate.main import app, build_panel_server_config, build_xray_install_cli_plan, run_xray_install_cli
+from migate.egress.lifecycle import EgressLifecyclePhase, EgressLifecycleResult
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
 from migate.xray.doctor import DoctorCheck, DoctorReport
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult
 
 
 runner = CliRunner()
+
+
+def test_egress_up_command_defaults_to_dry_run_without_side_effects(monkeypatch):
+    calls = []
+
+    def fake_bring_up_egress(*args, **kwargs):
+        calls.append((args, kwargs))
+        return EgressLifecycleResult(
+            status="rejected",
+            message="allow_side_effects must be true to bring egress up",
+            phases=[],
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+
+    monkeypatch.setattr(main_module, "bring_up_egress", fake_bring_up_egress)
+
+    result = runner.invoke(app, ["egress", "up"])
+
+    assert result.exit_code == 0
+    assert "status: dry_run" in result.output
+    assert "message: egress up dry-run preview" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert "commands_executed: []" in result.output
+    assert "openvpn start" in result.output
+    assert "policy routing apply" in result.output
+    assert calls == []
+
+
+def test_egress_down_command_defaults_to_dry_run_without_side_effects(monkeypatch, tmp_path: Path):
+    calls = []
+    pid_file = tmp_path / "openvpn.pid"
+    pid_file.write_text("4321\n", encoding="utf-8")
+
+    def fake_bring_down_egress(*args, **kwargs):
+        calls.append((args, kwargs))
+        return EgressLifecycleResult(
+            status="rejected",
+            message="allow_side_effects must be true to bring egress down",
+            phases=[],
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+
+    monkeypatch.setattr(main_module, "bring_down_egress", fake_bring_down_egress)
+
+    result = runner.invoke(app, ["egress", "down", "--pid-file", str(pid_file)])
+
+    assert result.exit_code == 0
+    assert "status: dry_run" in result.output
+    assert "message: egress down dry-run preview" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert "commands_executed: []" in result.output
+    assert "policy routing cleanup" in result.output
+    assert "openvpn stop" in result.output
+    assert calls == []
+
+
+def test_egress_up_command_runs_orchestration_only_with_double_gate(monkeypatch):
+    calls = []
+    fake_result = EgressLifecycleResult(
+        status="up",
+        message="egress brought up",
+        phases=[
+            EgressLifecyclePhase(name="openvpn_start", status="started", result=object()),
+            EgressLifecyclePhase(name="policy_routing_apply", status="applied", result=object()),
+        ],
+        commands_executed=["openvpn --config /var/lib/migate/runtime/active.ovpn", "ip rule add fwmark 0x66 table 100"],
+        performed_side_effects=True,
+    )
+
+    def fake_bring_up_egress(*args, **kwargs):
+        calls.append((args, kwargs))
+        return fake_result
+
+    monkeypatch.setattr(main_module, "bring_up_egress", fake_bring_up_egress)
+
+    result = runner.invoke(app, ["egress", "up", "--no-dry-run", "--yes", "--allow-system-changes"])
+
+    assert result.exit_code == 0
+    assert "status: up" in result.output
+    assert "message: egress brought up" in result.output
+    assert "performed_side_effects: True" in result.output
+    assert "phase: openvpn_start status: started" in result.output
+    assert "phase: policy_routing_apply status: applied" in result.output
+    assert len(calls) == 1
+
+
+def test_egress_down_command_requires_double_gate_before_orchestration(monkeypatch, tmp_path: Path):
+    calls = []
+    pid_file = tmp_path / "openvpn.pid"
+    pid_file.write_text("4321\n", encoding="utf-8")
+
+    def fake_bring_down_egress(*args, **kwargs):
+        calls.append((args, kwargs))
+        return EgressLifecycleResult(
+            status="down",
+            message="egress brought down",
+            phases=[],
+            commands_executed=[],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(main_module, "bring_down_egress", fake_bring_down_egress)
+
+    result = runner.invoke(app, ["egress", "down", "--pid-file", str(pid_file), "--no-dry-run", "--yes"])
+
+    assert result.exit_code == 0
+    assert "status: rejected" in result.output
+    assert "egress down requires yes=True and allow_system_changes=True" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert calls == []
 
 
 def test_panel_command_accepts_safe_default_host_and_port_without_starting_server():
