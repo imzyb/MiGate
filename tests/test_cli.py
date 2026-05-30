@@ -4,6 +4,7 @@ from typer.testing import CliRunner
 
 import migate.main as main_module
 from migate.main import app, build_panel_server_config, build_xray_install_cli_plan, run_xray_install_cli
+from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
 from migate.xray.doctor import DoctorCheck, DoctorReport
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult
 
@@ -634,6 +635,62 @@ def test_proxy_socks5_serve_command_rejects_real_listen_without_gate():
     assert "requires yes=True and allow_network_listen=True" in result.output
     assert "listener_started: False" in result.output
     assert "performed_side_effects: False" in result.output
+
+
+def test_proxy_socks5_serve_command_outputs_json_rejected_gate_result():
+    result = runner.invoke(app, ["proxy", "socks5", "serve", "--no-dry-run", "--yes", "--format", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "rejected"
+    assert payload["listener_started"] is False
+    assert payload["accepted_connections"] == 0
+    assert payload["upstream_connections"] == 0
+    assert payload["event_summary"]["total_events"] == 0
+    assert payload["events"] == []
+    assert payload["performed_side_effects"] is False
+
+
+def test_proxy_socks5_serve_command_json_includes_injected_real_result_events(monkeypatch):
+    def fake_run_socks5_serve_placeholder(*_args, **_kwargs):
+        return Socks5ServeResult(
+            status="stopped",
+            message="handled one client",
+            bind_host="127.0.0.1",
+            bind_port=34501,
+            listener_started=True,
+            accepted_connections=1,
+            upstream_connections=0,
+            timed_out_connections=0,
+            max_clients=1,
+            client_timeout=5.0,
+            events=[Socks5ServeEvent(1, "connect", "accepted", "example.com", 443, False)],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(main_module, "run_socks5_serve_placeholder", fake_run_socks5_serve_placeholder)
+
+    result = runner.invoke(app, ["proxy", "socks5", "serve", "--no-dry-run", "--yes", "--allow-network-listen", "--format", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "stopped"
+    assert payload["listener_started"] is True
+    assert payload["accepted_connections"] == 1
+    assert payload["upstream_connections"] == 0
+    assert payload["event_summary"]["accepted_events"] == 1
+    assert payload["event_summary"]["upstream_connected_events"] == 0
+    assert payload["events"] == [
+        {
+            "client_id": 1,
+            "phase": "connect",
+            "status": "accepted",
+            "target_host": "example.com",
+            "target_port": 443,
+            "upstream_connected": False,
+        }
+    ]
+    assert payload["performed_side_effects"] is True
 
 
 def test_proxy_socks5_serve_command_accepts_max_clients_option_in_dry_run():
