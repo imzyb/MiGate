@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 import asyncio
+import json
 
 from migate.config import MiGateConfig
 
@@ -126,6 +127,10 @@ def socks5_serve_result_to_dict(result: Socks5ServeResult) -> dict[str, object]:
         ],
         "performed_side_effects": result.performed_side_effects,
     }
+
+
+def render_socks5_serve_json(result: Socks5ServeResult) -> str:
+    return json.dumps(socks5_serve_result_to_dict(result), sort_keys=True) + "\n"
 
 
 def render_socks5_listener_plan(plan: Socks5ListenerPlan) -> str:

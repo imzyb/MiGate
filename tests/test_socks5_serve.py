@@ -1,8 +1,11 @@
+import json
+
 from migate.config import MiGateConfig
 from migate.proxy.socks5_listener import (
     Socks5ServeEvent,
     Socks5ServeEventSummary,
     Socks5ServeResult,
+    render_socks5_serve_json,
     render_socks5_serve_result,
     socks5_serve_result_to_dict,
     run_socks5_serve_placeholder,
@@ -89,6 +92,32 @@ def test_socks5_serve_result_to_dict_includes_summary_and_events():
         ],
         "performed_side_effects": False,
     }
+
+
+def test_render_socks5_serve_json_matches_result_dict_contract():
+    result = Socks5ServeResult(
+        status="rejected",
+        message="SOCKS5 listener requires yes=True and allow_network_listen=True",
+        bind_host="127.0.0.1",
+        bind_port=34501,
+        listener_started=False,
+        accepted_connections=0,
+        upstream_connections=0,
+        timed_out_connections=0,
+        max_clients=1,
+        client_timeout=5.0,
+        events=[Socks5ServeEvent(1, "greeting", "rejected", None, None, False)],
+        performed_side_effects=False,
+    )
+
+    text = render_socks5_serve_json(result)
+    payload = json.loads(text)
+
+    assert payload == socks5_serve_result_to_dict(result)
+    assert payload["status"] == "rejected"
+    assert payload["event_summary"]["rejected_events"] == 1
+    assert payload["events"][0]["phase"] == "greeting"
+    assert text.endswith("\n")
 
 
 def test_run_socks5_serve_placeholder_defaults_to_dry_run_without_listening():

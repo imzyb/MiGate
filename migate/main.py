@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-import json
 import platform
 
 import typer
@@ -15,9 +14,9 @@ from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_s
 from migate.proxy.socks5_listener import (
     build_socks5_listener_plan,
     render_socks5_listener_plan,
+    render_socks5_serve_json,
     render_socks5_serve_result,
     run_socks5_serve_placeholder,
-    socks5_serve_result_to_dict,
 )
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
 from migate.xray.config_cli import preview_xray_config, save_xray_config
@@ -196,7 +195,7 @@ def proxy_socks5_serve(
         client_timeout=client_timeout,
     )
     if output_format == "json":
-        typer.echo(json.dumps(socks5_serve_result_to_dict(result), sort_keys=True))
+        typer.echo(render_socks5_serve_json(result), nl=False)
     else:
         typer.echo(render_socks5_serve_result(result))
 
