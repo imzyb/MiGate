@@ -56,6 +56,12 @@ from migate.remote.rollout_plan import (
     build_remote_rollout_dry_run_plan,
     render_remote_rollout_plan,
 )
+from migate.remote.rollout_runner import (
+    RemoteRolloutPhaseResult,
+    RemoteRolloutRunResult,
+    render_remote_rollout_run_result,
+    run_remote_rollout_plan,
+)
 
 __all__ = [
     "RemoteDoctorCheck",
@@ -77,6 +83,8 @@ __all__ = [
     "RemoteReadinessCheck",
     "RemoteReadinessReport",
     "RemoteRolloutPlan",
+    "RemoteRolloutPhaseResult",
+    "RemoteRolloutRunResult",
     "RemoteRolloutStep",
     "build_remote_egress_dry_run_plan",
     "build_remote_install_dry_run_plan",
@@ -93,9 +101,11 @@ __all__ = [
     "render_remote_lifecycle_run_result",
     "render_remote_readiness_report",
     "render_remote_rollout_plan",
+    "render_remote_rollout_run_result",
     "run_remote_doctor",
     "run_remote_egress_plan",
     "run_remote_install_plan",
     "run_remote_lifecycle",
     "run_remote_readiness",
+    "run_remote_rollout_plan",
 ]
