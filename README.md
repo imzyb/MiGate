@@ -20,6 +20,16 @@ The egress lifecycle layer now composes already-tested lower-level phases:
 
 The layer requires `allow_side_effects=True`, stops on the first failed phase, aggregates `commands_executed` from phase results, and keeps phase result objects attached for later CLI/panel rendering. It supports separate injected runners for OpenVPN vs routing phases while preserving the older shared `runner=` path. It does not build raw commands, arm firewall rules, invent leak-guard state, or talk to systemd/panels directly.
 
+### Remote rollout dry-run
+
+Preview the full remote promotion flow without SSHing or changing the test VPS:
+
+```bash
+migate remote rollout
+```
+
+The dry-run rollout orders the currently available building blocks as `remote install -> remote readiness -> remote egress up`. It renders planned read-only vs planned side-effect phases, keeps `commands_executed: []`, and reports `performed_side_effects: False`. Real rollout execution is intentionally rejected until a dedicated runner layer is implemented.
+
 ### Remote install dry-run
 
 Preview the future remote installer on the dedicated test VPS without SSHing or making changes:

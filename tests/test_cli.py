@@ -10,6 +10,7 @@ from migate.main import (
     build_remote_egress_cli_plan,
     build_remote_install_cli_plan,
     build_remote_lifecycle_cli_plan,
+    build_remote_rollout_cli_plan,
     build_xray_install_cli_plan,
     run_remote_egress_cli,
     run_remote_install_cli,
@@ -65,6 +66,54 @@ def test_remote_readiness_command_exits_nonzero_when_failed(monkeypatch):
     assert "status: failed" in result.output
     assert "missing xray" in result.output
     assert "performed_side_effects: False" in result.output
+
+
+def test_build_remote_rollout_cli_plan_defaults_to_install_readiness_egress_up():
+    plan = build_remote_rollout_cli_plan()
+
+    assert plan.status == "dry_run"
+    assert plan.target == "root@166.88.232.2:22"
+    assert plan.staging_dir == "/tmp/migate-install"
+    assert plan.commands_executed == []
+    assert plan.performed_side_effects is False
+    assert [step.action for step in plan.steps] == ["install", "readiness", "egress_up"]
+
+
+def test_remote_rollout_command_defaults_to_dry_run_without_remote_side_effects():
+    result = runner.invoke(app, ["remote", "rollout"])
+
+    assert result.exit_code == 0
+    assert "Remote rollout dry-run" in result.output
+    assert "target: root@166.88.232.2:22" in result.output
+    assert "staging_dir: /tmp/migate-install" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert "- install: planned side-effect" in result.output
+    assert "- readiness: planned read-only" in result.output
+    assert "- egress_up: planned side-effect" in result.output
+    assert "migate remote install --host 166.88.232.2 --port 22 --user root" in result.output
+    assert "migate remote readiness --host 166.88.232.2 --port 22 --user root" in result.output
+    assert "migate remote egress up --host 166.88.232.2 --port 22 --user root" in result.output
+    assert "sshpass" not in result.output.lower()
+    assert "password" not in result.output.lower()
+
+
+def test_remote_rollout_command_rejects_no_dry_run_until_runner_exists():
+    result = runner.invoke(app, ["remote", "rollout", "--no-dry-run", "--yes", "--allow-remote-changes"])
+
+    assert result.exit_code == 1
+    assert "Remote rollout dry-run" in result.output
+    assert "real remote rollout execution is not implemented; run without --no-dry-run" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_remote_rollout_command_rejects_embedded_credentials():
+    result = runner.invoke(app, ["remote", "rollout", "--host", "root:secret@203.0.113.10"])
+
+    assert result.exit_code == 1
+    assert "embedded credentials are not allowed" in result.output
+    assert "secret" not in result.output
 
 
 def test_build_remote_egress_cli_plan_defaults_to_dedicated_test_vps_redacted():
