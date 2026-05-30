@@ -11,6 +11,15 @@ See `docs/plans/2026-05-30-migate-xray-gateway-v0.1.md` for the v0.1 implementat
 - Full-system lifecycle tests must run on the dedicated test VPS environment.
 - Never commit or document test VPS passwords, private keys, tokens, or connection strings. Use `[REDACTED]` in docs and reports.
 
+### Egress lifecycle orchestration
+
+The egress lifecycle layer now composes already-tested lower-level phases:
+
+- `bring_up_egress`: OpenVPN start -> policy routing apply
+- `bring_down_egress`: policy routing cleanup -> OpenVPN stop
+
+The layer requires `allow_side_effects=True`, stops on the first failed phase, aggregates `commands_executed` from phase results, and keeps phase result objects attached for later CLI/panel rendering. It supports separate injected runners for OpenVPN vs routing phases while preserving the older shared `runner=` path. It does not build raw commands, arm firewall rules, invent leak-guard state, or talk to systemd/panels directly.
+
 ### Remote install dry-run
 
 Preview the future remote installer on the dedicated test VPS without SSHing or making changes:

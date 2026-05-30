@@ -95,6 +95,36 @@ def test_bring_up_egress_stops_before_routing_when_openvpn_start_fails():
     assert result.performed_side_effects is True
 
 
+def test_bring_up_egress_accepts_separate_openvpn_and_routing_runners():
+    start_plan = _start_plan()
+    routing_plan = _routing_plan()
+    openvpn_calls: list[list[str]] = []
+    routing_calls: list[list[str]] = []
+
+    def openvpn_runner(argv: list[str]) -> FakeCommandResult:
+        openvpn_calls.append(argv)
+        assert argv[0] == "openvpn"
+        return FakeCommandResult(returncode=0, stdout="vpn ok", stderr="")
+
+    def routing_runner(argv: list[str]) -> FakeCommandResult:
+        routing_calls.append(argv)
+        assert argv[0] == "ip"
+        return FakeCommandResult(returncode=0, stdout="route ok", stderr="")
+
+    result = bring_up_egress(
+        start_plan,
+        routing_plan,
+        openvpn_runner=openvpn_runner,
+        routing_runner=routing_runner,
+        allow_side_effects=True,
+    )
+
+    assert openvpn_calls == [start_plan.command]
+    assert routing_calls == routing_plan.commands
+    assert result.status == "up"
+    assert result.commands_executed == [" ".join(start_plan.command), *[" ".join(command) for command in routing_plan.commands]]
+
+
 def test_bring_down_egress_rejects_without_side_effect_gate(tmp_path: Path):
     calls: list[list[str]] = []
 
@@ -134,6 +164,38 @@ def test_bring_down_egress_cleans_policy_routing_then_stops_openvpn(tmp_path: Pa
     assert [phase.status for phase in result.phases] == ["applied", "stopped"]
     assert result.commands_executed == [*[" ".join(command) for command in cleanup_plan.commands], "kill -TERM 4321"]
     assert result.performed_side_effects is True
+
+
+def test_bring_down_egress_accepts_separate_cleanup_and_stop_runners(tmp_path: Path):
+    pid_file = tmp_path / "openvpn.pid"
+    pid_file.write_text("4321\n", encoding="utf-8")
+    cleanup_plan = _cleanup_plan()
+    stop_plan = _stop_plan(pid_file)
+    cleanup_calls: list[list[str]] = []
+    stop_calls: list[list[str]] = []
+
+    def cleanup_runner(argv: list[str]) -> FakeCommandResult:
+        cleanup_calls.append(argv)
+        assert argv[0] == "ip"
+        return FakeCommandResult(returncode=0, stdout="cleanup ok", stderr="")
+
+    def stop_runner(argv: list[str]) -> FakeCommandResult:
+        stop_calls.append(argv)
+        assert argv[0] == "kill"
+        return FakeCommandResult(returncode=0, stdout="stop ok", stderr="")
+
+    result = bring_down_egress(
+        cleanup_plan,
+        stop_plan,
+        cleanup_runner=cleanup_runner,
+        stop_runner=stop_runner,
+        allow_side_effects=True,
+    )
+
+    assert cleanup_calls == cleanup_plan.commands
+    assert stop_calls == [["kill", "-TERM", "4321"]]
+    assert result.status == "down"
+    assert result.commands_executed == [*[" ".join(command) for command in cleanup_plan.commands], "kill -TERM 4321"]
 
 
 def test_bring_down_egress_stops_before_openvpn_stop_when_cleanup_fails(tmp_path: Path):
