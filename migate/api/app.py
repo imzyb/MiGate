@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from html import escape
 from pathlib import Path
 from uuid import uuid4
@@ -8,7 +9,9 @@ from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
 
 from migate.database.repository import NodeRecord, NodeRepository
+from migate.config import MiGateConfig
 from migate.xray.links import build_shadowsocks_link, build_trojan_link, build_vless_link
+from migate.xray.node_adapter import build_config_from_nodes
 from migate.xray.subscription import build_base64_subscription
 
 DEFAULT_DB_PATH = Path("/var/lib/migate/migate.db")
@@ -86,8 +89,29 @@ def _nodes_html(nodes: list[NodeRecord]) -> str:
 """
 
 
+def _xray_preview_html(nodes: list[NodeRecord]) -> str:
+    enabled_nodes = [node for node in nodes if node.enabled]
+    if not enabled_nodes:
+        return """
+  <section class="card">
+    <h2>Xray 配置预览</h2>
+    <p>暂无启用节点。创建节点后这里会显示即将写入 Xray 的配置。</p>
+  </section>
+"""
+    preview = json.dumps(build_config_from_nodes(MiGateConfig(), enabled_nodes), ensure_ascii=False, indent=2)
+    return f"""
+  <section class="card">
+    <h2>Xray 配置预览</h2>
+    <p>当前仅预览，不会写入磁盘或重载 Xray。安全约束：不生成 freedom 出站，默认路由到 MiGate SOCKS5。</p>
+    <pre>{escape(preview)}</pre>
+  </section>
+"""
+
+
 def _home_body(*, nodes: list[NodeRecord] | None = None, result_html: str = "") -> str:
-    nodes_html = _nodes_html(nodes or [])
+    current_nodes = nodes or []
+    nodes_html = _nodes_html(current_nodes)
+    preview_html = _xray_preview_html(current_nodes)
     return f"""
   <section class="hero">
     <div>
@@ -132,6 +156,7 @@ def _home_body(*, nodes: list[NodeRecord] | None = None, result_html: str = "") 
 
   {result_html}
   {nodes_html}
+  {preview_html}
 """
 
 
