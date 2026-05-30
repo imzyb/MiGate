@@ -15,6 +15,7 @@ from migate.main import (
     run_remote_egress_cli,
     run_remote_install_cli,
     run_remote_lifecycle_cli,
+    run_remote_rollout_cli,
     run_xray_install_cli,
 )
 from migate.egress.lifecycle import EgressLifecyclePhase, EgressLifecycleResult
@@ -25,6 +26,7 @@ from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResu
 from migate.remote.egress_runner import RemoteEgressCommandResult
 from migate.remote.install_runner import RemoteInstallCommandResult
 from migate.remote.readiness import RemoteReadinessCheck, RemoteReadinessReport
+from migate.remote.rollout_runner import RemoteRolloutPhaseResult
 
 
 runner = CliRunner()
@@ -98,13 +100,70 @@ def test_remote_rollout_command_defaults_to_dry_run_without_remote_side_effects(
     assert "password" not in result.output.lower()
 
 
-def test_remote_rollout_command_rejects_no_dry_run_until_runner_exists():
+def test_run_remote_rollout_cli_rejects_real_execution_without_double_gate():
+    calls = []
+
+    result = run_remote_rollout_cli(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        staging_dir="/tmp/migate-install",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=False,
+        install_runner=lambda: calls.append("install"),
+        readiness_runner=lambda: calls.append("readiness"),
+        egress_up_runner=lambda: calls.append("egress_up"),
+    )
+
+    assert result.status == "rejected"
+    assert result.message == "remote rollout requires yes=True and allow_remote_changes=True"
+    assert result.commands_executed == []
+    assert result.performed_side_effects is False
+    assert calls == []
+
+
+def test_remote_rollout_command_real_path_uses_phase_runners_with_double_gate(monkeypatch):
+    calls = []
+
+    def fake_run_remote_rollout_cli(**kwargs):
+        return main_module.run_remote_rollout_plan(
+            main_module.build_remote_rollout_cli_plan(
+                host=kwargs["host"],
+                port=kwargs["port"],
+                user=kwargs["user"],
+                staging_dir=kwargs["staging_dir"],
+            ),
+            dry_run=kwargs["dry_run"],
+            yes=kwargs["yes"],
+            allow_remote_changes=kwargs["allow_remote_changes"],
+            install_runner=lambda: calls.append("install")
+            or RemoteRolloutPhaseResult("install", "success", "installed", ["install command"], True),
+            readiness_runner=lambda: calls.append("readiness")
+            or RemoteReadinessReport("ok", "root@166.88.232.2:22", [], ["readiness command"], False),
+            egress_up_runner=lambda: calls.append("egress_up")
+            or RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+        )
+
+    monkeypatch.setattr(main_module, "run_remote_rollout_cli", fake_run_remote_rollout_cli)
+
     result = runner.invoke(app, ["remote", "rollout", "--no-dry-run", "--yes", "--allow-remote-changes"])
 
+    assert result.exit_code == 0
+    assert "Remote rollout result" in result.output
+    assert "status: success" in result.output
+    assert "performed_side_effects: True" in result.output
+    assert "- install: success - installed" in result.output
+    assert "- readiness: success - readiness ok" in result.output
+    assert "- egress_up: success - egress up" in result.output
+    assert calls == ["install", "readiness", "egress_up"]
+
+
+def test_remote_rollout_command_real_path_rejects_without_allow_remote_changes():
+    result = runner.invoke(app, ["remote", "rollout", "--no-dry-run", "--yes"])
+
     assert result.exit_code == 1
-    assert "Remote rollout dry-run" in result.output
-    assert "real remote rollout execution is not implemented; run without --no-dry-run" in result.output
-    assert "commands_executed: []" in result.output
+    assert "remote rollout requires yes=True and allow_remote_changes=True" in result.output
     assert "performed_side_effects: False" in result.output
 
 

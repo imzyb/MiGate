@@ -28,7 +28,15 @@ Preview the full remote promotion flow without SSHing or changing the test VPS:
 migate remote rollout
 ```
 
-The dry-run rollout orders the currently available building blocks as `remote install -> remote readiness -> remote egress up`. It renders planned read-only vs planned side-effect phases, keeps `commands_executed: []`, and reports `performed_side_effects: False`. Real rollout execution is intentionally rejected until a dedicated runner layer is implemented.
+The dry-run rollout orders the currently available building blocks as `remote install -> remote readiness -> remote egress up`. It renders planned read-only vs planned side-effect phases, keeps `commands_executed: []`, and reports `performed_side_effects: False`.
+
+The gated rollout runner shell is available only with all remote-change gates:
+
+```bash
+migate remote rollout --no-dry-run --yes --allow-remote-changes
+```
+
+This orchestration calls the already-gated remote install phase, then the read-only readiness probe, then the already-gated remote egress up phase. It stops on the first failed phase and reports aggregated `commands_executed` plus `performed_side_effects`.
 
 ### Remote install dry-run
 
