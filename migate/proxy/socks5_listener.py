@@ -363,6 +363,23 @@ def write_socks5_serve_output(
     )
 
 
+def socks5_serve_output_write_result_to_dict(result: Socks5ServeOutputWriteResult) -> dict[str, object]:
+    return {
+        "status": result.status,
+        "message": result.message,
+        "target": result.target,
+        "bytes_written": result.bytes_written,
+        "path_policy_reason": result.path_policy_reason,
+        "serve_performed_side_effects": result.serve_performed_side_effects,
+        "file_performed_side_effects": result.file_performed_side_effects,
+        "performed_side_effects": result.performed_side_effects,
+    }
+
+
+def render_socks5_serve_output_write_json(result: Socks5ServeOutputWriteResult) -> str:
+    return json.dumps(socks5_serve_output_write_result_to_dict(result), sort_keys=True) + "\n"
+
+
 def render_socks5_serve_output_write_result(result: Socks5ServeOutputWriteResult) -> str:
     return "\n".join(
         [

@@ -15,6 +15,7 @@ from migate.proxy.socks5_listener import (
     build_socks5_listener_plan,
     render_socks5_listener_plan,
     render_socks5_serve_output,
+    render_socks5_serve_output_write_json,
     render_socks5_serve_output_write_result,
     run_socks5_serve_placeholder,
     write_socks5_serve_output,
@@ -185,10 +186,15 @@ def proxy_socks5_serve(
     output: str | None = typer.Option(None, "--output", help="Optional file path to write rendered serve output."),
     allow_file_write: bool = typer.Option(False, "--allow-file-write", help="Actually allow writing --output when combined with --yes."),
     allow_system_output_path: bool = typer.Option(False, "--allow-system-output-path", help="Reserved gate for future system log paths; currently still rejected with an explanatory message."),
+    write_result_format: str = typer.Option("text", "--write-result-format", help="Render --output write result as text or json."),
 ) -> None:
     if output_format not in {"text", "json", "jsonl"}:
         typer.echo(f"unsupported format: {output_format}")
         typer.echo("supported formats: text, json, jsonl")
+        raise typer.Exit(code=1)
+    if write_result_format not in {"text", "json"}:
+        typer.echo(f"unsupported write result format: {write_result_format}")
+        typer.echo("supported write result formats: text, json")
         raise typer.Exit(code=1)
     result = run_socks5_serve_placeholder(
         MiGateConfig(),
@@ -208,7 +214,10 @@ def proxy_socks5_serve(
                 allow_file_write=allow_file_write,
                 allow_system_output_path=allow_system_output_path,
             )
-            typer.echo(render_socks5_serve_output_write_result(write_result))
+            if write_result_format == "json":
+                typer.echo(render_socks5_serve_output_write_json(write_result), nl=False)
+            else:
+                typer.echo(render_socks5_serve_output_write_result(write_result))
         else:
             typer.echo(render_socks5_serve_output(result, output_format=output_format), nl=False)
     except ValueError as exc:

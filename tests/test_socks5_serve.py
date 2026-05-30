@@ -10,6 +10,7 @@ from migate.proxy.socks5_listener import (
     render_socks5_serve_json,
     render_socks5_serve_jsonl,
     render_socks5_serve_output,
+    render_socks5_serve_output_write_json,
     render_socks5_serve_output_write_result,
     render_socks5_serve_result,
     write_socks5_serve_output,
@@ -510,6 +511,34 @@ def test_render_socks5_serve_output_write_result_is_structured():
     assert "serve_performed_side_effects: True" in text
     assert "file_performed_side_effects: True" in text
     assert "performed_side_effects: True" in text
+
+
+def test_render_socks5_serve_output_write_result_as_json():
+    result = Socks5ServeOutputWriteResult(
+        status="written",
+        message="SOCKS5 serve output written",
+        target="/tmp/serve.jsonl",
+        bytes_written=123,
+        path_policy_reason="tmp_allowed",
+        serve_performed_side_effects=True,
+        file_performed_side_effects=True,
+        performed_side_effects=True,
+    )
+
+    rendered = render_socks5_serve_output_write_json(result)
+
+    payload = json.loads(rendered)
+    assert payload == {
+        "status": "written",
+        "message": "SOCKS5 serve output written",
+        "target": "/tmp/serve.jsonl",
+        "bytes_written": 123,
+        "path_policy_reason": "tmp_allowed",
+        "serve_performed_side_effects": True,
+        "file_performed_side_effects": True,
+        "performed_side_effects": True,
+    }
+
 
 
 def test_run_socks5_serve_placeholder_defaults_to_dry_run_without_listening():

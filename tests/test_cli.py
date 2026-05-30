@@ -868,6 +868,64 @@ def test_proxy_socks5_serve_command_writes_output_file_when_double_gated(tmp_pat
     assert lines[0]["upstream_connections"] == 0
 
 
+def test_proxy_socks5_serve_command_writes_output_file_with_json_write_result(tmp_path):
+    target = tmp_path / "serve.jsonl"
+
+    result = runner.invoke(
+        app,
+        [
+            "proxy",
+            "socks5",
+            "serve",
+            "--format",
+            "jsonl",
+            "--output",
+            str(target),
+            "--yes",
+            "--allow-file-write",
+            "--write-result-format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "written"
+    assert payload["target"] == str(target)
+    assert payload["path_policy_reason"] == "tmp_allowed"
+    assert payload["file_performed_side_effects"] is True
+    assert target.exists()
+    file_lines = [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()]
+    assert file_lines[0]["type"] == "summary"
+    assert file_lines[0]["upstream_connections"] == 0
+
+
+def test_proxy_socks5_serve_command_rejects_unknown_write_result_format(tmp_path):
+    target = tmp_path / "serve.jsonl"
+
+    result = runner.invoke(
+        app,
+        [
+            "proxy",
+            "socks5",
+            "serve",
+            "--format",
+            "jsonl",
+            "--output",
+            str(target),
+            "--yes",
+            "--allow-file-write",
+            "--write-result-format",
+            "yaml",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "unsupported write result format: yaml" in result.output
+    assert "supported write result formats: text, json" in result.output
+    assert not target.exists()
+
+
 def test_proxy_socks5_serve_command_writes_injected_real_result_events_to_output_file(tmp_path, monkeypatch):
     target = tmp_path / "serve.jsonl"
 
