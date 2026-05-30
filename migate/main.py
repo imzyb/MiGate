@@ -9,6 +9,7 @@ import uvicorn
 
 from migate.config import MiGateConfig
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
+from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
 from migate.xray.config_cli import preview_xray_config, save_xray_config
 from migate.xray.deploy_cli import render_xray_deploy_plan, render_xray_deploy_result, run_xray_deploy
@@ -26,8 +27,10 @@ xray_service_app = typer.Typer(help="Xray systemd service preview and save comma
 xray_systemctl_app = typer.Typer(help="Safe systemctl controls for MiGate Xray service")
 xray_apply_app = typer.Typer(help="Validation-gated Xray apply operations")
 proxy_app = typer.Typer(help="MiGate local proxy runtime status commands")
+proxy_service_app = typer.Typer(help="MiGate local proxy systemd service preview and save commands")
 app.add_typer(xray_app, name="xray")
 app.add_typer(proxy_app, name="proxy")
+proxy_app.add_typer(proxy_service_app, name="service")
 xray_app.add_typer(xray_config_app, name="config")
 xray_app.add_typer(xray_service_app, name="service")
 xray_app.add_typer(xray_systemctl_app, name="systemctl")
@@ -134,6 +137,27 @@ def proxy_doctor() -> None:
 @proxy_app.command("status")
 def proxy_status() -> None:
     typer.echo(render_proxy_runtime_report("Proxy status", run_proxy_status(MiGateConfig())))
+
+
+@proxy_service_app.command("preview")
+def proxy_service_preview() -> None:
+    typer.echo(preview_proxy_service_unit(), nl=False)
+    typer.echo("systemctl_commands_executed: []")
+    typer.echo("performed_side_effects: False")
+
+
+@proxy_service_app.command("save")
+def proxy_service_save(
+    target: str = typer.Option(DEFAULT_PROXY_SERVICE_PATH, "--target", help="Target systemd unit path."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge that saving proxy service writes to disk."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually write service unit when combined with --yes."),
+) -> None:
+    result = save_proxy_service_unit(target, yes=yes, allow_system_changes=allow_system_changes)
+    typer.echo(f"status: {result.status}")
+    typer.echo(f"message: {result.message}")
+    typer.echo(f"target: {result.target}")
+    typer.echo(f"systemctl_commands_executed: {result.systemctl_commands_executed or []}")
+    typer.echo(f"performed_side_effects: {result.performed_side_effects}")
 
 
 @xray_config_app.command("preview")
