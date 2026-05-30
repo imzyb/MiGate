@@ -29,7 +29,7 @@ MiGate v0.1 is not a full 3x-ui clone. It is a focused one-stop gateway:
    │ VLESS / Trojan / Shadowsocks
    ▼
 [xray-core inbound]
-   │ outbound: socks -> 127.0.0.1:7929
+   │ outbound: socks -> 127.0.0.1:34501
    ▼
 [MiGate local SOCKS5/HTTP egress proxy]
    │ bound/guarded to tun-migate
@@ -156,9 +156,9 @@ MiGate/
 ```yaml
 proxy:
   http_host: "127.0.0.1"
-  http_port: 7928
+  http_port: 34502
   socks_host: "127.0.0.1"
-  socks_port: 7929
+  socks_port: 34501
 
 xray:
   enabled: true
@@ -348,7 +348,7 @@ def test_default_config_routes_xray_to_migate_socks():
 
     assert cfg.xray.default_outbound_tag == "migate-vpngate"
     assert cfg.proxy.socks_host == "127.0.0.1"
-    assert cfg.proxy.socks_port == 7929
+    assert cfg.proxy.socks_port == 34501
     assert cfg.security.fail_policy == "block"
 ```
 
@@ -482,7 +482,7 @@ def test_build_migate_socks_outbound_uses_local_socks_proxy():
     assert outbound["tag"] == "migate-vpngate"
     assert outbound["protocol"] == "socks"
     assert outbound["settings"]["servers"][0]["address"] == "127.0.0.1"
-    assert outbound["settings"]["servers"][0]["port"] == 7929
+    assert outbound["settings"]["servers"][0]["port"] == 34501
 ```
 
 **Step 2:** Verify RED.
@@ -933,7 +933,7 @@ MiGate v0.1 is done when:
 2. `migate status` prints Xray/VPN/Egress/Leak Guard sections.
 3. `migate node create --type vless --port 443 --host example.com` prints a valid `vless://` link.
 4. Generated Xray config contains no default direct `freedom` outbound for user traffic.
-5. Generated Xray outbound points to MiGate SOCKS5 at `127.0.0.1:7929`.
+5. Generated Xray outbound points to MiGate SOCKS5 at `127.0.0.1:34501`.
 6. VPNGate CSV parser can decode candidate OpenVPN configs.
 7. Leak guard blocks when tun is missing, OpenVPN is down, or egress IP equals native IP.
 8. Policy routing commands use table 100 and do not replace the system default route.

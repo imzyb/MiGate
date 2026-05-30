@@ -3,9 +3,9 @@ from pydantic import BaseModel, Field
 
 class ProxyConfig(BaseModel):
     http_host: str = "127.0.0.1"
-    http_port: int = 7928
+    http_port: int = 34502
     socks_host: str = "127.0.0.1"
-    socks_port: int = 7929
+    socks_port: int = 34501
 
 
 class XrayConfig(BaseModel):
