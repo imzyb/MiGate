@@ -57,6 +57,36 @@ def test_remote_lifecycle_command_rejects_embedded_credentials():
     assert "secret" not in result.output
 
 
+def test_remote_doctor_command_renders_injected_read_only_report(monkeypatch):
+    from migate.remote.doctor import RemoteDoctorCheck, RemoteDoctorReport
+
+    report = RemoteDoctorReport(
+        status="ok",
+        target="root@166.88.232.2:22",
+        checks=[RemoteDoctorCheck("ssh_connectivity", "ok", "SSH probe succeeded")],
+        commands_executed=["ssh -p 22 root@166.88.232.2 ..."],
+        performed_side_effects=False,
+    )
+    monkeypatch.setattr(main_module, "run_remote_doctor", lambda **kwargs: report)
+
+    result = runner.invoke(app, ["remote", "doctor"])
+
+    assert result.exit_code == 0
+    assert "Remote doctor" in result.output
+    assert "target: root@166.88.232.2:22" in result.output
+    assert "ssh_connectivity: ok - SSH probe succeeded" in result.output
+    assert "commands_executed: ['ssh -p 22 root@166.88.232.2 ...']" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_remote_doctor_command_rejects_embedded_credentials_without_probe():
+    result = runner.invoke(app, ["remote", "doctor", "--host", "root:secret@203.0.113.10"])
+
+    assert result.exit_code == 1
+    assert "embedded credentials are not allowed" in result.output
+    assert "secret" not in result.output
+
+
 def test_egress_up_command_defaults_to_dry_run_without_side_effects(monkeypatch):
     calls = []
 

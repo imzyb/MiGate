@@ -21,6 +21,14 @@ migate remote lifecycle
 
 The command prints a side-effect-free plan with `commands_executed: []` and `performed_side_effects: False`. It redacts credential hints and rejects embedded credentials such as `user:password@host`.
 
+Before any real remote lifecycle work, run the read-only doctor/preflight probe:
+
+```bash
+migate remote doctor
+```
+
+`remote doctor` uses SSH batch mode with a short connect timeout to inspect hostname, kernel, UID, and required command paths (`python3`, `systemctl`, `ip`, `openvpn`). It does not pass passwords, does not use `sshpass`, and reports `performed_side_effects: False`.
+
 Custom target preview:
 
 ```bash

@@ -14,6 +14,7 @@ from migate.egress.status import render_egress_status_report, run_egress_doctor,
 from migate.proxy.run import render_proxy_run_result, run_proxy_placeholder
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
+from migate.remote.doctor import render_remote_doctor_report, run_remote_doctor
 from migate.remote.lifecycle_plan import build_remote_lifecycle_dry_run_plan, render_remote_lifecycle_plan
 from migate.proxy.socks5_listener import (
     build_socks5_listener_plan,
@@ -220,6 +221,18 @@ def remote_lifecycle(
     plan = build_remote_lifecycle_cli_plan(host=host, port=port, user=user)
     typer.echo(render_remote_lifecycle_plan(plan), nl=False)
     if plan.status == "rejected":
+        raise typer.Exit(code=1)
+
+
+@remote_app.command("doctor")
+def remote_doctor(
+    host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
+    port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
+    user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+) -> None:
+    report = run_remote_doctor(host=host, port=port, user=user)
+    typer.echo(render_remote_doctor_report(report), nl=False)
+    if report.status != "ok":
         raise typer.Exit(code=1)
 
 

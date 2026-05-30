@@ -21,12 +21,12 @@ class RemoteLifecyclePlan:
     performed_side_effects: bool
 
 
-def _contains_embedded_credentials(value: str) -> bool:
+def contains_embedded_credentials(value: str) -> bool:
     return "@" in value and (":" in value.split("@", 1)[0])
 
 
 def build_remote_lifecycle_dry_run_plan(*, host: str, port: int, user: str) -> RemoteLifecyclePlan:
-    if _contains_embedded_credentials(host) or _contains_embedded_credentials(user):
+    if contains_embedded_credentials(host) or contains_embedded_credentials(user):
         return RemoteLifecyclePlan(
             status="rejected",
             message="embedded credentials are not allowed in remote lifecycle targets",
