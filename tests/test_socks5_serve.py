@@ -3,6 +3,7 @@ from migate.proxy.socks5_listener import (
     Socks5ServeResult,
     render_socks5_serve_result,
     run_socks5_serve_placeholder,
+    start_socks5_placeholder_server,
 )
 
 
@@ -71,6 +72,36 @@ def test_run_socks5_serve_placeholder_calls_injected_server_starter_only_when_do
     assert result.upstream_connections == 0
     assert result.performed_side_effects is True
     assert calls == [("127.0.0.1", 34501)]
+
+
+def test_start_socks5_placeholder_server_delegates_to_asyncio_server(monkeypatch):
+    calls = []
+
+    async def fake_serve_once(host: str, port: int):
+        calls.append((host, port))
+        return Socks5ServeResult(
+            status="stopped",
+            message="handled one client",
+            bind_host=host,
+            bind_port=port,
+            listener_started=True,
+            accepted_connections=1,
+            upstream_connections=0,
+            performed_side_effects=True,
+        )
+
+    import migate.proxy.socks5_listener as listener_module
+
+    monkeypatch.setattr(listener_module, "_serve_socks5_once", fake_serve_once)
+
+    result = start_socks5_placeholder_server("127.0.0.1", 0)
+
+    assert result.status == "stopped"
+    assert result.listener_started is True
+    assert result.accepted_connections == 1
+    assert result.upstream_connections == 0
+    assert result.performed_side_effects is True
+    assert calls == [("127.0.0.1", 0)]
 
 
 def test_render_socks5_serve_result_is_structured_and_mentions_no_upstream_connections():

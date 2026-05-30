@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import asyncio
 
 from migate.config import MiGateConfig
 
@@ -108,17 +109,14 @@ def run_socks5_serve_placeholder(
     return starter(bind_host, bind_port)
 
 
+async def _serve_socks5_once(bind_host: str, bind_port: int) -> Socks5ServeResult:
+    from migate.proxy.socks5_server import serve_socks5_once
+
+    return await serve_socks5_once(bind_host, bind_port)
+
+
 def start_socks5_placeholder_server(bind_host: str, bind_port: int) -> Socks5ServeResult:
-    return Socks5ServeResult(
-        status="listening_placeholder",
-        message="SOCKS5 listener placeholder is not wired to asyncio yet",
-        bind_host=bind_host,
-        bind_port=bind_port,
-        listener_started=False,
-        accepted_connections=0,
-        upstream_connections=0,
-        performed_side_effects=False,
-    )
+    return asyncio.run(_serve_socks5_once(bind_host, bind_port))
 
 
 def render_socks5_serve_result(result: Socks5ServeResult) -> str:
