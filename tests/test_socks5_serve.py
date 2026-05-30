@@ -263,6 +263,8 @@ def test_write_socks5_serve_output_rejects_without_double_file_write_gate(tmp_pa
         message="SOCKS5 serve output write requires yes=True and allow_file_write=True",
         target=str(target),
         bytes_written=0,
+        serve_performed_side_effects=False,
+        file_performed_side_effects=False,
         performed_side_effects=False,
     )
     assert not target.exists()
@@ -300,8 +302,44 @@ def test_write_socks5_serve_output_writes_rendered_output_when_double_gated(tmp_
         message="SOCKS5 serve output written",
         target=str(target),
         bytes_written=len(expected.encode("utf-8")),
+        serve_performed_side_effects=False,
+        file_performed_side_effects=True,
         performed_side_effects=True,
     )
+
+
+def test_write_socks5_serve_output_records_serve_and_file_side_effects_separately(tmp_path):
+    target = tmp_path / "serve.jsonl"
+    result = Socks5ServeResult(
+        status="stopped",
+        message="handled one client",
+        bind_host="127.0.0.1",
+        bind_port=34501,
+        listener_started=True,
+        accepted_connections=1,
+        upstream_connections=0,
+        timed_out_connections=0,
+        max_clients=1,
+        client_timeout=5.0,
+        events=[Socks5ServeEvent(1, "connect", "accepted", "example.com", 443, False)],
+        performed_side_effects=True,
+    )
+
+    write_result = write_socks5_serve_output(
+        result,
+        output_format="jsonl",
+        target=str(target),
+        yes=True,
+        allow_file_write=True,
+    )
+
+    lines = [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()]
+    assert lines[0]["status"] == "stopped"
+    assert lines[0]["upstream_connections"] == 0
+    assert lines[1]["target_host"] == "example.com"
+    assert write_result.serve_performed_side_effects is True
+    assert write_result.file_performed_side_effects is True
+    assert write_result.performed_side_effects is True
 
 
 def test_render_socks5_serve_output_write_result_is_structured():
@@ -310,6 +348,8 @@ def test_render_socks5_serve_output_write_result_is_structured():
         message="SOCKS5 serve output written",
         target="/tmp/serve.jsonl",
         bytes_written=123,
+        serve_performed_side_effects=True,
+        file_performed_side_effects=True,
         performed_side_effects=True,
     )
 
@@ -319,6 +359,8 @@ def test_render_socks5_serve_output_write_result_is_structured():
     assert "status: written" in text
     assert "target: /tmp/serve.jsonl" in text
     assert "bytes_written: 123" in text
+    assert "serve_performed_side_effects: True" in text
+    assert "file_performed_side_effects: True" in text
     assert "performed_side_effects: True" in text
 
 
