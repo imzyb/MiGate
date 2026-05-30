@@ -6,6 +6,7 @@ from migate.proxy.socks5_listener import (
     Socks5ServeEventSummary,
     Socks5ServeResult,
     render_socks5_serve_json,
+    render_socks5_serve_output,
     render_socks5_serve_result,
     socks5_serve_result_to_dict,
     run_socks5_serve_placeholder,
@@ -118,6 +119,50 @@ def test_render_socks5_serve_json_matches_result_dict_contract():
     assert payload["event_summary"]["rejected_events"] == 1
     assert payload["events"][0]["phase"] == "greeting"
     assert text.endswith("\n")
+
+
+def test_render_socks5_serve_output_dispatches_text_and_json_formats():
+    result = Socks5ServeResult(
+        status="dry_run",
+        message="SOCKS5 listener dry-run; no socket opened",
+        bind_host="127.0.0.1",
+        bind_port=34501,
+        listener_started=False,
+        accepted_connections=0,
+        upstream_connections=0,
+        timed_out_connections=0,
+        max_clients=1,
+        client_timeout=5.0,
+        events=[],
+        performed_side_effects=False,
+    )
+
+    assert render_socks5_serve_output(result, output_format="text") == render_socks5_serve_result(result) + "\n"
+    assert render_socks5_serve_output(result, output_format="json") == render_socks5_serve_json(result)
+
+
+def test_render_socks5_serve_output_rejects_unknown_format_without_side_effects():
+    result = Socks5ServeResult(
+        status="dry_run",
+        message="SOCKS5 listener dry-run; no socket opened",
+        bind_host="127.0.0.1",
+        bind_port=34501,
+        listener_started=False,
+        accepted_connections=0,
+        upstream_connections=0,
+        timed_out_connections=0,
+        max_clients=1,
+        client_timeout=5.0,
+        events=[],
+        performed_side_effects=False,
+    )
+
+    try:
+        render_socks5_serve_output(result, output_format="yaml")
+    except ValueError as exc:
+        assert str(exc) == "unsupported format: yaml; supported formats: text, json"
+    else:
+        raise AssertionError("expected ValueError for unsupported format")
 
 
 def test_run_socks5_serve_placeholder_defaults_to_dry_run_without_listening():

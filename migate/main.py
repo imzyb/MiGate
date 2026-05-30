@@ -14,8 +14,7 @@ from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_s
 from migate.proxy.socks5_listener import (
     build_socks5_listener_plan,
     render_socks5_listener_plan,
-    render_socks5_serve_json,
-    render_socks5_serve_result,
+    render_socks5_serve_output,
     run_socks5_serve_placeholder,
 )
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
@@ -194,10 +193,11 @@ def proxy_socks5_serve(
         max_clients=max_clients,
         client_timeout=client_timeout,
     )
-    if output_format == "json":
-        typer.echo(render_socks5_serve_json(result), nl=False)
-    else:
-        typer.echo(render_socks5_serve_result(result))
+    try:
+        typer.echo(render_socks5_serve_output(result, output_format=output_format), nl=False)
+    except ValueError as exc:
+        typer.echo(str(exc).replace("; ", "\n"))
+        raise typer.Exit(code=1) from exc
 
 
 @proxy_service_app.command("save")

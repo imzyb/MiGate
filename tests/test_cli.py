@@ -651,6 +651,22 @@ def test_proxy_socks5_serve_command_outputs_json_rejected_gate_result():
     assert payload["performed_side_effects"] is False
 
 
+def test_proxy_socks5_serve_command_delegates_output_rendering_to_formatter(monkeypatch):
+    calls = []
+
+    def fake_render_output(result, output_format: str):
+        calls.append((result.status, output_format))
+        return f"formatted::{result.status}::{output_format}\n"
+
+    monkeypatch.setattr(main_module, "render_socks5_serve_output", fake_render_output)
+
+    result = runner.invoke(app, ["proxy", "socks5", "serve", "--format", "json"])
+
+    assert result.exit_code == 0
+    assert result.output == "formatted::dry_run::json\n"
+    assert calls == [("dry_run", "json")]
+
+
 def test_proxy_socks5_serve_command_json_includes_injected_real_result_events(monkeypatch):
     def fake_run_socks5_serve_placeholder(*_args, **_kwargs):
         return Socks5ServeResult(

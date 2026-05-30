@@ -205,6 +205,14 @@ def start_socks5_placeholder_server(bind_host: str, bind_port: int, max_clients:
     return asyncio.run(_serve_socks5_once(bind_host, bind_port, max_clients, client_timeout))
 
 
+def render_socks5_serve_output(result: Socks5ServeResult, *, output_format: str) -> str:
+    if output_format == "text":
+        return render_socks5_serve_result(result) + "\n"
+    if output_format == "json":
+        return render_socks5_serve_json(result)
+    raise ValueError(f"unsupported format: {output_format}; supported formats: text, json")
+
+
 def render_socks5_serve_result(result: Socks5ServeResult) -> str:
     lines = [
         "SOCKS5 serve result",
