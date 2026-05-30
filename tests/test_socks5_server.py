@@ -7,6 +7,53 @@ from migate.proxy.socks5_server import serve_socks5_bounded, serve_socks5_once
 
 
 @pytest.mark.asyncio
+async def test_serve_socks5_bounded_records_rejected_greeting_and_connect_events():
+    server_task = asyncio.create_task(serve_socks5_bounded("127.0.0.1", 0, max_clients=2))
+    await asyncio.sleep(0)
+    server = await asyncio.wait_for(serve_socks5_bounded.current_server(), timeout=1)
+    bound_host, bound_port = server.sockets[0].getsockname()[:2]
+
+    reader1, writer1 = await asyncio.open_connection(bound_host, bound_port)
+    writer1.write(b"\x05\x01\x02")
+    await writer1.drain()
+    method_response1 = await reader1.readexactly(2)
+    await reader1.read()
+    writer1.close()
+    await writer1.wait_closed()
+
+    reader2, writer2 = await asyncio.open_connection(bound_host, bound_port)
+    writer2.write(b"\x05\x01\x00")
+    await writer2.drain()
+    method_response2 = await reader2.readexactly(2)
+    writer2.write(b"\x05\x02\x00\x03\x0bexample.com\x01\xbb")
+    await writer2.drain()
+    connect_response2 = await reader2.readexactly(10)
+    await reader2.read()
+    writer2.close()
+    await writer2.wait_closed()
+
+    result = await asyncio.wait_for(server_task, timeout=1)
+
+    assert method_response1 == b"\x05\xff"
+    assert method_response2 == b"\x05\x00"
+    assert connect_response2 == bytes([0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+    assert result.upstream_connections == 0
+    assert len(result.events) == 2
+    assert result.events[0].client_id == 1
+    assert result.events[0].phase == "greeting"
+    assert result.events[0].status == "rejected"
+    assert result.events[0].target_host is None
+    assert result.events[0].target_port is None
+    assert result.events[0].upstream_connected is False
+    assert result.events[1].client_id == 2
+    assert result.events[1].phase == "connect"
+    assert result.events[1].status == "rejected"
+    assert result.events[1].target_host is None
+    assert result.events[1].target_port is None
+    assert result.events[1].upstream_connected is False
+
+
+@pytest.mark.asyncio
 async def test_serve_socks5_bounded_records_connect_and_timeout_events():
     server_task = asyncio.create_task(serve_socks5_bounded("127.0.0.1", 0, max_clients=2, client_timeout=0.05))
     await asyncio.sleep(0)
