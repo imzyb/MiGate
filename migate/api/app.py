@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse
 
 from migate.database.repository import NodeRecord, NodeRepository
 from migate.config import MiGateConfig
-from migate.systemd.manager import SystemdResult, service_status
+from migate.systemd.manager import SystemdResult, daemon_reload, restart_service, service_status
 from migate.systemd.units import build_panel_unit, build_xray_unit, write_unit_file
 from migate.xray.links import build_shadowsocks_link, build_trojan_link, build_vless_link
 from migate.xray.node_adapter import build_config_from_nodes
@@ -102,11 +102,17 @@ def _xray_config_for_nodes(nodes: list[NodeRecord]) -> dict[str, object]:
 
 def _xray_preview_html(nodes: list[NodeRecord]) -> str:
     enabled_nodes = [node for node in nodes if node.enabled]
+    restart_form = """
+    <form method="post" action="/xray/restart">
+      <button type="submit">校验并重启 Xray</button>
+    </form>
+"""
     if not enabled_nodes:
-        return """
+        return f"""
   <section class="card">
     <h2>Xray 配置预览</h2>
     <p>暂无启用节点。创建节点后这里会显示即将写入 Xray 的配置。</p>
+    {restart_form}
   </section>
 """
     preview = json.dumps(_xray_config_for_nodes(enabled_nodes), ensure_ascii=False, indent=2)
@@ -120,6 +126,7 @@ def _xray_preview_html(nodes: list[NodeRecord]) -> str:
     <form method="post" action="/xray/config/validate">
       <button type="submit">校验 Xray 配置</button>
     </form>
+    {restart_form}
     <pre>{escape(preview)}</pre>
   </section>
 """
@@ -249,18 +256,32 @@ def _service_status_html(status_loader: Callable[[str], SystemdResult], *, refre
 """
 
 
+def _result_output(*parts: object) -> str:
+    values = []
+    for part in parts:
+        if isinstance(part, XrayValidationResult | SystemdResult):
+            values.extend([part.stdout, part.stderr])
+        elif part:
+            values.append(str(part))
+    return "\n".join(value for value in values if value)
+
+
 def create_app(
     node_repository: NodeRepository | None = None,
     xray_config_path: str | Path | None = None,
     xray_validator: Callable[[Path], XrayValidationResult] | None = None,
     systemd_unit_dir: str | Path | None = None,
     systemd_status_loader: Callable[[str], SystemdResult] | None = None,
+    systemd_daemon_reloader: Callable[[], SystemdResult] | None = None,
+    systemd_restarter: Callable[[str], SystemdResult] | None = None,
 ) -> FastAPI:
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
     config_path = Path(xray_config_path) if xray_config_path is not None else DEFAULT_XRAY_CONFIG_PATH
     unit_dir = Path(systemd_unit_dir) if systemd_unit_dir is not None else DEFAULT_SYSTEMD_UNIT_DIR
     validator = xray_validator or validate_xray_config
     status_loader = systemd_status_loader or service_status
+    daemon_reloader = systemd_daemon_reloader or daemon_reload
+    restarter = systemd_restarter or restart_service
     migate_config = MiGateConfig()
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
@@ -325,7 +346,7 @@ def create_app(
     @app.post("/xray/config/validate", response_class=HTMLResponse)
     def validate_saved_xray_config() -> str:
         result_value = validator(config_path)
-        output = "\n".join(part for part in [result_value.stdout, result_value.stderr] if part)
+        output = _result_output(result_value)
         result = f"""
   <section class="card">
     <h2>Xray 配置校验结果</h2>
@@ -335,6 +356,50 @@ def create_app(
   </section>
 """
         return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, systemd_html=_systemd_preview_html(migate_config)))
+
+    @app.post("/xray/restart", response_class=HTMLResponse)
+    def restart_xray_after_validation() -> str:
+        validation = validator(config_path)
+        if validation.status != "valid":
+            result = f"""
+  <section class="card">
+    <h2>Xray 未重启</h2>
+    <p>配置校验失败，未执行服务重载或重启。</p>
+    <p>校验状态：{escape(validation.status)}</p>
+    <pre>{escape(_result_output(validation))}</pre>
+  </section>
+"""
+            return _page_shell(
+                _home_body(
+                    nodes=repo.list_nodes(),
+                    result_html=result,
+                    service_status_html=_service_status_html(status_loader),
+                    systemd_html=_systemd_preview_html(migate_config),
+                )
+            )
+
+        reload_result = daemon_reloader()
+        restart_result = restarter("migate-xray.service")
+        result = f"""
+  <section class="card">
+    <h2>Xray 重启已执行</h2>
+    <p>配置校验通过后，已执行服务重载并重启 migate-xray.service。</p>
+    <div class="label">配置校验</div>
+    <pre>{escape(_result_output(validation))}</pre>
+    <div class="label">服务重载：{escape(reload_result.status)}</div>
+    <pre>{escape(_result_output(reload_result))}</pre>
+    <div class="label">Xray 重启：{escape(restart_result.status)}</div>
+    <pre>{escape(_result_output(restart_result))}</pre>
+  </section>
+"""
+        return _page_shell(
+            _home_body(
+                nodes=repo.list_nodes(),
+                result_html=result,
+                service_status_html=_service_status_html(status_loader),
+                systemd_html=_systemd_preview_html(migate_config),
+            )
+        )
 
     @app.post("/systemd/units/save", response_class=HTMLResponse)
     def save_systemd_units() -> str:

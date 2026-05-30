@@ -202,6 +202,89 @@ def test_panel_service_status_refresh_shows_structured_results(tmp_path):
     assert "重启服务" not in decoded
 
 
+def test_panel_home_shows_validation_gated_xray_restart_action(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    client = TestClient(create_app(node_repository=repo, xray_config_path=tmp_path / "config.json"))
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "校验并重启 Xray" in decoded
+    assert 'action="/xray/restart"' in decoded
+
+
+def test_panel_xray_restart_does_not_touch_systemd_when_validation_fails(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def validator(path):
+        return XrayValidationResult(status="invalid", returncode=1, stdout="", stderr="bad config")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="success", returncode=0, stdout="", stderr="")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_config_path=tmp_path / "config.json",
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+        )
+    )
+
+    response = client.post("/xray/restart")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Xray 未重启" in decoded
+    assert "配置校验失败" in decoded
+    assert "bad config" in decoded
+    assert calls == []
+
+
+def test_panel_xray_restart_runs_daemon_reload_then_restart_after_valid_config(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def validator(path):
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="success", returncode=0, stdout="daemon ok", stderr="")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_config_path=tmp_path / "config.json",
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+        )
+    )
+
+    response = client.post("/xray/restart")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Xray 重启已执行" in decoded
+    assert "config ok" in decoded
+    assert "daemon ok" in decoded
+    assert "restart ok" in decoded
+    assert calls == ["daemon-reload", "restart:migate-xray.service"]
+
+
 def test_panel_create_trojan_node_returns_share_link():
     client = TestClient(create_app())
 
