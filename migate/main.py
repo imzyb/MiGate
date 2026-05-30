@@ -178,6 +178,7 @@ def proxy_socks5_serve(
         help="Actually allow opening the SOCKS5 listening socket when combined with --no-dry-run and --yes.",
     ),
     max_clients: int = typer.Option(1, "--max-clients", min=1, help="Bounded number of local clients to handle before exiting."),
+    client_timeout: float = typer.Option(5.0, "--client-timeout", min=0.001, help="Seconds to wait for each client protocol read before closing."),
 ) -> None:
     result = run_socks5_serve_placeholder(
         MiGateConfig(),
@@ -185,6 +186,7 @@ def proxy_socks5_serve(
         yes=yes,
         allow_network_listen=allow_network_listen,
         max_clients=max_clients,
+        client_timeout=client_timeout,
     )
     typer.echo(render_socks5_serve_result(result))
 

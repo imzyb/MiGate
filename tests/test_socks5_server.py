@@ -7,6 +7,29 @@ from migate.proxy.socks5_server import serve_socks5_bounded, serve_socks5_once
 
 
 @pytest.mark.asyncio
+async def test_serve_socks5_bounded_times_out_idle_client_and_stops():
+    server_task = asyncio.create_task(serve_socks5_bounded("127.0.0.1", 0, max_clients=1, client_timeout=0.05))
+    await asyncio.sleep(0)
+    server = await asyncio.wait_for(serve_socks5_bounded.current_server(), timeout=1)
+    bound_host, bound_port = server.sockets[0].getsockname()[:2]
+
+    reader, writer = await asyncio.open_connection(bound_host, bound_port)
+    remaining = await asyncio.wait_for(reader.read(), timeout=1)
+    writer.close()
+    await writer.wait_closed()
+
+    result = await asyncio.wait_for(server_task, timeout=1)
+
+    assert remaining == b""
+    assert result.status == "stopped"
+    assert result.listener_started is True
+    assert result.accepted_connections == 1
+    assert result.timed_out_connections == 1
+    assert result.upstream_connections == 0
+    assert result.performed_side_effects is True
+
+
+@pytest.mark.asyncio
 async def test_serve_socks5_bounded_handles_two_clients_then_stops():
     server_task = asyncio.create_task(serve_socks5_bounded("127.0.0.1", 0, max_clients=2))
     await asyncio.sleep(0)

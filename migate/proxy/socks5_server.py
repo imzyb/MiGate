@@ -39,25 +39,30 @@ async def _handle_socks5_client(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
     stats: dict[str, int],
+    *,
+    client_timeout: float,
 ) -> None:
     connection = Socks5Connection()
     try:
-        greeting_header = await reader.readexactly(2)
+        greeting_header = await asyncio.wait_for(reader.readexactly(2), timeout=client_timeout)
         methods_count = greeting_header[1]
-        greeting_payload = greeting_header + await reader.readexactly(methods_count)
+        greeting_payload = greeting_header + await asyncio.wait_for(reader.readexactly(methods_count), timeout=client_timeout)
         greeting_event = connection.receive_greeting(greeting_payload)
         if greeting_event.response is not None:
             writer.write(greeting_event.response)
-            await writer.drain()
+            await asyncio.wait_for(writer.drain(), timeout=client_timeout)
         if greeting_event.status != "accepted":
             return
 
-        request_payload = await _read_socks5_request(reader)
+        request_payload = await asyncio.wait_for(_read_socks5_request(reader), timeout=client_timeout)
         connect_event = connection.receive_request(request_payload)
         if connect_event.response is not None:
             writer.write(connect_event.response)
-            await writer.drain()
+            await asyncio.wait_for(writer.drain(), timeout=client_timeout)
         stats["upstream_connections"] += 0
+    except TimeoutError:
+        stats["timed_out_connections"] += 1
+        return
     except (asyncio.IncompleteReadError, ConnectionResetError):
         return
     finally:
@@ -66,18 +71,24 @@ async def _handle_socks5_client(
         await writer.wait_closed()
 
 
-async def serve_socks5_bounded(bind_host: str, bind_port: int, *, max_clients: int = 1) -> Socks5ServeResult:
+async def serve_socks5_bounded(
+    bind_host: str,
+    bind_port: int,
+    *,
+    max_clients: int = 1,
+    client_timeout: float = 5.0,
+) -> Socks5ServeResult:
     """Serve a bounded number of SOCKS5 clients and then stop.
 
     This opens a local listening socket, but never opens upstream sockets.
     """
     global _current_server
-    stats = {"accepted_connections": 0, "upstream_connections": 0}
+    stats = {"accepted_connections": 0, "upstream_connections": 0, "timed_out_connections": 0}
     all_clients_done = asyncio.Event()
 
     async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
-            await _handle_socks5_client(reader, writer, stats)
+            await _handle_socks5_client(reader, writer, stats, client_timeout=client_timeout)
         finally:
             if stats["accepted_connections"] >= max_clients:
                 all_clients_done.set()
@@ -100,7 +111,9 @@ async def serve_socks5_bounded(bind_host: str, bind_port: int, *, max_clients: i
         listener_started=True,
         accepted_connections=stats["accepted_connections"],
         upstream_connections=stats["upstream_connections"],
+        timed_out_connections=stats["timed_out_connections"],
         max_clients=max_clients,
+        client_timeout=client_timeout,
         performed_side_effects=True,
     )
 

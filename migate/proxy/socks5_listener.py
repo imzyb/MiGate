@@ -38,11 +38,13 @@ class Socks5ServeResult:
     listener_started: bool
     accepted_connections: int
     upstream_connections: int
+    timed_out_connections: int
     max_clients: int
+    client_timeout: float
     performed_side_effects: bool
 
 
-Socks5ServerStarter = Callable[[str, int, int], Socks5ServeResult]
+Socks5ServerStarter = Callable[[str, int, int, float], Socks5ServeResult]
 
 
 def build_socks5_listener_plan(config: MiGateConfig) -> Socks5ListenerPlan:
@@ -81,6 +83,7 @@ def run_socks5_serve_placeholder(
     yes: bool = False,
     allow_network_listen: bool = False,
     max_clients: int = 1,
+    client_timeout: float = 5.0,
     server_starter: Socks5ServerStarter | None = None,
 ) -> Socks5ServeResult:
     bind_host = config.proxy.socks_host
@@ -94,7 +97,9 @@ def run_socks5_serve_placeholder(
             listener_started=False,
             accepted_connections=0,
             upstream_connections=0,
+            timed_out_connections=0,
             max_clients=max_clients,
+            client_timeout=client_timeout,
             performed_side_effects=False,
         )
     if not yes or not allow_network_listen:
@@ -106,21 +111,23 @@ def run_socks5_serve_placeholder(
             listener_started=False,
             accepted_connections=0,
             upstream_connections=0,
+            timed_out_connections=0,
             max_clients=max_clients,
+            client_timeout=client_timeout,
             performed_side_effects=False,
         )
     starter = server_starter or start_socks5_placeholder_server
-    return starter(bind_host, bind_port, max_clients)
+    return starter(bind_host, bind_port, max_clients, client_timeout)
 
 
-async def _serve_socks5_once(bind_host: str, bind_port: int, max_clients: int) -> Socks5ServeResult:
+async def _serve_socks5_once(bind_host: str, bind_port: int, max_clients: int, client_timeout: float) -> Socks5ServeResult:
     from migate.proxy.socks5_server import serve_socks5_bounded
 
-    return await serve_socks5_bounded(bind_host, bind_port, max_clients=max_clients)
+    return await serve_socks5_bounded(bind_host, bind_port, max_clients=max_clients, client_timeout=client_timeout)
 
 
-def start_socks5_placeholder_server(bind_host: str, bind_port: int, max_clients: int) -> Socks5ServeResult:
-    return asyncio.run(_serve_socks5_once(bind_host, bind_port, max_clients))
+def start_socks5_placeholder_server(bind_host: str, bind_port: int, max_clients: int, client_timeout: float) -> Socks5ServeResult:
+    return asyncio.run(_serve_socks5_once(bind_host, bind_port, max_clients, client_timeout))
 
 
 def render_socks5_serve_result(result: Socks5ServeResult) -> str:
@@ -134,7 +141,9 @@ def render_socks5_serve_result(result: Socks5ServeResult) -> str:
             f"listener_started: {result.listener_started}",
             f"accepted_connections: {result.accepted_connections}",
             f"upstream_connections: {result.upstream_connections}",
+            f"timed_out_connections: {result.timed_out_connections}",
             f"max_clients: {result.max_clients}",
+            f"client_timeout: {result.client_timeout}",
             f"performed_side_effects: {result.performed_side_effects}",
         ]
     )
