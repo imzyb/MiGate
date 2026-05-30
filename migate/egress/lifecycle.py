@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
-from migate.routing.policy_apply import PolicyRoutingCommandResult, apply_policy_routing_plan
+from migate.routing.policy_apply import apply_policy_routing_plan
 from migate.routing.policy_cleanup import PolicyRoutingCleanupPlan
-from migate.routing.policy_cleanup_runner import apply_policy_routing_cleanup_plan
+from migate.routing.policy_cleanup_runner import PolicyRoutingCleanupCommandResult, apply_policy_routing_cleanup_plan
 from migate.routing.policy_plan import PolicyRoutingPlan
 from migate.vpn.process_plan import OpenVPNStartPlan
-from migate.vpn.process_runner import run_openvpn_start_plan
-from migate.vpn.process_stop import OpenVPNStopPlan, run_openvpn_stop_plan
+from migate.vpn.process_runner import CommandResult as OpenVPNStartCommandResult, run_openvpn_start_plan
+from migate.vpn.process_stop import CommandResult as OpenVPNStopCommandResult, OpenVPNStopPlan, run_openvpn_stop_plan
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,9 @@ def bring_up_egress(
     start_plan: OpenVPNStartPlan,
     routing_plan: PolicyRoutingPlan,
     *,
-    runner: Callable[[list[str]], PolicyRoutingCommandResult] | None = None,
+    runner: Callable[[list[str]], Any] | None = None,
+    openvpn_runner: Callable[[list[str]], OpenVPNStartCommandResult] | None = None,
+    routing_runner: Callable[[list[str]], Any] | None = None,
     allow_side_effects: bool = False,
 ) -> EgressLifecycleResult:
     if not allow_side_effects:
@@ -46,7 +49,9 @@ def bring_up_egress(
             performed_side_effects=False,
         )
 
-    start_result = run_openvpn_start_plan(start_plan, runner=runner, allow_side_effects=True)
+    phase_runner = openvpn_runner or runner
+    routing_phase_runner = routing_runner or runner
+    start_result = run_openvpn_start_plan(start_plan, runner=phase_runner, allow_side_effects=True)
     phases = [EgressLifecyclePhase(name="openvpn_start", status=start_result.status, result=start_result)]
     if start_result.status != "started":
         return EgressLifecycleResult(
@@ -57,7 +62,7 @@ def bring_up_egress(
             performed_side_effects=start_result.performed_side_effects,
         )
 
-    routing_result = apply_policy_routing_plan(routing_plan, runner=runner, allow_side_effects=True)
+    routing_result = apply_policy_routing_plan(routing_plan, runner=routing_phase_runner, allow_side_effects=True)
     phases.append(EgressLifecyclePhase(name="policy_routing_apply", status=routing_result.status, result=routing_result))
     if routing_result.status != "applied":
         return EgressLifecycleResult(
@@ -81,7 +86,9 @@ def bring_down_egress(
     cleanup_plan: PolicyRoutingCleanupPlan,
     stop_plan: OpenVPNStopPlan,
     *,
-    runner: Callable[[list[str]], PolicyRoutingCommandResult] | None = None,
+    runner: Callable[[list[str]], Any] | None = None,
+    cleanup_runner: Callable[[list[str]], PolicyRoutingCleanupCommandResult] | None = None,
+    stop_runner: Callable[[list[str]], OpenVPNStopCommandResult] | None = None,
     allow_side_effects: bool = False,
 ) -> EgressLifecycleResult:
     if not allow_side_effects:
@@ -93,7 +100,9 @@ def bring_down_egress(
             performed_side_effects=False,
         )
 
-    cleanup_result = apply_policy_routing_cleanup_plan(cleanup_plan, runner=runner, allow_side_effects=True)
+    cleanup_phase_runner = cleanup_runner or runner
+    stop_phase_runner = stop_runner or runner
+    cleanup_result = apply_policy_routing_cleanup_plan(cleanup_plan, runner=cleanup_phase_runner, allow_side_effects=True)
     phases = [EgressLifecyclePhase(name="policy_routing_cleanup", status=cleanup_result.status, result=cleanup_result)]
     if cleanup_result.status != "applied":
         return EgressLifecycleResult(
@@ -104,7 +113,7 @@ def bring_down_egress(
             performed_side_effects=cleanup_result.performed_side_effects,
         )
 
-    stop_result = run_openvpn_stop_plan(stop_plan, runner=runner, allow_side_effects=True)
+    stop_result = run_openvpn_stop_plan(stop_plan, runner=stop_phase_runner, allow_side_effects=True)
     phases.append(EgressLifecyclePhase(name="openvpn_stop", status=stop_result.status, result=stop_result))
     if stop_result.status != "stopped":
         return EgressLifecycleResult(
