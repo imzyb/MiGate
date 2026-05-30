@@ -14,6 +14,7 @@ from migate.egress.status import render_egress_status_report, run_egress_doctor,
 from migate.proxy.run import render_proxy_run_result, run_proxy_placeholder
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
+from migate.remote.lifecycle_plan import build_remote_lifecycle_dry_run_plan, render_remote_lifecycle_plan
 from migate.proxy.socks5_listener import (
     build_socks5_listener_plan,
     render_socks5_listener_plan,
@@ -47,9 +48,11 @@ proxy_app = typer.Typer(help="MiGate local proxy runtime status commands")
 proxy_service_app = typer.Typer(help="MiGate local proxy systemd service preview and save commands")
 proxy_socks5_app = typer.Typer(help="SOCKS5 local listener planning commands")
 egress_app = typer.Typer(help="MiGate VPN egress lifecycle commands")
+remote_app = typer.Typer(help="Remote test VPS lifecycle planning commands")
 app.add_typer(xray_app, name="xray")
 app.add_typer(proxy_app, name="proxy")
 app.add_typer(egress_app, name="egress")
+app.add_typer(remote_app, name="remote")
 proxy_app.add_typer(proxy_service_app, name="service")
 proxy_app.add_typer(proxy_socks5_app, name="socks5")
 xray_app.add_typer(xray_config_app, name="config")
@@ -82,6 +85,10 @@ def build_xray_install_cli_plan(*, system: str | None = None, machine: str | Non
         machine=machine or platform.machine(),
         version=version,
     )
+
+
+def build_remote_lifecycle_cli_plan(*, host: str = "166.88.232.2", port: int = 22, user: str = "root"):
+    return build_remote_lifecycle_dry_run_plan(host=host, port=port, user=user)
 
 
 def _default_openvpn_start_plan(config: MiGateConfig):
@@ -202,6 +209,18 @@ def _echo_install_result(result: XrayInstallResult) -> None:
             typer.echo(
                 f"- {step.action}: {step.status} returncode={step.returncode} command={' '.join(step.command)} stdout={step.stdout} stderr={step.stderr}"
             )
+
+
+@remote_app.command("lifecycle")
+def remote_lifecycle(
+    host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
+    port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
+    user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+) -> None:
+    plan = build_remote_lifecycle_cli_plan(host=host, port=port, user=user)
+    typer.echo(render_remote_lifecycle_plan(plan), nl=False)
+    if plan.status == "rejected":
+        raise typer.Exit(code=1)
 
 
 @proxy_app.command("doctor")
