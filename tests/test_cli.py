@@ -120,6 +120,17 @@ def test_run_xray_install_cli_refuses_real_runner_without_double_gate():
     assert "allow_system_changes" in result.message
 
 
+def test_xray_doctor_command_reports_dependency_checks():
+    result = runner.invoke(app, ["xray", "doctor"])
+
+    assert result.exit_code == 0
+    assert "Xray 安装前检查" in result.output
+    assert "command:curl" in result.output
+    assert "command:unzip" in result.output
+    assert "writable:/usr/local/bin" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
 def test_build_xray_install_cli_plan_uses_safe_defaults():
     plan = build_xray_install_cli_plan(system="Linux", machine="x86_64", version="latest")
 
