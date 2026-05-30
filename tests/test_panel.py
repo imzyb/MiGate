@@ -122,6 +122,40 @@ def test_panel_validate_xray_config_shows_result(tmp_path):
     assert "config ok" in decoded
 
 
+def test_panel_home_previews_systemd_units_without_starting_services(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    client = TestClient(create_app(node_repository=repo, systemd_unit_dir=tmp_path / "systemd"))
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Systemd 服务文件预览" in decoded
+    assert "migate-xray.service" in decoded
+    assert "migate-panel.service" in decoded
+    assert "ExecStart=/usr/local/bin/xray run -config /etc/migate/xray/config.json" in decoded
+    assert "uvicorn migate.api.app:create_app" in decoded
+    assert "保存 systemd 服务文件" in decoded
+    assert "systemctl" not in decoded
+
+
+def test_panel_save_systemd_units_writes_unit_files_only(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    unit_dir = tmp_path / "systemd" / "system"
+    client = TestClient(create_app(node_repository=repo, systemd_unit_dir=unit_dir))
+
+    response = client.post("/systemd/units/save")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Systemd 服务文件已保存" in decoded
+    assert str(unit_dir / "migate-xray.service") in decoded
+    assert str(unit_dir / "migate-panel.service") in decoded
+    assert (unit_dir / "migate-xray.service").exists()
+    assert (unit_dir / "migate-panel.service").exists()
+    assert "systemctl" not in decoded
+
+
 def test_panel_create_trojan_node_returns_share_link():
     client = TestClient(create_app())
 

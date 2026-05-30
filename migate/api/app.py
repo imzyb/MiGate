@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse
 
 from migate.database.repository import NodeRecord, NodeRepository
 from migate.config import MiGateConfig
+from migate.systemd.units import build_panel_unit, build_xray_unit, write_unit_file
 from migate.xray.links import build_shadowsocks_link, build_trojan_link, build_vless_link
 from migate.xray.node_adapter import build_config_from_nodes
 from migate.xray.subscription import build_base64_subscription
@@ -19,6 +20,7 @@ from migate.xray.writer import write_xray_config
 
 DEFAULT_DB_PATH = Path("/var/lib/migate/migate.db")
 DEFAULT_XRAY_CONFIG_PATH = Path("/etc/migate/xray/config.json")
+DEFAULT_SYSTEMD_UNIT_DIR = Path("/etc/systemd/system")
 
 
 def _page_shell(body: str) -> str:
@@ -122,7 +124,7 @@ def _xray_preview_html(nodes: list[NodeRecord]) -> str:
 """
 
 
-def _home_body(*, nodes: list[NodeRecord] | None = None, result_html: str = "") -> str:
+def _home_body(*, nodes: list[NodeRecord] | None = None, result_html: str = "", systemd_html: str = "") -> str:
     current_nodes = nodes or []
     nodes_html = _nodes_html(current_nodes)
     preview_html = _xray_preview_html(current_nodes)
@@ -171,6 +173,7 @@ def _home_body(*, nodes: list[NodeRecord] | None = None, result_html: str = "") 
   {result_html}
   {nodes_html}
   {preview_html}
+  {systemd_html}
 """
 
 
@@ -192,20 +195,41 @@ def _build_link(protocol: str, host: str, port: int, name: str, credential: str)
     raise ValueError(f"unsupported protocol: {protocol}")
 
 
+def _systemd_preview_html(config: MiGateConfig) -> str:
+    xray_unit = build_xray_unit(config)
+    panel_unit = build_panel_unit(config)
+    return f"""
+  <section class="card">
+    <h2>Systemd 服务文件预览</h2>
+    <p>当前仅生成并保存服务文件，不会执行服务重载、开机启用、重启或其他服务控制操作。</p>
+    <form method="post" action="/systemd/units/save">
+      <button type="submit">保存 systemd 服务文件</button>
+    </form>
+    <div class="label">{escape(xray_unit.name)}</div>
+    <pre>{escape(xray_unit.content)}</pre>
+    <div class="label">{escape(panel_unit.name)}</div>
+    <pre>{escape(panel_unit.content)}</pre>
+  </section>
+"""
+
+
 def create_app(
     node_repository: NodeRepository | None = None,
     xray_config_path: str | Path | None = None,
     xray_validator: Callable[[Path], XrayValidationResult] | None = None,
+    systemd_unit_dir: str | Path | None = None,
 ) -> FastAPI:
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
     config_path = Path(xray_config_path) if xray_config_path is not None else DEFAULT_XRAY_CONFIG_PATH
+    unit_dir = Path(systemd_unit_dir) if systemd_unit_dir is not None else DEFAULT_SYSTEMD_UNIT_DIR
     validator = xray_validator or validate_xray_config
+    migate_config = MiGateConfig()
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:
-        return _page_shell(_home_body(nodes=repo.list_nodes()))
+        return _page_shell(_home_body(nodes=repo.list_nodes(), systemd_html=_systemd_preview_html(migate_config)))
 
     @app.post("/nodes/create", response_class=HTMLResponse)
     def create_node(
@@ -266,6 +290,20 @@ def create_app(
     <pre>{escape(output)}</pre>
   </section>
 """
-        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result))
+        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, systemd_html=_systemd_preview_html(migate_config)))
+
+    @app.post("/systemd/units/save", response_class=HTMLResponse)
+    def save_systemd_units() -> str:
+        written_xray = write_unit_file(build_xray_unit(migate_config), unit_dir)
+        written_panel = write_unit_file(build_panel_unit(migate_config), unit_dir)
+        result = f"""
+  <section class="card">
+    <h2>Systemd 服务文件已保存</h2>
+    <p>已写入：{escape(str(written_xray))}</p>
+    <p>已写入：{escape(str(written_panel))}</p>
+    <p>当前步骤仅写服务文件，不会执行服务重载或启动。</p>
+  </section>
+"""
+        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, systemd_html=_systemd_preview_html(migate_config)))
 
     return app
