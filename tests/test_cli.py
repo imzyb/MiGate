@@ -472,6 +472,49 @@ def test_xray_deploy_command_runs_real_orchestrator_when_double_gated(monkeypatc
     assert calls[0][1]["allow_system_changes"] is True
 
 
+def test_proxy_doctor_command_reports_runtime_preflight(monkeypatch):
+    from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport
+
+    monkeypatch.setattr(
+        main_module,
+        "run_proxy_doctor",
+        lambda *args, **kwargs: ProxyRuntimeReport(
+            status="failed",
+            checks=[ProxyRuntimeCheck("tun_interface", "failed", "tun-migate interface is missing")],
+            performed_side_effects=False,
+        ),
+    )
+
+    result = runner.invoke(app, ["proxy", "doctor"])
+
+    assert result.exit_code == 0
+    assert "Proxy doctor" in result.output
+    assert "status: failed" in result.output
+    assert "tun_interface: failed - tun-migate interface is missing" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_proxy_status_command_reports_observational_status(monkeypatch):
+    from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport
+
+    monkeypatch.setattr(
+        main_module,
+        "run_proxy_status",
+        lambda *args, **kwargs: ProxyRuntimeReport(
+            status="observed",
+            checks=[ProxyRuntimeCheck("socks_listen", "ok", "127.0.0.1:34501 is listening")],
+            performed_side_effects=False,
+        ),
+    )
+
+    result = runner.invoke(app, ["proxy", "status"])
+
+    assert result.exit_code == 0
+    assert "Proxy status" in result.output
+    assert "status: observed" in result.output
+    assert "socks_listen: ok - 127.0.0.1:34501 is listening" in result.output
+    assert "performed_side_effects: False" in result.output
+
 def test_xray_doctor_command_reports_dependency_checks():
     result = runner.invoke(app, ["xray", "doctor"])
 

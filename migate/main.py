@@ -8,6 +8,7 @@ import typer
 import uvicorn
 
 from migate.config import MiGateConfig
+from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
 from migate.xray.config_cli import preview_xray_config, save_xray_config
 from migate.xray.deploy_cli import render_xray_deploy_plan, render_xray_deploy_result, run_xray_deploy
@@ -24,7 +25,9 @@ xray_config_app = typer.Typer(help="Xray config preview and save commands")
 xray_service_app = typer.Typer(help="Xray systemd service preview and save commands")
 xray_systemctl_app = typer.Typer(help="Safe systemctl controls for MiGate Xray service")
 xray_apply_app = typer.Typer(help="Validation-gated Xray apply operations")
+proxy_app = typer.Typer(help="MiGate local proxy runtime status commands")
 app.add_typer(xray_app, name="xray")
+app.add_typer(proxy_app, name="proxy")
 xray_app.add_typer(xray_config_app, name="config")
 xray_app.add_typer(xray_service_app, name="service")
 xray_app.add_typer(xray_systemctl_app, name="systemctl")
@@ -121,6 +124,16 @@ def _echo_install_result(result: XrayInstallResult) -> None:
             typer.echo(
                 f"- {step.action}: {step.status} returncode={step.returncode} command={' '.join(step.command)} stdout={step.stdout} stderr={step.stderr}"
             )
+
+
+@proxy_app.command("doctor")
+def proxy_doctor() -> None:
+    typer.echo(render_proxy_runtime_report("Proxy doctor", run_proxy_doctor(MiGateConfig())))
+
+
+@proxy_app.command("status")
+def proxy_status() -> None:
+    typer.echo(render_proxy_runtime_report("Proxy status", run_proxy_status(MiGateConfig())))
 
 
 @xray_config_app.command("preview")
