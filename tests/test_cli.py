@@ -351,6 +351,70 @@ def test_xray_systemctl_restart_command_requires_double_gate(monkeypatch):
     assert calls[0][1]["allow_system_changes"] is False
 
 
+def test_xray_apply_restart_command_requires_double_gate(monkeypatch):
+    from migate.xray.apply_cli import XrayApplyResult
+    from migate.xray.validator import XrayValidationResult
+
+    calls = []
+
+    def fake_apply(*args, **kwargs):
+        calls.append((args, kwargs))
+        return XrayApplyResult(
+            status="rejected",
+            message="apply restart requires yes=True and allow_system_changes=True",
+            config_path="/etc/migate/xray/config.json",
+            validation=XrayValidationResult("skipped", None, "", ""),
+            systemctl_results=[],
+            performed_side_effects=False,
+        )
+
+    monkeypatch.setattr(main_module, "apply_validated_xray_restart", fake_apply)
+
+    result = runner.invoke(app, ["xray", "apply", "restart"])
+
+    assert result.exit_code == 0
+    assert "status: rejected" in result.output
+    assert "validation_status: skipped" in result.output
+    assert "systemctl_results: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert calls[0][1]["yes"] is False
+    assert calls[0][1]["allow_system_changes"] is False
+
+
+def test_xray_apply_restart_command_prints_ordered_systemctl_results(monkeypatch):
+    from migate.xray.apply_cli import XrayApplyResult
+    from migate.xray.systemctl_cli import ALLOWED_XRAY_SERVICE_NAME, SystemctlActionResult
+    from migate.xray.validator import XrayValidationResult
+
+    monkeypatch.setattr(
+        main_module,
+        "apply_validated_xray_restart",
+        lambda *args, **kwargs: XrayApplyResult(
+            status="success",
+            message="config validated and service restarted",
+            config_path="/tmp/config.json",
+            validation=XrayValidationResult("valid", 0, "config ok", ""),
+            systemctl_results=[
+                SystemctlActionResult("success", "daemon-reload", ALLOWED_XRAY_SERVICE_NAME, ["systemctl", "daemon-reload"], 0, "reload ok", "", True),
+                SystemctlActionResult("success", "restart", ALLOWED_XRAY_SERVICE_NAME, ["systemctl", "restart", ALLOWED_XRAY_SERVICE_NAME], 0, "restart ok", "", True),
+            ],
+            performed_side_effects=True,
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        ["xray", "apply", "restart", "--config", "/tmp/config.json", "--yes", "--allow-system-changes"],
+    )
+
+    assert result.exit_code == 0
+    assert "status: success" in result.output
+    assert "validation_status: valid" in result.output
+    assert "- action: daemon-reload status: success returncode: 0" in result.output
+    assert "- action: restart status: success returncode: 0" in result.output
+    assert "performed_side_effects: True" in result.output
+
+
 def test_xray_doctor_command_reports_dependency_checks():
     result = runner.invoke(app, ["xray", "doctor"])
 

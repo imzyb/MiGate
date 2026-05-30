@@ -8,6 +8,7 @@ import typer
 import uvicorn
 
 from migate.config import MiGateConfig
+from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
 from migate.xray.config_cli import preview_xray_config, save_xray_config
 from migate.xray.doctor import DoctorReport, run_xray_install_doctor
 from migate.xray.install_executor import dry_run_xray_install_plan
@@ -21,10 +22,12 @@ xray_app = typer.Typer(help="Xray runtime and installer commands")
 xray_config_app = typer.Typer(help="Xray config preview and save commands")
 xray_service_app = typer.Typer(help="Xray systemd service preview and save commands")
 xray_systemctl_app = typer.Typer(help="Safe systemctl controls for MiGate Xray service")
+xray_apply_app = typer.Typer(help="Validation-gated Xray apply operations")
 app.add_typer(xray_app, name="xray")
 xray_app.add_typer(xray_config_app, name="config")
 xray_app.add_typer(xray_service_app, name="service")
 xray_app.add_typer(xray_systemctl_app, name="systemctl")
+xray_app.add_typer(xray_apply_app, name="apply")
 
 
 @app.callback()
@@ -205,6 +208,34 @@ def xray_systemctl_restart(
     _echo_systemctl_result(
         run_xray_systemctl_action("restart", service=service, yes=yes, allow_system_changes=allow_system_changes)
     )
+
+
+def _echo_apply_result(result: XrayApplyResult) -> None:
+    typer.echo(f"status: {result.status}")
+    typer.echo(f"message: {result.message}")
+    typer.echo(f"config_path: {result.config_path}")
+    typer.echo(f"validation_status: {result.validation.status}")
+    typer.echo(f"validation_returncode: {result.validation.returncode}")
+    typer.echo(f"validation_stdout: {result.validation.stdout}")
+    typer.echo(f"validation_stderr: {result.validation.stderr}")
+    if not result.systemctl_results:
+        typer.echo("systemctl_results: []")
+    else:
+        typer.echo("systemctl_results:")
+        for item in result.systemctl_results:
+            typer.echo(f"- action: {item.action} status: {item.status} returncode: {item.returncode}")
+            typer.echo(f"  stdout: {item.stdout}")
+            typer.echo(f"  stderr: {item.stderr}")
+    typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+
+
+@xray_apply_app.command("restart")
+def xray_apply_restart(
+    config: str = typer.Option("/etc/migate/xray/config.json", "--config", help="Xray config path to validate before restart."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge validation-gated restart side effects."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually run daemon-reload and restart when combined with --yes."),
+) -> None:
+    _echo_apply_result(apply_validated_xray_restart(config, yes=yes, allow_system_changes=allow_system_changes))
 
 
 @xray_app.command("doctor")
