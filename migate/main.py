@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import json
 import platform
 
 import typer
@@ -16,6 +17,7 @@ from migate.proxy.socks5_listener import (
     render_socks5_listener_plan,
     render_socks5_serve_result,
     run_socks5_serve_placeholder,
+    socks5_serve_result_to_dict,
 )
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
 from migate.xray.config_cli import preview_xray_config, save_xray_config
@@ -179,7 +181,12 @@ def proxy_socks5_serve(
     ),
     max_clients: int = typer.Option(1, "--max-clients", min=1, help="Bounded number of local clients to handle before exiting."),
     client_timeout: float = typer.Option(5.0, "--client-timeout", min=0.001, help="Seconds to wait for each client protocol read before closing."),
+    output_format: str = typer.Option("text", "--format", help="Render result as text or json."),
 ) -> None:
+    if output_format not in {"text", "json"}:
+        typer.echo(f"unsupported format: {output_format}")
+        typer.echo("supported formats: text, json")
+        raise typer.Exit(code=1)
     result = run_socks5_serve_placeholder(
         MiGateConfig(),
         dry_run=dry_run,
@@ -188,7 +195,10 @@ def proxy_socks5_serve(
         max_clients=max_clients,
         client_timeout=client_timeout,
     )
-    typer.echo(render_socks5_serve_result(result))
+    if output_format == "json":
+        typer.echo(json.dumps(socks5_serve_result_to_dict(result), sort_keys=True))
+    else:
+        typer.echo(render_socks5_serve_result(result))
 
 
 @proxy_service_app.command("save")

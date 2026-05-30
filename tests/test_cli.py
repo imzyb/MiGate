@@ -1,3 +1,5 @@
+import json
+
 from typer.testing import CliRunner
 
 import migate.main as main_module
@@ -590,6 +592,38 @@ def test_proxy_socks5_serve_command_defaults_to_dry_run_without_listening():
     assert "listener_started: False" in result.output
     assert "upstream_connections: 0" in result.output
     assert "performed_side_effects: False" in result.output
+
+
+def test_proxy_socks5_serve_command_outputs_json_dry_run_result():
+    result = runner.invoke(app, ["proxy", "socks5", "serve", "--format", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "dry_run"
+    assert payload["listener_started"] is False
+    assert payload["accepted_connections"] == 0
+    assert payload["upstream_connections"] == 0
+    assert payload["timed_out_connections"] == 0
+    assert payload["max_clients"] == 1
+    assert payload["client_timeout"] == 5.0
+    assert payload["event_summary"] == {
+        "total_events": 0,
+        "accepted_events": 0,
+        "rejected_events": 0,
+        "timed_out_events": 0,
+        "upstream_connected_events": 0,
+        "performed_side_effects": False,
+    }
+    assert payload["events"] == []
+    assert payload["performed_side_effects"] is False
+
+
+def test_proxy_socks5_serve_command_rejects_unknown_format():
+    result = runner.invoke(app, ["proxy", "socks5", "serve", "--format", "yaml"])
+
+    assert result.exit_code == 1
+    assert "unsupported format: yaml" in result.output
+    assert "supported formats: text, json" in result.output
 
 
 def test_proxy_socks5_serve_command_rejects_real_listen_without_gate():

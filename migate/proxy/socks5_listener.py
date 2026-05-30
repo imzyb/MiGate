@@ -92,6 +92,42 @@ def summarize_socks5_serve_events(events: list[Socks5ServeEvent]) -> Socks5Serve
     )
 
 
+def socks5_serve_result_to_dict(result: Socks5ServeResult) -> dict[str, object]:
+    summary = summarize_socks5_serve_events(result.events)
+    return {
+        "status": result.status,
+        "message": result.message,
+        "bind_host": result.bind_host,
+        "bind_port": result.bind_port,
+        "listener_started": result.listener_started,
+        "accepted_connections": result.accepted_connections,
+        "upstream_connections": result.upstream_connections,
+        "timed_out_connections": result.timed_out_connections,
+        "max_clients": result.max_clients,
+        "client_timeout": result.client_timeout,
+        "event_summary": {
+            "total_events": summary.total_events,
+            "accepted_events": summary.accepted_events,
+            "rejected_events": summary.rejected_events,
+            "timed_out_events": summary.timed_out_events,
+            "upstream_connected_events": summary.upstream_connected_events,
+            "performed_side_effects": summary.performed_side_effects,
+        },
+        "events": [
+            {
+                "client_id": event.client_id,
+                "phase": event.phase,
+                "status": event.status,
+                "target_host": event.target_host,
+                "target_port": event.target_port,
+                "upstream_connected": event.upstream_connected,
+            }
+            for event in result.events
+        ],
+        "performed_side_effects": result.performed_side_effects,
+    }
+
+
 def render_socks5_listener_plan(plan: Socks5ListenerPlan) -> str:
     return "\n".join(
         [

@@ -4,6 +4,7 @@ from migate.proxy.socks5_listener import (
     Socks5ServeEventSummary,
     Socks5ServeResult,
     render_socks5_serve_result,
+    socks5_serve_result_to_dict,
     run_socks5_serve_placeholder,
     start_socks5_placeholder_server,
 )
@@ -28,6 +29,66 @@ def test_summarize_socks5_serve_events_counts_statuses_without_side_effects():
         upstream_connected_events=0,
         performed_side_effects=False,
     )
+
+
+def test_socks5_serve_result_to_dict_includes_summary_and_events():
+    result = Socks5ServeResult(
+        status="dry_run",
+        message="SOCKS5 listener dry-run; no socket opened",
+        bind_host="127.0.0.1",
+        bind_port=34501,
+        listener_started=False,
+        accepted_connections=0,
+        upstream_connections=0,
+        timed_out_connections=0,
+        max_clients=1,
+        client_timeout=5.0,
+        events=[
+            Socks5ServeEvent(
+                client_id=1,
+                phase="connect",
+                status="accepted",
+                target_host="example.com",
+                target_port=443,
+                upstream_connected=False,
+            )
+        ],
+        performed_side_effects=False,
+    )
+
+    payload = socks5_serve_result_to_dict(result)
+
+    assert payload == {
+        "status": "dry_run",
+        "message": "SOCKS5 listener dry-run; no socket opened",
+        "bind_host": "127.0.0.1",
+        "bind_port": 34501,
+        "listener_started": False,
+        "accepted_connections": 0,
+        "upstream_connections": 0,
+        "timed_out_connections": 0,
+        "max_clients": 1,
+        "client_timeout": 5.0,
+        "event_summary": {
+            "total_events": 1,
+            "accepted_events": 1,
+            "rejected_events": 0,
+            "timed_out_events": 0,
+            "upstream_connected_events": 0,
+            "performed_side_effects": False,
+        },
+        "events": [
+            {
+                "client_id": 1,
+                "phase": "connect",
+                "status": "accepted",
+                "target_host": "example.com",
+                "target_port": 443,
+                "upstream_connected": False,
+            }
+        ],
+        "performed_side_effects": False,
+    }
 
 
 def test_run_socks5_serve_placeholder_defaults_to_dry_run_without_listening():
