@@ -40,6 +40,16 @@ class Socks5ServeEvent:
 
 
 @dataclass(frozen=True)
+class Socks5ServeEventSummary:
+    total_events: int
+    accepted_events: int
+    rejected_events: int
+    timed_out_events: int
+    upstream_connected_events: int
+    performed_side_effects: bool
+
+
+@dataclass(frozen=True)
 class Socks5ServeResult:
     status: str
     message: str
@@ -67,6 +77,17 @@ def build_socks5_listener_plan(config: MiGateConfig) -> Socks5ListenerPlan:
         upstream_mode="not_implemented",
         will_listen=False,
         will_connect_upstream=False,
+        performed_side_effects=False,
+    )
+
+
+def summarize_socks5_serve_events(events: list[Socks5ServeEvent]) -> Socks5ServeEventSummary:
+    return Socks5ServeEventSummary(
+        total_events=len(events),
+        accepted_events=sum(1 for event in events if event.status == "accepted"),
+        rejected_events=sum(1 for event in events if event.status == "rejected"),
+        timed_out_events=sum(1 for event in events if event.status == "timed_out"),
+        upstream_connected_events=sum(1 for event in events if event.upstream_connected),
         performed_side_effects=False,
     )
 
@@ -158,6 +179,15 @@ def render_socks5_serve_result(result: Socks5ServeResult) -> str:
         f"client_timeout: {result.client_timeout}",
         f"events: {len(result.events)}",
     ]
+    summary = summarize_socks5_serve_events(result.events)
+    lines.extend(
+        [
+            f"accepted_events: {summary.accepted_events}",
+            f"rejected_events: {summary.rejected_events}",
+            f"timed_out_events: {summary.timed_out_events}",
+            f"upstream_connected_events: {summary.upstream_connected_events}",
+        ]
+    )
     for index, event in enumerate(result.events, start=1):
         target = f"{event.target_host}:{event.target_port}" if event.target_host is not None else "none"
         lines.append(

@@ -1,11 +1,33 @@
 from migate.config import MiGateConfig
 from migate.proxy.socks5_listener import (
     Socks5ServeEvent,
+    Socks5ServeEventSummary,
     Socks5ServeResult,
     render_socks5_serve_result,
     run_socks5_serve_placeholder,
     start_socks5_placeholder_server,
 )
+
+
+def test_summarize_socks5_serve_events_counts_statuses_without_side_effects():
+    from migate.proxy.socks5_listener import summarize_socks5_serve_events
+
+    events = [
+        Socks5ServeEvent(1, "connect", "accepted", "example.com", 443, False),
+        Socks5ServeEvent(2, "greeting", "rejected", None, None, False),
+        Socks5ServeEvent(3, "greeting", "timed_out", None, None, False),
+    ]
+
+    summary = summarize_socks5_serve_events(events)
+
+    assert summary == Socks5ServeEventSummary(
+        total_events=3,
+        accepted_events=1,
+        rejected_events=1,
+        timed_out_events=1,
+        upstream_connected_events=0,
+        performed_side_effects=False,
+    )
 
 
 def test_run_socks5_serve_placeholder_defaults_to_dry_run_without_listening():
@@ -153,5 +175,9 @@ def test_render_socks5_serve_result_is_structured_and_mentions_no_upstream_conne
     assert "max_clients: 1" in text
     assert "client_timeout: 5.0" in text
     assert "events: 1" in text
+    assert "accepted_events: 1" in text
+    assert "rejected_events: 0" in text
+    assert "timed_out_events: 0" in text
+    assert "upstream_connected_events: 0" in text
     assert "event[1]: client_id=1 phase=connect status=accepted target=example.com:443 upstream_connected=False" in text
     assert "performed_side_effects: False" in text
