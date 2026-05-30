@@ -264,6 +264,7 @@ def test_write_socks5_serve_output_rejects_without_double_file_write_gate(tmp_pa
         message="SOCKS5 serve output write requires yes=True and allow_file_write=True",
         target=str(target),
         bytes_written=0,
+        path_policy_reason="missing_file_write_gate",
         serve_performed_side_effects=False,
         file_performed_side_effects=False,
         performed_side_effects=False,
@@ -303,6 +304,7 @@ def test_write_socks5_serve_output_writes_project_relative_path_when_double_gate
     assert resolved.read_text(encoding="utf-8") == render_socks5_serve_output(result, output_format="jsonl")
     assert write_result.status == "written"
     assert write_result.target == str(resolved)
+    assert write_result.path_policy_reason == "project_relative_allowed"
 
 
 def test_write_socks5_serve_output_rejects_sensitive_system_paths_even_when_double_gated(tmp_path):
@@ -337,6 +339,7 @@ def test_write_socks5_serve_output_rejects_sensitive_system_paths_even_when_doub
     assert write_result.message == "SOCKS5 serve output target path is not allowed"
     assert write_result.target == target
     assert write_result.bytes_written == 0
+    assert write_result.path_policy_reason == "sensitive_absolute_path_denied"
     assert write_result.file_performed_side_effects is False
     assert not (project_root / "etc").exists()
 
@@ -373,6 +376,7 @@ def test_write_socks5_serve_output_rejects_system_paths_with_reserved_gate_messa
     assert write_result.status == "rejected"
     assert write_result.message == "SOCKS5 serve system output paths are intentionally unsupported until log rotation and ownership policy exist"
     assert write_result.target == target
+    assert write_result.path_policy_reason == "system_path_reserved"
     assert write_result.file_performed_side_effects is False
 
 
@@ -407,6 +411,7 @@ def test_write_socks5_serve_output_rejects_paths_outside_project_root(tmp_path):
     assert write_result.status == "rejected"
     assert write_result.message == "SOCKS5 serve output target path is not allowed"
     assert write_result.target == target
+    assert write_result.path_policy_reason == "outside_project_root"
     assert write_result.file_performed_side_effects is False
 
 
@@ -442,6 +447,7 @@ def test_write_socks5_serve_output_writes_rendered_output_when_double_gated(tmp_
         message="SOCKS5 serve output written",
         target=str(target),
         bytes_written=len(expected.encode("utf-8")),
+        path_policy_reason="tmp_allowed",
         serve_performed_side_effects=False,
         file_performed_side_effects=True,
         performed_side_effects=True,
@@ -488,6 +494,7 @@ def test_render_socks5_serve_output_write_result_is_structured():
         message="SOCKS5 serve output written",
         target="/tmp/serve.jsonl",
         bytes_written=123,
+        path_policy_reason="tmp_allowed",
         serve_performed_side_effects=True,
         file_performed_side_effects=True,
         performed_side_effects=True,
@@ -499,6 +506,7 @@ def test_render_socks5_serve_output_write_result_is_structured():
     assert "status: written" in text
     assert "target: /tmp/serve.jsonl" in text
     assert "bytes_written: 123" in text
+    assert "path_policy_reason: tmp_allowed" in text
     assert "serve_performed_side_effects: True" in text
     assert "file_performed_side_effects: True" in text
     assert "performed_side_effects: True" in text

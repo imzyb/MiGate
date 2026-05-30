@@ -73,6 +73,7 @@ class Socks5ServeOutputWriteResult:
     message: str
     target: str
     bytes_written: int
+    path_policy_reason: str
     serve_performed_side_effects: bool
     file_performed_side_effects: bool
     performed_side_effects: bool
@@ -279,21 +280,21 @@ def _path_is_relative_to(path: Path, parent: Path) -> bool:
     return True
 
 
-def _resolve_socks5_serve_output_target(target: str, policy: Socks5ServeOutputPathPolicy) -> Path | None:
+def _resolve_socks5_serve_output_target(target: str, policy: Socks5ServeOutputPathPolicy) -> tuple[Path | None, str]:
     target_path = Path(target)
     project_root = policy.project_root.resolve()
     tmp_root = policy.tmp_root.resolve()
     if target_path.is_absolute():
         resolved = target_path.resolve()
         if _path_is_relative_to(resolved, tmp_root):
-            return resolved
+            return resolved, "tmp_allowed"
         if _path_is_relative_to(resolved, project_root):
-            return resolved
-        return None
+            return resolved, "project_absolute_allowed"
+        return None, "sensitive_absolute_path_denied"
     resolved = (project_root / target_path).resolve()
     if _path_is_relative_to(resolved, project_root):
-        return resolved
-    return None
+        return resolved, "project_relative_allowed"
+    return None, "outside_project_root"
 
 
 def _reject_socks5_serve_output_write(
@@ -301,12 +302,14 @@ def _reject_socks5_serve_output_write(
     *,
     target: str,
     message: str,
+    path_policy_reason: str,
 ) -> Socks5ServeOutputWriteResult:
     return Socks5ServeOutputWriteResult(
         status="rejected",
         message=message,
         target=target,
         bytes_written=0,
+        path_policy_reason=path_policy_reason,
         serve_performed_side_effects=result.performed_side_effects,
         file_performed_side_effects=False,
         performed_side_effects=result.performed_side_effects,
@@ -328,19 +331,22 @@ def write_socks5_serve_output(
             result,
             target=target,
             message="SOCKS5 serve output write requires yes=True and allow_file_write=True",
+            path_policy_reason="missing_file_write_gate",
         )
-    resolved_target = _resolve_socks5_serve_output_target(target, path_policy or Socks5ServeOutputPathPolicy())
+    resolved_target, path_policy_reason = _resolve_socks5_serve_output_target(target, path_policy or Socks5ServeOutputPathPolicy())
     if resolved_target is None:
         if allow_system_output_path and Path(target).is_absolute():
             return _reject_socks5_serve_output_write(
                 result,
                 target=target,
                 message="SOCKS5 serve system output paths are intentionally unsupported until log rotation and ownership policy exist",
+                path_policy_reason="system_path_reserved",
             )
         return _reject_socks5_serve_output_write(
             result,
             target=target,
             message="SOCKS5 serve output target path is not allowed",
+            path_policy_reason=path_policy_reason,
         )
     rendered = render_socks5_serve_output(result, output_format=output_format)
     resolved_target.parent.mkdir(parents=True, exist_ok=True)
@@ -350,6 +356,7 @@ def write_socks5_serve_output(
         message="SOCKS5 serve output written",
         target=str(resolved_target),
         bytes_written=len(rendered.encode("utf-8")),
+        path_policy_reason=path_policy_reason,
         serve_performed_side_effects=result.performed_side_effects,
         file_performed_side_effects=True,
         performed_side_effects=True,
@@ -364,6 +371,7 @@ def render_socks5_serve_output_write_result(result: Socks5ServeOutputWriteResult
             f"message: {result.message}",
             f"target: {result.target}",
             f"bytes_written: {result.bytes_written}",
+            f"path_policy_reason: {result.path_policy_reason}",
             f"serve_performed_side_effects: {result.serve_performed_side_effects}",
             f"file_performed_side_effects: {result.file_performed_side_effects}",
             f"performed_side_effects: {result.performed_side_effects}",

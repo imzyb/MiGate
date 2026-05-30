@@ -808,6 +808,7 @@ def test_proxy_socks5_serve_command_rejects_sensitive_output_path_even_when_doub
     assert result.exit_code == 0
     assert "status: rejected" in result.output
     assert "SOCKS5 serve output target path is not allowed" in result.output
+    assert "path_policy_reason: sensitive_absolute_path_denied" in result.output
     assert "file_performed_side_effects: False" in result.output
 
 
@@ -831,6 +832,7 @@ def test_proxy_socks5_serve_command_rejects_reserved_system_output_path_gate():
     assert result.exit_code == 0
     assert "status: rejected" in result.output
     assert "system output paths are intentionally unsupported until log rotation and ownership policy exist" in result.output
+    assert "path_policy_reason: system_path_reserved" in result.output
     assert "file_performed_side_effects: False" in result.output
 
 
@@ -856,6 +858,7 @@ def test_proxy_socks5_serve_command_writes_output_file_when_double_gated(tmp_pat
     assert "SOCKS5 serve output write result" in result.output
     assert "status: written" in result.output
     assert f"target: {target}" in result.output
+    assert "path_policy_reason: tmp_allowed" in result.output
     assert "serve_performed_side_effects: False" in result.output
     assert "file_performed_side_effects: True" in result.output
     assert "performed_side_effects: True" in result.output
