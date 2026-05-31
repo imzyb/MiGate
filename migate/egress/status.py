@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+import socket
 import subprocess
 
 from migate.config import MiGateConfig
@@ -35,12 +36,21 @@ def _default_command_runner(argv: list[str]) -> CommandResult:
     return subprocess.run(argv, capture_output=True, text=True, check=False)
 
 
+def _default_upstream_proxy_connectable(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=1.0):
+            return True
+    except OSError:
+        return False
+
+
 def _build_egress_status_checks(
     config: MiGateConfig,
     *,
     interface_exists: Callable[[str], bool],
     command_runner: Callable[[list[str]], CommandResult],
     tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
+    upstream_proxy_connectable: Callable[[str, int], bool],
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> list[EgressStatusCheck]:
@@ -73,6 +83,20 @@ def _build_egress_status_checks(
         )
     )
 
+    if config.egress.backend == "xray-tun":
+        upstream_ok = upstream_proxy_connectable(config.proxy.socks_host, config.proxy.socks_port)
+        checks.append(
+            EgressStatusCheck(
+                "upstream_proxy",
+                "ok" if upstream_ok else "failed",
+                (
+                    f"xray-tun upstream SOCKS proxy {config.proxy.socks_host}:{config.proxy.socks_port} is listening"
+                    if upstream_ok
+                    else f"xray-tun upstream SOCKS proxy {config.proxy.socks_host}:{config.proxy.socks_port} is not listening; egress blocked"
+                ),
+            )
+        )
+
     egress_decision = evaluate_egress_guard(
         EgressGuardState(
             leak_guard_enabled=config.security.leak_guard,
@@ -100,6 +124,7 @@ def run_egress_doctor(
     interface_exists: Callable[[str], bool] | None = None,
     command_runner: Callable[[list[str]], CommandResult] | None = None,
     tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
+    upstream_proxy_connectable: Callable[[str, int], bool] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> EgressStatusReport:
@@ -109,6 +134,7 @@ def run_egress_doctor(
         interface_exists=interface_exists or _default_interface_exists,
         command_runner=command_runner or _default_command_runner,
         tunnel_process_detector=tunnel_process_detector,
+        upstream_proxy_connectable=upstream_proxy_connectable or _default_upstream_proxy_connectable,
         native_public_ip=native_public_ip,
         egress_public_ip=egress_public_ip,
     )
@@ -125,6 +151,7 @@ def run_egress_status(
     interface_exists: Callable[[str], bool] | None = None,
     command_runner: Callable[[list[str]], CommandResult] | None = None,
     tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
+    upstream_proxy_connectable: Callable[[str, int], bool] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> EgressStatusReport:
@@ -134,6 +161,7 @@ def run_egress_status(
         interface_exists=interface_exists or _default_interface_exists,
         command_runner=command_runner or _default_command_runner,
         tunnel_process_detector=tunnel_process_detector,
+        upstream_proxy_connectable=upstream_proxy_connectable or _default_upstream_proxy_connectable,
         native_public_ip=native_public_ip,
         egress_public_ip=egress_public_ip,
     )

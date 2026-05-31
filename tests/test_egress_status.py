@@ -128,6 +128,28 @@ def test_egress_doctor_xray_tun_default_detector_uses_read_only_systemctl_status
     assert report.performed_side_effects is False
 
 
+def test_egress_doctor_xray_tun_reports_missing_upstream_socks_listener():
+    config = MiGateConfig(egress=EgressConfig(backend="xray-tun"))
+    calls: list[tuple[str, int]] = []
+
+    report = run_egress_doctor(
+        config,
+        interface_exists=lambda name: True,
+        command_runner=lambda argv: FakeCommandResult(returncode=0, stdout="active\n"),
+        upstream_proxy_connectable=lambda host, port: calls.append((host, port)) or False,
+        native_public_ip="198.51.100.10",
+        egress_public_ip=None,
+    )
+
+    assert calls == [("127.0.0.1", 34501)]
+    assert EgressStatusCheck(
+        "upstream_proxy",
+        "failed",
+        "xray-tun upstream SOCKS proxy 127.0.0.1:34501 is not listening; egress blocked",
+    ) in report.checks
+    assert report.status == "failed"
+
+
 def test_egress_doctor_detects_native_ip_leak():
     report = run_egress_doctor(
         MiGateConfig(),
