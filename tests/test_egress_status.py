@@ -1,6 +1,7 @@
-from migate.config import MiGateConfig
+from migate.config import EgressConfig, MiGateConfig
 from migate.egress.status import EgressStatusCheck, EgressStatusReport, render_egress_status_report, run_egress_doctor, run_egress_status
 from migate.proxy.runtime import TunnelProcessStatus
+from migate.xray.systemctl_cli import ALLOWED_XRAY_TUN_SERVICE_NAME
 
 
 class FakeCommandResult:
@@ -69,8 +70,7 @@ def test_egress_status_is_observational_even_when_checks_fail():
 
 
 def test_egress_doctor_uses_backend_neutral_tunnel_process_check():
-    config = MiGateConfig()
-    config.egress.backend = "xray-tun"
+    config = MiGateConfig(egress=EgressConfig(backend="xray-tun"))
     calls: list[tuple[str, str]] = []
 
     def fake_tunnel_detector(backend: str, tun_interface: str) -> TunnelProcessStatus:
@@ -106,6 +106,26 @@ def test_egress_doctor_uses_backend_neutral_tunnel_process_check():
         "failed",
         "tunnel backend is not running; egress blocked",
     )
+
+
+def test_egress_doctor_xray_tun_default_detector_uses_read_only_systemctl_status():
+    calls: list[list[str]] = []
+
+    def fake_runner(argv: list[str]) -> FakeCommandResult:
+        calls.append(argv)
+        return FakeCommandResult(returncode=0, stdout="active\n")
+
+    report = run_egress_doctor(
+        MiGateConfig(egress=EgressConfig(backend="xray-tun")),
+        interface_exists=lambda name: name == "tun-migate",
+        command_runner=fake_runner,
+        native_public_ip="198.51.100.10",
+        egress_public_ip="203.0.113.20",
+    )
+
+    assert calls == [["systemctl", "status", ALLOWED_XRAY_TUN_SERVICE_NAME, "--no-pager"]]
+    assert EgressStatusCheck("tunnel_process", "ok", "xray-tun tunnel for tun-migate is running") in report.checks
+    assert report.performed_side_effects is False
 
 
 def test_egress_doctor_detects_native_ip_leak():

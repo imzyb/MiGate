@@ -11,6 +11,7 @@ from typing import Protocol
 
 from migate.config import MiGateConfig
 from migate.routing.leak_guard import EgressGuardState, evaluate_egress_guard
+from migate.xray.systemctl_cli import ALLOWED_XRAY_TUN_SERVICE_NAME
 
 
 @dataclass(frozen=True)
@@ -128,7 +129,10 @@ def detect_tunnel_process(
     *,
     runner: Callable[[list[str]], CommandResult] = _subprocess_runner,
 ) -> TunnelProcessStatus:
-    command = ["pgrep", "-f", f"{backend}.*{tun_interface}"]
+    if backend == "xray-tun":
+        command = ["systemctl", "status", ALLOWED_XRAY_TUN_SERVICE_NAME, "--no-pager"]
+    else:
+        command = ["pgrep", "-f", f"{backend}.*{tun_interface}"]
     try:
         result = runner(command)
     except FileNotFoundError as exc:

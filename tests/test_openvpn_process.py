@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from migate.proxy.runtime import OpenVPNProcessStatus, TunnelProcessStatus, detect_openvpn_process, detect_tunnel_process
+from migate.xray.systemctl_cli import ALLOWED_XRAY_TUN_SERVICE_NAME
 
 
 @dataclass(frozen=True)
@@ -55,12 +56,12 @@ def test_detect_openvpn_process_reports_probe_error_on_unexpected_failure():
     assert status.performed_side_effects is False
 
 
-def test_detect_tunnel_process_uses_backend_neutral_probe_shape():
+def test_detect_tunnel_process_uses_xray_tun_systemctl_status_probe():
     calls = []
 
     def runner(argv: list[str]) -> FakeCommandResult:
         calls.append(argv)
-        return FakeCommandResult(returncode=0, stdout="5678\n", stderr="")
+        return FakeCommandResult(returncode=0, stdout="active\n", stderr="")
 
     status = detect_tunnel_process("xray-tun", "tun-migate", runner=runner)
 
@@ -68,10 +69,32 @@ def test_detect_tunnel_process_uses_backend_neutral_probe_shape():
         backend="xray-tun",
         status="running",
         message="xray-tun tunnel for tun-migate is running",
-        command=["pgrep", "-f", "xray-tun.*tun-migate"],
+        command=["systemctl", "status", ALLOWED_XRAY_TUN_SERVICE_NAME, "--no-pager"],
+        returncode=0,
+        stdout="active",
+        stderr="",
+        performed_side_effects=False,
+    )
+    assert calls == [["systemctl", "status", ALLOWED_XRAY_TUN_SERVICE_NAME, "--no-pager"]]
+
+
+def test_detect_tunnel_process_keeps_generic_pgrep_probe_for_non_xray_tun_backends():
+    calls = []
+
+    def runner(argv: list[str]) -> FakeCommandResult:
+        calls.append(argv)
+        return FakeCommandResult(returncode=0, stdout="5678\n", stderr="")
+
+    status = detect_tunnel_process("wireguard", "tun-migate", runner=runner)
+
+    assert status == TunnelProcessStatus(
+        backend="wireguard",
+        status="running",
+        message="wireguard tunnel for tun-migate is running",
+        command=["pgrep", "-f", "wireguard.*tun-migate"],
         returncode=0,
         stdout="5678",
         stderr="",
         performed_side_effects=False,
     )
-    assert calls == [["pgrep", "-f", "xray-tun.*tun-migate"]]
+    assert calls == [["pgrep", "-f", "wireguard.*tun-migate"]]
