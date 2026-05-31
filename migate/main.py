@@ -346,8 +346,9 @@ def _render_egress_up_dry_run(config: MiGateConfig) -> str:
         "message: egress up dry-run preview",
         "commands_executed: []",
         "performed_side_effects: False",
+        f"backend: {config.egress.backend}",
         "phases:",
-        f"- openvpn start: {' '.join(openvpn_plan.command)}",
+        f"- {config.egress.backend} start: {' '.join(openvpn_plan.command)}",
         *[f"- policy routing apply: {' '.join(command)}" for command in routing_plan.commands],
     ]
     return "\n".join(lines) + "\n"
@@ -870,6 +871,12 @@ def egress_up(
         typer.echo("commands_executed: []")
         typer.echo("performed_side_effects: False")
         return
+    if config.egress.backend != "openvpn":
+        typer.echo("status: rejected")
+        typer.echo(f"message: unsupported egress backend: {config.egress.backend}")
+        typer.echo("commands_executed: []")
+        typer.echo("performed_side_effects: False")
+        raise typer.Exit(code=1)
     result = bring_up_egress(
         _default_openvpn_start_plan(config),
         build_policy_routing_plan(config),

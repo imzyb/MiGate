@@ -953,6 +953,7 @@ def test_egress_up_command_defaults_to_dry_run_without_side_effects(monkeypatch)
     assert "message: egress up dry-run preview" in result.output
     assert "performed_side_effects: False" in result.output
     assert "commands_executed: []" in result.output
+    assert "backend: openvpn" in result.output
     assert "openvpn start" in result.output
     assert "policy routing apply" in result.output
     assert calls == []
@@ -1015,6 +1016,30 @@ def test_egress_up_command_runs_orchestration_only_with_double_gate(monkeypatch)
     assert "phase: openvpn_start status: started" in result.output
     assert "phase: policy_routing_apply status: applied" in result.output
     assert len(calls) == 1
+
+
+def test_egress_up_command_rejects_non_openvpn_backend_without_running_openvpn(monkeypatch):
+    calls = []
+
+    def fake_config():
+        from migate.config import EgressConfig, MiGateConfig
+
+        return MiGateConfig(egress=EgressConfig(backend="xray-tun"))
+
+    def fake_bring_up_egress(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("bring_up_egress should not run for unsupported backend")
+
+    monkeypatch.setattr(main_module, "MiGateConfig", fake_config)
+    monkeypatch.setattr(main_module, "bring_up_egress", fake_bring_up_egress)
+
+    result = runner.invoke(app, ["egress", "up", "--no-dry-run", "--yes", "--allow-system-changes"])
+
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "unsupported egress backend: xray-tun" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert calls == []
 
 
 def test_egress_down_command_requires_double_gate_before_orchestration(monkeypatch, tmp_path: Path):

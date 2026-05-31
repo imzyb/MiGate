@@ -26,6 +26,10 @@ class VPNConfig(BaseModel):
     max_failures_per_node: int = 3
 
 
+class EgressConfig(BaseModel):
+    backend: str = "openvpn"
+
+
 class CollectorConfig(BaseModel):
     source: str = "https://www.vpngate.net/api/iphone/"
     refresh_interval: int = 600
@@ -51,6 +55,7 @@ class MiGateConfig(BaseModel):
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     xray: XrayConfig = Field(default_factory=XrayConfig)
     vpn: VPNConfig = Field(default_factory=VPNConfig)
+    egress: EgressConfig = Field(default_factory=EgressConfig)
     collector: CollectorConfig = Field(default_factory=CollectorConfig)
     probe: ProbeConfig = Field(default_factory=ProbeConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
