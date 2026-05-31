@@ -632,6 +632,102 @@ def test_panel_xray_restart_runs_daemon_reload_then_restart_after_valid_config(t
     assert calls == ["daemon-reload", "restart:migate-xray.service"]
 
 
+def test_panel_status_summary_api_returns_webui_ready_readonly_json(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="MiGate JP",
+        host="example.com",
+        port=443,
+        credential="00000000-0000-4000-8000-000000000001",
+        share_link="vless://00000000-0000-4000-8000-000000000001@example.com:443#MiGate%20JP",
+        subscription="dmxlc3M6Ly8wMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDFAZXhhbXBsZS5jb206NDQzI01pR2F0ZSUyMEpQ",
+    )
+
+    calls = []
+
+    def runtime_loader() -> XrayRuntimeStatus:
+        calls.append("runtime")
+        return XrayRuntimeStatus(
+            status="installed",
+            bin_path="/usr/local/bin/xray",
+            version="1.8.24",
+            message="xray is installed",
+            returncode=0,
+            stdout="Xray 1.8.24\n",
+            stderr="",
+        )
+
+    def egress_status_loader() -> EgressStatusReport:
+        calls.append("egress")
+        return EgressStatusReport(
+            status="observed",
+            checks=[
+                EgressStatusCheck("tun_interface", "ok", "tun-migate interface exists"),
+                EgressStatusCheck("tunnel_process", "failed", "xray-tun tunnel for tun-migate is not running"),
+                EgressStatusCheck("egress_guard", "failed", "blocked: tunnel is not running"),
+            ],
+            performed_side_effects=False,
+        )
+
+    def status_loader(service_name: str) -> SystemdResult:
+        calls.append(f"status:{service_name}")
+        if service_name == "migate-xray.service":
+            return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
+        return SystemdResult(status="failed", returncode=3, stdout="", stderr="inactive")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_runtime_loader=runtime_loader,
+            egress_status_loader=egress_status_loader,
+            systemd_status_loader=status_loader,
+        )
+    )
+
+    response = client.get("/api/status/summary")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "status": "degraded",
+        "nodes": {"total": 1, "enabled": 1},
+        "xray": {
+            "status": "installed",
+            "bin_path": "/usr/local/bin/xray",
+            "version": "1.8.24",
+            "message": "xray is installed",
+            "returncode": 0,
+        },
+        "egress": {
+            "status": "observed",
+            "performed_side_effects": False,
+            "checks": [
+                {"name": "tun_interface", "status": "ok", "message": "tun-migate interface exists"},
+                {"name": "tunnel_process", "status": "failed", "message": "xray-tun tunnel for tun-migate is not running"},
+                {"name": "egress_guard", "status": "failed", "message": "blocked: tunnel is not running"},
+            ],
+        },
+        "services": {
+            "migate-xray.service": {
+                "status": "success",
+                "returncode": 0,
+                "stdout": "active (running)",
+                "stderr": "",
+            },
+            "migate-panel.service": {
+                "status": "failed",
+                "returncode": 3,
+                "stdout": "",
+                "stderr": "inactive",
+            },
+        },
+        "performed_side_effects": False,
+    }
+    assert calls == ["runtime", "egress", "status:migate-xray.service", "status:migate-panel.service"]
+
+
 def test_panel_create_trojan_node_returns_share_link():
     client = TestClient(create_app())
 
