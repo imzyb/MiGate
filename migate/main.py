@@ -794,13 +794,29 @@ def proxy_service_save(
 
 
 @egress_app.command("doctor")
-def egress_doctor() -> None:
-    typer.echo(render_egress_status_report("Egress doctor", run_egress_doctor()))
+def egress_doctor(
+    backend: str | None = typer.Option(None, "--backend", help="Override configured egress backend: openvpn or xray-tun."),
+) -> None:
+    config = _config_with_backend_override(MiGateConfig(), backend)
+    try:
+        _select_tunnel_start_plan(config)
+    except ValueError as exc:
+        _echo_unsupported_egress_backend(exc)
+        raise typer.Exit(code=1) from exc
+    typer.echo(render_egress_status_report("Egress doctor", run_egress_doctor(config)))
 
 
 @egress_app.command("status")
-def egress_status() -> None:
-    typer.echo(render_egress_status_report("Egress status", run_egress_status()))
+def egress_status(
+    backend: str | None = typer.Option(None, "--backend", help="Override configured egress backend: openvpn or xray-tun."),
+) -> None:
+    config = _config_with_backend_override(MiGateConfig(), backend)
+    try:
+        _select_tunnel_start_plan(config)
+    except ValueError as exc:
+        _echo_unsupported_egress_backend(exc)
+        raise typer.Exit(code=1) from exc
+    typer.echo(render_egress_status_report("Egress status", run_egress_status(config)))
 
 
 def _render_vpn_config_save_result(

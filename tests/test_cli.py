@@ -1242,7 +1242,7 @@ def test_egress_doctor_command_renders_read_only_report(monkeypatch):
         ],
         performed_side_effects=False,
     )
-    monkeypatch.setattr(main_module, "run_egress_doctor", lambda: report)
+    monkeypatch.setattr(main_module, "run_egress_doctor", lambda config=None: report)
 
     result = runner.invoke(app, ["egress", "doctor"])
 
@@ -1262,7 +1262,7 @@ def test_egress_status_command_renders_observational_report(monkeypatch):
         ],
         performed_side_effects=False,
     )
-    monkeypatch.setattr(main_module, "run_egress_status", lambda: report)
+    monkeypatch.setattr(main_module, "run_egress_status", lambda config=None: report)
 
     result = runner.invoke(app, ["egress", "status"])
 
@@ -1272,6 +1272,86 @@ def test_egress_status_command_renders_observational_report(monkeypatch):
     assert "tunnel_process: failed - openvpn tunnel for tun-migate is not running" in result.output
     assert "policy_routing_plan: ok - policy routing plan targets table 100 fwmark 0x66 via tun-migate" in result.output
     assert "performed_side_effects: False" in result.output
+
+
+def test_egress_status_command_accepts_backend_xray_tun_override(monkeypatch):
+    captured = {}
+
+    def fake_run_egress_status(config=None):
+        captured["backend"] = config.egress.backend
+        return EgressStatusReport(
+            status="observed",
+            checks=[EgressStatusCheck("tunnel_process", "ok", "xray-tun tunnel for tun-migate is running")],
+            performed_side_effects=False,
+        )
+
+    monkeypatch.setattr(main_module, "run_egress_status", fake_run_egress_status)
+
+    result = runner.invoke(app, ["egress", "status", "--backend", "xray-tun"])
+
+    assert result.exit_code == 0
+    assert captured == {"backend": "xray-tun"}
+    assert "xray-tun tunnel for tun-migate is running" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_egress_doctor_command_accepts_backend_xray_tun_override(monkeypatch):
+    captured = {}
+
+    def fake_run_egress_doctor(config=None):
+        captured["backend"] = config.egress.backend
+        return EgressStatusReport(
+            status="ok",
+            checks=[EgressStatusCheck("tunnel_process", "ok", "xray-tun tunnel for tun-migate is running")],
+            performed_side_effects=False,
+        )
+
+    monkeypatch.setattr(main_module, "run_egress_doctor", fake_run_egress_doctor)
+
+    result = runner.invoke(app, ["egress", "doctor", "--backend", "xray-tun"])
+
+    assert result.exit_code == 0
+    assert captured == {"backend": "xray-tun"}
+    assert "Egress doctor" in result.output
+    assert "xray-tun tunnel for tun-migate is running" in result.output
+
+
+def test_egress_status_command_rejects_unknown_backend_without_host_probe(monkeypatch):
+    calls = []
+
+    def fake_run_egress_status(config=None):
+        calls.append(config.egress.backend)
+        return EgressStatusReport(status="observed", checks=[], performed_side_effects=False)
+
+    monkeypatch.setattr(main_module, "run_egress_status", fake_run_egress_status)
+
+    result = runner.invoke(app, ["egress", "status", "--backend", "wireguard"])
+
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "unsupported egress backend: wireguard" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert calls == []
+
+
+def test_egress_doctor_command_rejects_unknown_backend_without_host_probe(monkeypatch):
+    calls = []
+
+    def fake_run_egress_doctor(config=None):
+        calls.append(config.egress.backend)
+        return EgressStatusReport(status="failed", checks=[], performed_side_effects=False)
+
+    monkeypatch.setattr(main_module, "run_egress_doctor", fake_run_egress_doctor)
+
+    result = runner.invoke(app, ["egress", "doctor", "--backend", "wireguard"])
+
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "unsupported egress backend: wireguard" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert calls == []
 
 
 def test_panel_command_accepts_safe_default_host_and_port_without_starting_server():
