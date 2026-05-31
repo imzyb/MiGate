@@ -65,7 +65,14 @@ def test_bring_up_egress_starts_openvpn_then_applies_policy_routing():
         calls.append(argv)
         return FakeCommandResult(returncode=0, stdout="ok", stderr="")
 
-    result = bring_up_egress(start_plan, routing_plan, runner=runner, allow_side_effects=True)
+    result = bring_up_egress(
+        start_plan,
+        routing_plan,
+        runner=runner,
+        allow_side_effects=True,
+        config_exists=lambda path: path == start_plan.config_path,
+        ensure_directory=lambda path: None,
+    )
 
     assert calls == [start_plan.command, *routing_plan.commands]
     assert result.status == "up"
@@ -74,6 +81,53 @@ def test_bring_up_egress_starts_openvpn_then_applies_policy_routing():
     assert [phase.status for phase in result.phases] == ["started", "applied"]
     assert result.commands_executed == [" ".join(start_plan.command), *[" ".join(command) for command in routing_plan.commands]]
     assert result.performed_side_effects is True
+
+
+def test_bring_up_egress_stops_before_openvpn_when_runtime_config_is_missing():
+    calls: list[list[str]] = []
+    start_plan = _start_plan()
+    routing_plan = _routing_plan()
+
+    result = bring_up_egress(
+        start_plan,
+        routing_plan,
+        runner=lambda argv: calls.append(argv) or FakeCommandResult(0),
+        allow_side_effects=True,
+        config_exists=lambda path: False,
+        ensure_directory=lambda path: None,
+    )
+
+    assert calls == []
+    assert result.status == "failed"
+    assert result.message == f"egress up preflight failed; OpenVPN config is missing: {start_plan.config_path}"
+    assert [phase.name for phase in result.phases] == ["openvpn_preflight"]
+    assert [phase.status for phase in result.phases] == ["failed"]
+    assert result.commands_executed == []
+    assert result.performed_side_effects is False
+
+
+def test_bring_up_egress_creates_runtime_parent_directories_before_starting_openvpn():
+    calls: list[list[str]] = []
+    ensured: list[Path] = []
+    start_plan = _start_plan()
+    routing_plan = _routing_plan()
+
+    def runner(argv: list[str]) -> FakeCommandResult:
+        calls.append(argv)
+        return FakeCommandResult(returncode=0, stdout="ok", stderr="")
+
+    result = bring_up_egress(
+        start_plan,
+        routing_plan,
+        runner=runner,
+        allow_side_effects=True,
+        config_exists=lambda path: True,
+        ensure_directory=lambda path: ensured.append(path),
+    )
+
+    assert result.status == "up"
+    assert ensured == [Path("/var/lib/migate/runtime"), Path("/var/log/migate")]
+    assert calls == [start_plan.command, *routing_plan.commands]
 
 
 def test_bring_up_egress_stops_before_routing_when_openvpn_start_fails():
@@ -85,7 +139,14 @@ def test_bring_up_egress_stops_before_routing_when_openvpn_start_fails():
         calls.append(argv)
         return FakeCommandResult(returncode=1, stdout="", stderr="openvpn failed")
 
-    result = bring_up_egress(start_plan, routing_plan, runner=runner, allow_side_effects=True)
+    result = bring_up_egress(
+        start_plan,
+        routing_plan,
+        runner=runner,
+        allow_side_effects=True,
+        config_exists=lambda path: True,
+        ensure_directory=lambda path: None,
+    )
 
     assert calls == [start_plan.command]
     assert result.status == "failed"
@@ -117,6 +178,8 @@ def test_bring_up_egress_accepts_separate_openvpn_and_routing_runners():
         openvpn_runner=openvpn_runner,
         routing_runner=routing_runner,
         allow_side_effects=True,
+        config_exists=lambda path: True,
+        ensure_directory=lambda path: None,
     )
 
     assert openvpn_calls == [start_plan.command]

@@ -50,6 +50,8 @@ from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
 from migate.routing.policy_plan import build_policy_routing_plan
 from migate.vpn.process_plan import build_openvpn_start_plan
 from migate.vpn.process_stop import build_openvpn_stop_plan
+from migate.vpn.config_render import OpenVPNRenderPlan, render_openvpn_config_preview
+from migate.vpn.config_save import OpenVPNConfigSaveResult, save_openvpn_config_preview
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
 from migate.xray.config_cli import preview_xray_config, save_xray_config
 from migate.xray.deploy_cli import render_xray_deploy_plan, render_xray_deploy_result, run_xray_deploy
@@ -70,11 +72,14 @@ proxy_app = typer.Typer(help="MiGate local proxy runtime status commands")
 proxy_service_app = typer.Typer(help="MiGate local proxy systemd service preview and save commands")
 proxy_socks5_app = typer.Typer(help="SOCKS5 local listener planning commands")
 egress_app = typer.Typer(help="MiGate VPN egress lifecycle commands")
+vpn_app = typer.Typer(help="MiGate VPN/OpenVPN configuration commands")
+vpn_config_app = typer.Typer(help="OpenVPN runtime config preview and save commands")
 remote_app = typer.Typer(help="Remote test VPS lifecycle planning commands")
 remote_egress_app = typer.Typer(help="Remote test VPS egress planning commands")
 app.add_typer(xray_app, name="xray")
 app.add_typer(proxy_app, name="proxy")
 app.add_typer(egress_app, name="egress")
+app.add_typer(vpn_app, name="vpn")
 app.add_typer(remote_app, name="remote")
 proxy_app.add_typer(proxy_service_app, name="service")
 proxy_app.add_typer(proxy_socks5_app, name="socks5")
@@ -83,6 +88,7 @@ xray_app.add_typer(xray_service_app, name="service")
 xray_app.add_typer(xray_systemctl_app, name="systemctl")
 xray_app.add_typer(xray_apply_app, name="apply")
 remote_app.add_typer(remote_egress_app, name="egress")
+vpn_app.add_typer(vpn_config_app, name="config")
 
 
 @app.callback()
@@ -216,7 +222,7 @@ def run_remote_rollout_cli(
         readiness_runner=readiness_runner or (lambda: run_remote_readiness(host=host, port=port, user=user)),
         egress_up_runner=egress_up_runner
         or (lambda: run_remote_egress_cli(action="up", host=host, port=port, user=user, dry_run=False, yes=True, allow_remote_changes=True)),
-        leak_check_runner=leak_check_runner or (lambda: run_remote_leak_check_cli(host=host, port=port, user=user, socks_port=MiGateConfig().socks_port)),
+        leak_check_runner=leak_check_runner or (lambda: run_remote_leak_check_cli(host=host, port=port, user=user, socks_port=MiGateConfig().proxy.socks_port)),
     )
 
 
@@ -759,6 +765,95 @@ def egress_status() -> None:
     typer.echo(render_egress_status_report("Egress status", run_egress_status()))
 
 
+def _render_vpn_config_save_result(
+    *,
+    source: Path,
+    target: Path,
+    plan: OpenVPNRenderPlan | None,
+    save_result: OpenVPNConfigSaveResult | None,
+    status: str,
+    message: str,
+    performed_side_effects: bool,
+) -> str:
+    lines = [
+        f"status: {status}",
+        f"message: {message}",
+        f"source: {source}",
+        f"target: {target}",
+        f"performed_side_effects: {performed_side_effects}",
+    ]
+    if save_result and save_result.backup_path:
+        lines.append(f"backup_path: {save_result.backup_path}")
+    if plan is not None:
+        lines.extend(["config_preview:", plan.config_text.rstrip()])
+    return "\n".join(lines) + "\n"
+
+
+@vpn_config_app.command("save")
+def vpn_config_save(
+    source: Path = typer.Option(..., "--source", help="Source OpenVPN .ovpn file to render into MiGate runtime config."),
+    target: Path = typer.Option(Path("/var/lib/migate/runtime/active.ovpn"), "--target", help="Target MiGate runtime OpenVPN config."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge that saving config writes to disk."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually write config when combined with --yes."),
+) -> None:
+    if not source.exists():
+        typer.echo(
+            _render_vpn_config_save_result(
+                source=source,
+                target=target,
+                plan=None,
+                save_result=None,
+                status="failed",
+                message=f"source OpenVPN config not found: {source}",
+                performed_side_effects=False,
+            ),
+            nl=False,
+        )
+        raise typer.Exit(code=1)
+
+    raw_config = source.read_text(encoding="utf-8")
+    plan = render_openvpn_config_preview(
+        raw_config,
+        tun_interface=MiGateConfig().vpn.interface,
+        runtime_dir=str(target.parent),
+        log_path="/var/log/migate/openvpn.log",
+        status_path=str(target.parent / "status.json"),
+    )
+    if not yes or not allow_system_changes:
+        status = "dry_run" if not yes and not allow_system_changes else "rejected"
+        typer.echo(
+            _render_vpn_config_save_result(
+                source=source,
+                target=target,
+                plan=plan,
+                save_result=None,
+                status=status,
+                message="OpenVPN runtime config save preview" if status == "dry_run" else "OpenVPN config save requires --yes and --allow-system-changes",
+                performed_side_effects=False,
+            ),
+            nl=False,
+        )
+        if status == "rejected":
+            raise typer.Exit(code=1)
+        return
+
+    result = save_openvpn_config_preview(plan, target, yes=yes, allow_file_write=allow_system_changes)
+    typer.echo(
+        _render_vpn_config_save_result(
+            source=source,
+            target=target,
+            plan=plan,
+            save_result=result,
+            status=result.status,
+            message=result.message,
+            performed_side_effects=result.performed_side_effects,
+        ),
+        nl=False,
+    )
+    if result.status != "saved":
+        raise typer.Exit(code=1)
+
+
 @egress_app.command("up")
 def egress_up(
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview egress bring-up without system changes."),
@@ -781,6 +876,8 @@ def egress_up(
         allow_side_effects=True,
     )
     typer.echo(_render_egress_result(result), nl=False)
+    if result.status != "up":
+        raise typer.Exit(code=1)
 
 
 @egress_app.command("down")
@@ -807,6 +904,8 @@ def egress_down(
         allow_side_effects=True,
     )
     typer.echo(_render_egress_result(result), nl=False)
+    if result.status != "down":
+        raise typer.Exit(code=1)
 
 
 @xray_config_app.command("preview")
@@ -987,7 +1086,7 @@ def xray_install(
                 performed_side_effects=False,
             )
         )
-        return
+        raise typer.Exit(code=1)
     result = run_xray_install_cli(
         yes=yes,
         allow_system_changes=allow_system_changes,
@@ -998,6 +1097,8 @@ def xray_install(
         doctor_loader=lambda: doctor,
     )
     _echo_install_result(result)
+    if result.status != "success":
+        raise typer.Exit(code=1)
 
 
 @app.command()

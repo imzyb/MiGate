@@ -55,3 +55,9 @@ def test_build_xray_install_plan_can_render_human_readable_preview():
     assert "不会执行任何安装命令" in preview
     assert "下载 xray-core zip" in preview
     assert "xray version 验证" in preview
+
+
+def test_build_xray_install_plan_uses_github_latest_download_endpoint_for_latest_version():
+    plan = build_xray_install_plan(MiGateConfig(), system="Linux", machine="x86_64", version="latest")
+
+    assert plan.download_url == "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"

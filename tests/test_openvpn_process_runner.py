@@ -26,6 +26,8 @@ PLAN = OpenVPNStartPlan(
         "/var/lib/migate/runtime/status.json",
         "--log-append",
         "/var/log/migate/openvpn.log",
+        "--daemon",
+        "migate-openvpn",
     ],
     performs_side_effects=False,
 )

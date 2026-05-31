@@ -33,6 +33,8 @@ def test_build_openvpn_start_plan_freezes_managed_command_without_side_effects()
             "/var/lib/migate/runtime/status.json",
             "--log-append",
             "/var/log/migate/openvpn.log",
+            "--daemon",
+            "migate-openvpn",
         ],
         performs_side_effects=False,
     )
@@ -60,7 +62,8 @@ def test_dry_run_openvpn_start_plan_returns_planned_command_without_execution():
         "openvpn --config /var/lib/migate/runtime/active.ovpn "
         "--writepid /var/lib/migate/runtime/openvpn.pid "
         "--status /var/lib/migate/runtime/status.json "
-        "--log-append /var/log/migate/openvpn.log"
+        "--log-append /var/log/migate/openvpn.log "
+        "--daemon migate-openvpn"
     )
 
 

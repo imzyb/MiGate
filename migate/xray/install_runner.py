@@ -59,7 +59,7 @@ def _command_for_step(plan: XrayInstallPlan, step: XrayInstallStep) -> list[str]
     extract_dir = f"/tmp/migate-xray-{plan.version}"
     commands = {
         "download_archive": ["curl", "-fsSL", plan.download_url, "-o", archive_path],
-        "verify_archive": ["python", "-m", "zipfile", "-t", archive_path],
+        "verify_archive": ["python3", "-m", "zipfile", "-t", archive_path],
         "extract_binary": ["unzip", "-o", archive_path, "xray", "-d", extract_dir],
         "install_binary": ["install", "-m", "0755", f"{extract_dir}/xray", plan.bin_path],
         "chmod_executable": ["chmod", "+x", plan.bin_path],
