@@ -258,6 +258,7 @@ def _coerce_phase(action: str, phase: PhaseResultLike | RemoteReadinessReport | 
         message=message,
         commands_executed=phase.commands_executed,
         performed_side_effects=phase.performed_side_effects,
+        command_results=getattr(phase, "command_results", []),
     )
 
 

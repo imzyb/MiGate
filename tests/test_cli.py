@@ -31,7 +31,7 @@ from migate.remote.egress_runner import RemoteEgressCommandResult
 from migate.remote.install_runner import RemoteInstallCommandResult
 from migate.remote.leak_check import RemoteLeakCheck, RemoteLeakCheckReport
 from migate.remote.readiness import RemoteReadinessCheck, RemoteReadinessReport
-from migate.remote.rollout_runner import RemoteRolloutPhaseResult, RemoteRolloutRunResult
+from migate.remote.rollout_runner import RemoteRolloutCommandResult, RemoteRolloutPhaseResult, RemoteRolloutRunResult, render_remote_rollout_run_result
 from migate.remote.rollout_smoke import RemoteRolloutSmokeResult
 from migate.remote.acceptance import RemoteAcceptanceResult
 
@@ -203,6 +203,48 @@ def test_run_remote_rollout_cli_rejects_real_execution_without_double_gate():
     assert result.commands_executed == []
     assert result.performed_side_effects is False
     assert calls == []
+
+
+def test_run_remote_rollout_cli_stops_at_default_socks5_smoke_failure_and_renders_diagnostics():
+    calls = []
+    smoke_commands = []
+
+    def socks5_smoke_command_runner(command: str) -> RemoteRolloutCommandResult:
+        smoke_commands.append(command)
+        return RemoteRolloutCommandResult(1, "smoke stdout", "connection refused")
+
+    result = run_remote_rollout_cli(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        staging_dir="/tmp/migate-install",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=True,
+        install_runner=lambda: calls.append("install")
+        or RemoteRolloutPhaseResult("install", "success", "installed", ["install command"], True),
+        readiness_runner=lambda: calls.append("readiness")
+        or RemoteReadinessReport("ok", "root@166.88.232.2:22", [], ["readiness command"], False),
+        egress_up_runner=lambda: calls.append("egress_up")
+        or RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+        service_apply_runner=lambda: calls.append("service_apply")
+        or RemoteRolloutPhaseResult("service_apply", "success", "service_apply ok", ["service apply command"], True),
+        socks5_smoke_command_runner=socks5_smoke_command_runner,
+        leak_check_runner=lambda: calls.append("leak_check"),
+    )
+
+    assert result.status == "failed"
+    assert result.message == "remote rollout stopped at socks5_smoke"
+    assert calls == ["install", "readiness", "egress_up", "service_apply"]
+    assert [phase.action for phase in result.phases] == ["install", "readiness", "egress_up", "service_apply", "socks5_smoke"]
+    assert result.phases[-1].message == "socks5_smoke failed at loopback_greeting"
+    assert result.phases[-1].performed_side_effects is False
+    assert smoke_commands == result.phases[-1].commands_executed
+    rendered = render_remote_rollout_run_result(result)
+    assert "- socks5_smoke: failed - socks5_smoke failed at loopback_greeting" in rendered
+    assert "  - loopback_greeting: failed returncode=1" in rendered
+    assert "    stderr: connection refused" in rendered
+    assert "leak_check" not in calls
 
 
 def test_remote_rollout_command_real_path_uses_phase_runners_with_double_gate(monkeypatch):
