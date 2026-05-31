@@ -437,6 +437,33 @@ def _egress_dry_run_controls_html() -> str:
 """
 
 
+def _xray_runtime_status_json(runtime: XrayRuntimeStatus, *, include_output: bool = True) -> dict[str, object]:
+    result: dict[str, object] = {
+        "status": runtime.status,
+        "bin_path": runtime.bin_path,
+        "version": runtime.version,
+        "message": runtime.message,
+        "returncode": runtime.returncode,
+    }
+    if include_output:
+        result["stdout"] = runtime.stdout
+        result["stderr"] = runtime.stderr
+        result["performed_side_effects"] = False
+    return result
+
+
+def _systemd_services_status_json(services: dict[str, SystemdResult]) -> dict[str, object]:
+    return {
+        name: {
+            "status": result.status,
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+        for name, result in services.items()
+    }
+
+
 def _egress_status_report_json(report: EgressStatusReport) -> dict[str, object]:
     return {
         "status": report.status,
@@ -615,17 +642,7 @@ def create_app(
 
     @app.get("/api/xray/runtime")
     def api_xray_runtime() -> dict[str, object]:
-        runtime = runtime_loader()
-        return {
-            "status": runtime.status,
-            "bin_path": runtime.bin_path,
-            "version": runtime.version,
-            "message": runtime.message,
-            "returncode": runtime.returncode,
-            "stdout": runtime.stdout,
-            "stderr": runtime.stderr,
-            "performed_side_effects": False,
-        }
+        return _xray_runtime_status_json(runtime_loader())
 
     @app.get("/api/xray/install-plan")
     def api_xray_install_plan() -> dict[str, object]:
@@ -660,15 +677,7 @@ def create_app(
             "migate-panel.service": status_loader("migate-panel.service"),
         }
         return {
-            "services": {
-                name: {
-                    "status": result.status,
-                    "returncode": result.returncode,
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                }
-                for name, result in services.items()
-            },
+            "services": _systemd_services_status_json(services),
             "systemctl_commands_executed": [],
             "performed_side_effects": False,
         }
@@ -693,30 +702,9 @@ def create_app(
                 "total": len(nodes),
                 "enabled": sum(1 for node in nodes if node.enabled),
             },
-            "xray": {
-                "status": runtime.status,
-                "bin_path": runtime.bin_path,
-                "version": runtime.version,
-                "message": runtime.message,
-                "returncode": runtime.returncode,
-            },
-            "egress": {
-                "status": egress.status,
-                "performed_side_effects": egress.performed_side_effects,
-                "checks": [
-                    {"name": check.name, "status": check.status, "message": check.message}
-                    for check in egress.checks
-                ],
-            },
-            "services": {
-                name: {
-                    "status": result.status,
-                    "returncode": result.returncode,
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                }
-                for name, result in services.items()
-            },
+            "xray": _xray_runtime_status_json(runtime, include_output=False),
+            "egress": _egress_status_report_json(egress),
+            "services": _systemd_services_status_json(services),
             "performed_side_effects": False,
         }
 
