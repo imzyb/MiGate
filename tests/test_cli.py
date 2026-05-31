@@ -12,6 +12,7 @@ from migate.main import (
     build_remote_lifecycle_cli_plan,
     build_remote_rollout_cli_plan,
     build_xray_install_cli_plan,
+    run_remote_acceptance_cli,
     run_remote_egress_cli,
     run_remote_install_cli,
     run_remote_lifecycle_cli,
@@ -30,6 +31,7 @@ from migate.remote.leak_check import RemoteLeakCheck, RemoteLeakCheckReport
 from migate.remote.readiness import RemoteReadinessCheck, RemoteReadinessReport
 from migate.remote.rollout_runner import RemoteRolloutPhaseResult, RemoteRolloutRunResult
 from migate.remote.rollout_smoke import RemoteRolloutSmokeResult
+from migate.remote.acceptance import RemoteAcceptanceResult
 
 
 runner = CliRunner()
@@ -344,6 +346,94 @@ def test_remote_rollout_smoke_command_real_path_rejects_without_allow_remote_cha
 
 def test_remote_rollout_smoke_command_rejects_embedded_credentials():
     result = runner.invoke(app, ["remote", "rollout-smoke", "--host", "root:secret@203.0.113.10"])
+
+    assert result.exit_code == 1
+    assert "embedded credentials are not allowed" in result.output
+    assert "secret" not in result.output
+
+
+def test_run_remote_acceptance_cli_rejects_real_execution_without_double_gate():
+    calls = []
+
+    result = run_remote_acceptance_cli(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        staging_dir="/tmp/migate-install",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=False,
+        doctor_runner=lambda: calls.append("doctor"),
+        rollout_smoke_runner=lambda: calls.append("rollout_smoke"),
+    )
+
+    assert result.status == "rejected"
+    assert result.message == "remote acceptance requires yes=True and allow_remote_changes=True"
+    assert result.commands_executed == []
+    assert result.performed_side_effects is False
+    assert calls == []
+
+
+def test_remote_acceptance_command_defaults_to_dry_run_without_remote_side_effects():
+    result = runner.invoke(app, ["remote", "acceptance"])
+
+    assert result.exit_code == 0
+    assert "Remote acceptance result" in result.output
+    assert "status: dry_run" in result.output
+    assert "target: root@166.88.232.2:22" in result.output
+    assert "expected_phases: ['doctor', 'rollout_smoke']" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert "sshpass" not in result.output.lower()
+    assert "password" not in result.output.lower()
+
+
+def test_remote_acceptance_command_real_path_delegates_with_double_gate(monkeypatch):
+    captured = {}
+    acceptance = RemoteAcceptanceResult(
+        status="success",
+        message="remote acceptance passed",
+        target="root@166.88.232.2:22",
+        expected_phases=["doctor", "rollout_smoke"],
+        phases=[],
+        commands_executed=["ssh doctor", "rollout smoke"],
+        performed_side_effects=True,
+    )
+
+    def fake_run_remote_acceptance_cli(**kwargs):
+        captured.update(kwargs)
+        return acceptance
+
+    monkeypatch.setattr(main_module, "run_remote_acceptance_cli", fake_run_remote_acceptance_cli)
+
+    result = runner.invoke(app, ["remote", "acceptance", "--no-dry-run", "--yes", "--allow-remote-changes"])
+
+    assert result.exit_code == 0
+    assert captured["host"] == "166.88.232.2"
+    assert captured["port"] == 22
+    assert captured["user"] == "root"
+    assert captured["staging_dir"] == "/tmp/migate-install"
+    assert captured["dry_run"] is False
+    assert captured["yes"] is True
+    assert captured["allow_remote_changes"] is True
+    assert "doctor_runner" not in captured
+    assert "rollout_smoke_runner" not in captured
+    assert "Remote acceptance result" in result.output
+    assert "status: success" in result.output
+    assert "message: remote acceptance passed" in result.output
+    assert "performed_side_effects: True" in result.output
+
+
+def test_remote_acceptance_command_real_path_rejects_without_allow_remote_changes():
+    result = runner.invoke(app, ["remote", "acceptance", "--no-dry-run", "--yes"])
+
+    assert result.exit_code == 1
+    assert "remote acceptance requires yes=True and allow_remote_changes=True" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_remote_acceptance_command_rejects_embedded_credentials():
+    result = runner.invoke(app, ["remote", "acceptance", "--host", "root:secret@203.0.113.10"])
 
     assert result.exit_code == 1
     assert "embedded credentials are not allowed" in result.output

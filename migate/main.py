@@ -14,6 +14,7 @@ from migate.egress.status import render_egress_status_report, run_egress_doctor,
 from migate.proxy.run import render_proxy_run_result, run_proxy_placeholder
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
+from migate.remote.acceptance import RemoteAcceptanceResult, render_remote_acceptance_result, run_remote_acceptance
 from migate.remote.doctor import render_remote_doctor_report, run_remote_doctor
 from migate.remote.egress_plan import build_remote_egress_dry_run_plan, render_remote_egress_plan
 from migate.remote.egress_runner import RemoteEgressCommandResult, RemoteEgressRunResult, render_remote_egress_run_result, run_remote_egress_plan
@@ -239,6 +240,41 @@ def run_remote_rollout_smoke_cli(
         rollout_runner=rollout_runner
         or (
             lambda: run_remote_rollout_cli(
+                host=host,
+                port=port,
+                user=user,
+                staging_dir=staging_dir,
+                dry_run=False,
+                yes=True,
+                allow_remote_changes=True,
+            )
+        ),
+    )
+
+
+def run_remote_acceptance_cli(
+    *,
+    host: str,
+    port: int,
+    user: str,
+    staging_dir: str,
+    dry_run: bool,
+    yes: bool,
+    allow_remote_changes: bool,
+    doctor_runner: Callable[[], object] | None = None,
+    rollout_smoke_runner: Callable[[], RemoteRolloutSmokeResult] | None = None,
+) -> RemoteAcceptanceResult:
+    return run_remote_acceptance(
+        host=host,
+        port=port,
+        user=user,
+        dry_run=dry_run,
+        yes=yes,
+        allow_remote_changes=allow_remote_changes,
+        doctor_runner=doctor_runner or (lambda: run_remote_doctor(host=host, port=port, user=user)),
+        rollout_smoke_runner=rollout_smoke_runner
+        or (
+            lambda: run_remote_rollout_smoke_cli(
                 host=host,
                 port=port,
                 user=user,
@@ -489,6 +525,30 @@ def remote_rollout_smoke(
         allow_remote_changes=allow_remote_changes,
     )
     typer.echo(render_remote_rollout_smoke_result(result), nl=False)
+    if result.status not in {"success", "dry_run"}:
+        raise typer.Exit(code=1)
+
+
+@remote_app.command("acceptance")
+def remote_acceptance(
+    host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
+    port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
+    user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+    staging_dir: str = typer.Option("/tmp/migate-install", "--staging-dir", help="Remote staging directory preview; must stay under /tmp/ for this dry-run layer."),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge remote acceptance execution."),
+    allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote acceptance workflow."),
+) -> None:
+    result = run_remote_acceptance_cli(
+        host=host,
+        port=port,
+        user=user,
+        staging_dir=staging_dir,
+        dry_run=dry_run,
+        yes=yes,
+        allow_remote_changes=allow_remote_changes,
+    )
+    typer.echo(render_remote_acceptance_result(result), nl=False)
     if result.status not in {"success", "dry_run"}:
         raise typer.Exit(code=1)
 

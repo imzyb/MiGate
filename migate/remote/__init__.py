@@ -1,3 +1,10 @@
+from migate.remote.acceptance import (
+    EXPECTED_REMOTE_ACCEPTANCE_PHASES,
+    RemoteAcceptancePhaseResult,
+    RemoteAcceptanceResult,
+    render_remote_acceptance_result,
+    run_remote_acceptance,
+)
 from migate.remote.doctor import (
     RemoteDoctorCheck,
     RemoteDoctorReport,
@@ -78,8 +85,11 @@ from migate.remote.rollout_smoke import (
 )
 
 __all__ = [
+    "EXPECTED_REMOTE_ACCEPTANCE_PHASES",
     "RemoteDoctorCheck",
     "RemoteDoctorReport",
+    "RemoteAcceptancePhaseResult",
+    "RemoteAcceptanceResult",
     "RemoteEgressCommandResult",
     "RemoteEgressPlan",
     "RemoteEgressRunResult",
@@ -112,6 +122,7 @@ __all__ = [
     "build_remote_rollout_dry_run_plan",
     "build_remote_ssh_probe_command",
     "REMOTE_LEAK_CHECK_SCRIPT",
+    "render_remote_acceptance_result",
     "render_remote_doctor_report",
     "render_remote_egress_plan",
     "render_remote_egress_run_result",
@@ -124,6 +135,7 @@ __all__ = [
     "render_remote_rollout_plan",
     "render_remote_rollout_run_result",
     "render_remote_rollout_smoke_result",
+    "run_remote_acceptance",
     "run_remote_doctor",
     "run_remote_egress_plan",
     "run_remote_install_plan",
