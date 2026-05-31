@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from migate.remote.rollout_plan import RemoteRolloutPlan
 from migate.remote.rollout_runner import RemoteRolloutRunResult
 
-EXPECTED_REMOTE_ROLLOUT_SMOKE_PHASES = ["install", "readiness", "egress_up", "leak_check"]
+EXPECTED_REMOTE_ROLLOUT_SMOKE_PHASES = ["install", "readiness", "egress_up", "service_apply", "socks5_smoke", "leak_check"]
 
 
 @dataclass(frozen=True)
@@ -83,7 +83,7 @@ def run_remote_rollout_smoke(
     if phase_actions != EXPECTED_REMOTE_ROLLOUT_SMOKE_PHASES:
         return RemoteRolloutSmokeResult(
             status="failed",
-            message="remote rollout smoke expected phases install -> readiness -> egress_up -> leak_check",
+            message="remote rollout smoke expected phases install -> readiness -> egress_up -> service_apply -> socks5_smoke -> leak_check",
             target=plan.target,
             expected_phases=EXPECTED_REMOTE_ROLLOUT_SMOKE_PHASES,
             rollout=rollout,

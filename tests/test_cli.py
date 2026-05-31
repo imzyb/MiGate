@@ -136,7 +136,7 @@ def test_remote_leak_check_command_rejects_embedded_credentials():
     assert "secret" not in result.output
 
 
-def test_build_remote_rollout_cli_plan_defaults_to_install_readiness_egress_up_leak_check():
+def test_build_remote_rollout_cli_plan_defaults_to_install_readiness_egress_service_smoke_leak_check():
     plan = build_remote_rollout_cli_plan()
 
     assert plan.status == "dry_run"
@@ -144,7 +144,7 @@ def test_build_remote_rollout_cli_plan_defaults_to_install_readiness_egress_up_l
     assert plan.staging_dir == "/tmp/migate-install"
     assert plan.commands_executed == []
     assert plan.performed_side_effects is False
-    assert [step.action for step in plan.steps] == ["install", "readiness", "egress_up", "leak_check"]
+    assert [step.action for step in plan.steps] == ["install", "readiness", "egress_up", "service_apply", "socks5_smoke", "leak_check"]
 
 
 def test_remote_rollout_command_defaults_to_dry_run_without_remote_side_effects():
@@ -159,10 +159,15 @@ def test_remote_rollout_command_defaults_to_dry_run_without_remote_side_effects(
     assert "- install: planned side-effect" in result.output
     assert "- readiness: planned read-only" in result.output
     assert "- egress_up: planned side-effect" in result.output
+    assert "- service_apply: planned side-effect" in result.output
+    assert "- socks5_smoke: planned read-only" in result.output
     assert "- leak_check: planned read-only" in result.output
     assert "migate remote install --host 166.88.232.2 --port 22 --user root" in result.output
     assert "migate remote readiness --host 166.88.232.2 --port 22 --user root" in result.output
     assert "migate remote egress up --host 166.88.232.2 --port 22 --user root" in result.output
+    assert "migate xray service save --yes --allow-system-changes" in result.output
+    assert "migate proxy service save --yes --allow-system-changes" in result.output
+    assert "python3 - <<\"PY\"" in result.output
     assert "migate remote leak-check --host 166.88.232.2 --port 22 --user root" in result.output
     assert "sshpass" not in result.output.lower()
     assert "password" not in result.output.lower()
@@ -325,7 +330,7 @@ def test_remote_rollout_smoke_command_defaults_to_dry_run_without_remote_side_ef
     assert "Remote rollout smoke result" in result.output
     assert "status: dry_run" in result.output
     assert "target: root@166.88.232.2:22" in result.output
-    assert "expected_phases: ['install', 'readiness', 'egress_up', 'leak_check']" in result.output
+    assert "expected_phases: ['install', 'readiness', 'egress_up', 'service_apply', 'socks5_smoke', 'leak_check']" in result.output
     assert "commands_executed: []" in result.output
     assert "performed_side_effects: False" in result.output
     assert "sshpass" not in result.output.lower()
@@ -342,16 +347,18 @@ def test_remote_rollout_smoke_command_real_path_uses_rollout_runner_with_double_
             RemoteRolloutPhaseResult("install", "success", "installed", ["install command"], True),
             RemoteRolloutPhaseResult("readiness", "success", "readiness ok", ["readiness command"], False),
             RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+            RemoteRolloutPhaseResult("service_apply", "success", "service_apply ok", ["service apply command"], True),
+            RemoteRolloutPhaseResult("socks5_smoke", "success", "socks5_smoke ok", ["socks smoke command"], False),
             RemoteRolloutPhaseResult("leak_check", "success", "leak_check ok", ["leak check command"], False),
         ],
-        commands_executed=["install command", "readiness command", "egress command", "leak check command"],
+        commands_executed=["install command", "readiness command", "egress command", "service apply command", "socks smoke command", "leak check command"],
         performed_side_effects=True,
     )
     smoke = RemoteRolloutSmokeResult(
         status="success",
         message="remote rollout smoke passed",
         target="root@166.88.232.2:22",
-        expected_phases=["install", "readiness", "egress_up", "leak_check"],
+        expected_phases=["install", "readiness", "egress_up", "service_apply", "socks5_smoke", "leak_check"],
         rollout=rollout,
         commands_executed=rollout.commands_executed,
         performed_side_effects=True,
@@ -376,6 +383,8 @@ def test_remote_rollout_smoke_command_real_path_uses_rollout_runner_with_double_
     assert "rollout_runner" not in captured
     assert "status: success" in result.output
     assert "rollout_status: success" in result.output
+    assert "- service_apply: success - service_apply ok" in result.output
+    assert "- socks5_smoke: success - socks5_smoke ok" in result.output
     assert "- leak_check: success - leak_check ok" in result.output
     assert "performed_side_effects: True" in result.output
 
@@ -386,7 +395,7 @@ def test_remote_rollout_smoke_command_real_path_accepts_backend_xray_tun(monkeyp
         status="success",
         message="remote rollout smoke passed",
         target="root@166.88.232.2:22",
-        expected_phases=["install", "readiness", "egress_up", "leak_check"],
+        expected_phases=["install", "readiness", "egress_up", "service_apply", "socks5_smoke", "leak_check"],
         rollout=None,
         commands_executed=["egress xray-tun"],
         performed_side_effects=True,
@@ -415,9 +424,11 @@ def test_run_remote_rollout_smoke_cli_threads_backend_to_default_rollout_runner(
             RemoteRolloutPhaseResult("install", "success", "installed", ["install command"], True),
             RemoteRolloutPhaseResult("readiness", "success", "readiness ok", ["readiness command"], False),
             RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+            RemoteRolloutPhaseResult("service_apply", "success", "service_apply ok", ["service apply command"], True),
+            RemoteRolloutPhaseResult("socks5_smoke", "success", "socks5_smoke ok", ["socks smoke command"], False),
             RemoteRolloutPhaseResult("leak_check", "success", "leak_check ok", ["leak check command"], False),
         ],
-        commands_executed=["install command", "readiness command", "egress command", "leak check command"],
+        commands_executed=["install command", "readiness command", "egress command", "service apply command", "socks smoke command", "leak check command"],
         performed_side_effects=True,
     )
 
@@ -578,7 +589,7 @@ def test_run_remote_acceptance_cli_threads_backend_to_default_rollout_smoke_runn
         status="success",
         message="remote rollout smoke passed",
         target="root@166.88.232.2:22",
-        expected_phases=["install", "readiness", "egress_up", "leak_check"],
+        expected_phases=["install", "readiness", "egress_up", "service_apply", "socks5_smoke", "leak_check"],
         rollout=None,
         commands_executed=["rollout smoke xray-tun"],
         performed_side_effects=True,
