@@ -61,6 +61,7 @@ async def test_serve_socks5_bounded_relays_bytes_to_connected_upstream():
     assert remaining == b""
     assert upstream_payloads == [b"ping"]
     assert result.upstream_connections == 1
+    assert "with direct upstream relay" in result.message
     assert len(result.events) == 1
     assert result.events[0].client_id == 1
     assert result.events[0].phase == "connect"
