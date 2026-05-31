@@ -22,6 +22,27 @@ def test_validate_xray_config_reports_valid_config(tmp_path):
     assert result.stderr == ""
 
 
+def test_validate_xray_config_falls_back_when_xray_test_subcommand_is_missing(tmp_path):
+    calls = []
+
+    def runner(args):
+        calls.append(args)
+        if args[1] == "test":
+            return subprocess.CompletedProcess(args=args, returncode=2, stdout="", stderr="xray test: unknown command")
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="config ok", stderr="")
+
+    result = validate_xray_config(tmp_path / "config.json", runner=runner)
+
+    assert result.status == "valid"
+    assert result.returncode == 0
+    assert result.stdout == "config ok"
+    assert result.stderr == ""
+    assert calls == [
+        ["xray", "test", "-config", str(tmp_path / "config.json")],
+        ["xray", "run", "-test", "-config", str(tmp_path / "config.json")],
+    ]
+
+
 def test_validate_xray_config_reports_invalid_config(tmp_path):
     def runner(args):
         return subprocess.CompletedProcess(args=args, returncode=23, stdout="", stderr="invalid inbound")

@@ -128,6 +128,8 @@ def test_save_xray_tun_config_restores_existing_config_when_validation_fails(tmp
     assert result.status == "invalid"
     assert result.message == "xray tun config validation failed; restored previous config"
     assert result.validation_status == "invalid"
+    assert result.validation_stdout == ""
+    assert result.validation_stderr == "invalid"
     assert result.performed_side_effects is True
     assert result.backup_path == target.with_name("tun.json.bak-test")
     assert result.rollback_performed is True

@@ -145,7 +145,12 @@ def _default_xray_tun_start_runner(config_path: str) -> XrayApplyResult:
             status="invalid_config",
             message="xray tun config bootstrap failed; service start skipped",
             config_path=config_path,
-            validation=XrayValidationResult(config_result.validation_status, None, "", config_result.message),
+            validation=XrayValidationResult(
+                config_result.validation_status,
+                None,
+                config_result.validation_stdout,
+                config_result.validation_stderr or config_result.message,
+            ),
             systemctl_results=[],
             performed_side_effects=config_result.performed_side_effects,
         )

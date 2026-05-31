@@ -26,6 +26,8 @@ class XrayTunConfigSaveResult:
     backup_path: Path | None = None
     rollback_performed: bool = False
     systemctl_commands_executed: list[str] | None = None
+    validation_stdout: str = ""
+    validation_stderr: str = ""
 
 
 def build_xray_tun_inbound(config: MiGateConfig) -> XrayTunObject:
@@ -111,6 +113,8 @@ def save_xray_tun_config(
             backup_path=backup_path,
             rollback_performed=True,
             systemctl_commands_executed=[],
+            validation_stdout=validation.stdout,
+            validation_stderr=validation.stderr,
         )
 
     temp_path.replace(target_path)
