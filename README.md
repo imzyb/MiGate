@@ -47,6 +47,15 @@ migate remote rollout-smoke --no-dry-run --yes --allow-remote-changes
 
 `remote rollout-smoke` defaults to dry-run and calls no remote runner. The real path uses the same remote-change gates, delegates to the rollout runner, and fails unless the rollout completes exactly `install -> readiness -> egress_up -> leak_check`. It is a verification wrapper, not a separate SSH or credential-owning implementation.
 
+Use the top-level acceptance workflow as the operator-facing test-VPS verification entrypoint:
+
+```bash
+migate remote acceptance
+migate remote acceptance --no-dry-run --yes --allow-remote-changes
+```
+
+`remote acceptance` defaults to dry-run and calls no remote commands. The real path first runs the read-only remote doctor, stops before rollout if doctor fails, then delegates to `remote rollout-smoke`. Its report aggregates `doctor -> rollout_smoke` phases, `commands_executed`, and `performed_side_effects` so one command can be used as the current remote acceptance gate.
+
 ### Remote install dry-run
 
 Preview the future remote installer on the dedicated test VPS without SSHing or making changes:
