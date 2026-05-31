@@ -40,7 +40,7 @@ def test_handle_socks5_greeting_rejects_malformed_payload_with_no_acceptable_met
     assert result.performed_side_effects is False
 
 
-def test_handle_socks5_connect_request_accepts_domain_but_does_not_connect_yet():
+def test_handle_socks5_connect_request_accepts_domain_and_requests_upstream_connect():
     domain = b"example.com"
     result = handle_socks5_connect_request(bytes([0x05, 0x01, 0x00, 0x03, len(domain)]) + domain + bytes([0x01, 0xBB]))
 
@@ -48,19 +48,19 @@ def test_handle_socks5_connect_request_accepts_domain_but_does_not_connect_yet()
         status="accepted",
         request_address=Socks5Address(address_type="domain", host="example.com", port=443),
         reply=SOCKS5_SUCCESS_REPLY,
-        should_connect=False,
-        message="CONNECT request accepted; upstream connection not implemented yet",
+        should_connect=True,
+        message="CONNECT request accepted; connect to upstream",
         performed_side_effects=False,
     )
 
 
-def test_handle_socks5_connect_request_accepts_ipv4_but_does_not_connect_yet():
+def test_handle_socks5_connect_request_accepts_ipv4_and_requests_upstream_connect():
     result = handle_socks5_connect_request(bytes([0x05, 0x01, 0x00, 0x01, 192, 0, 2, 20, 0x00, 0x50]))
 
     assert result.status == "accepted"
     assert result.request_address == Socks5Address(address_type="ipv4", host="192.0.2.20", port=80)
     assert result.reply == SOCKS5_SUCCESS_REPLY
-    assert result.should_connect is False
+    assert result.should_connect is True
     assert result.performed_side_effects is False
 
 
