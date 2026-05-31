@@ -237,6 +237,51 @@ def test_socks5_smoke_runner_reports_loopback_greeting_diagnostics_without_side_
     ]
 
 
+def test_run_remote_rollout_plan_preserves_failed_service_apply_substep_diagnostics_and_skips_later_phases():
+    calls = []
+    service_phase = RemoteRolloutPhaseResult(
+        action="service_apply",
+        status="failed",
+        message="service_apply failed at daemon_reload",
+        commands_executed=["ssh daemon-reload"],
+        performed_side_effects=True,
+        command_results=[
+            RemoteRolloutSubstepResult(
+                name="daemon_reload",
+                status="failed",
+                command="ssh daemon-reload",
+                returncode=1,
+                stdout="",
+                stderr="systemd unavailable",
+            )
+        ],
+    )
+
+    result = run_remote_rollout_plan(
+        _plan(),
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=True,
+        install_runner=lambda: calls.append("install")
+        or RemoteRolloutPhaseResult("install", "success", "installed", ["install command"], True),
+        readiness_runner=lambda: calls.append("readiness") or _ok_readiness(),
+        egress_up_runner=lambda: calls.append("egress_up")
+        or RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+        service_apply_runner=lambda: calls.append("service_apply") or service_phase,
+        socks5_smoke_runner=lambda: calls.append("socks5_smoke"),
+        leak_check_runner=lambda: calls.append("leak_check"),
+    )
+
+    assert result.status == "failed"
+    assert result.message == "remote rollout stopped at service_apply"
+    assert calls == ["install", "readiness", "egress_up", "service_apply"]
+    assert result.phases[-1].command_results == service_phase.command_results
+    assert result.commands_executed == ["install command", "ssh readiness", "egress command", "ssh daemon-reload"]
+    rendered = render_remote_rollout_run_result(result)
+    assert "  - daemon_reload: failed returncode=1" in rendered
+    assert "    stderr: systemd unavailable" in rendered
+
+
 def test_run_remote_rollout_plan_preserves_failed_socks5_smoke_substep_diagnostics_and_skips_leak_check():
     calls = []
     socks_phase = RemoteRolloutPhaseResult(

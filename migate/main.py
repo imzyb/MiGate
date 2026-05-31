@@ -243,6 +243,7 @@ def run_remote_rollout_cli(
     readiness_runner: Callable[[], RemoteReadinessReport] | None = None,
     egress_up_runner: Callable[[], PhaseResultLike] | None = None,
     service_apply_runner: Callable[[], PhaseResultLike] | None = None,
+    service_apply_command_runner: Callable[[str], RemoteRolloutCommandResult] | None = None,
     socks5_smoke_runner: Callable[[], PhaseResultLike] | None = None,
     socks5_smoke_command_runner: Callable[[str], RemoteRolloutCommandResult] | None = None,
     leak_check_runner: Callable[[], RemoteLeakCheckReport] | None = None,
@@ -258,7 +259,7 @@ def run_remote_rollout_cli(
         readiness_runner=readiness_runner or (lambda: run_remote_readiness(host=host, port=port, user=user)),
         egress_up_runner=egress_up_runner
         or (lambda: run_remote_egress_cli(action="up", host=host, port=port, user=user, dry_run=False, yes=True, allow_remote_changes=True, backend=backend)),
-        service_apply_runner=service_apply_runner or build_remote_rollout_service_apply_runner(plan),
+        service_apply_runner=service_apply_runner or build_remote_rollout_service_apply_runner(plan, runner=service_apply_command_runner),
         socks5_smoke_runner=socks5_smoke_runner or build_remote_rollout_socks5_smoke_runner(plan, runner=socks5_smoke_command_runner),
         leak_check_runner=leak_check_runner or (lambda: run_remote_leak_check_cli(host=host, port=port, user=user, socks_port=MiGateConfig().proxy.socks_port)),
     )

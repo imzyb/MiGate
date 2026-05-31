@@ -205,6 +205,51 @@ def test_run_remote_rollout_cli_rejects_real_execution_without_double_gate():
     assert calls == []
 
 
+def test_run_remote_rollout_cli_stops_at_default_service_apply_failure_and_renders_diagnostics():
+    calls = []
+    service_commands = []
+
+    def service_apply_command_runner(command: str) -> RemoteRolloutCommandResult:
+        service_commands.append(command)
+        if "proxy service save" in command:
+            return RemoteRolloutCommandResult(1, "proxy stdout", "proxy stderr")
+        return RemoteRolloutCommandResult(0, "ok", "")
+
+    result = run_remote_rollout_cli(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        staging_dir="/tmp/migate-install",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=True,
+        install_runner=lambda: calls.append("install")
+        or RemoteRolloutPhaseResult("install", "success", "installed", ["install command"], True),
+        readiness_runner=lambda: calls.append("readiness")
+        or RemoteReadinessReport("ok", "root@166.88.232.2:22", [], ["readiness command"], False),
+        egress_up_runner=lambda: calls.append("egress_up")
+        or RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+        service_apply_command_runner=service_apply_command_runner,
+        socks5_smoke_runner=lambda: calls.append("socks5_smoke"),
+        leak_check_runner=lambda: calls.append("leak_check"),
+    )
+
+    assert result.status == "failed"
+    assert result.message == "remote rollout stopped at service_apply"
+    assert calls == ["install", "readiness", "egress_up"]
+    assert [phase.action for phase in result.phases] == ["install", "readiness", "egress_up", "service_apply"]
+    assert result.phases[-1].message == "service_apply failed at proxy_service_save"
+    assert result.phases[-1].performed_side_effects is True
+    assert service_commands == result.phases[-1].commands_executed
+    rendered = render_remote_rollout_run_result(result)
+    assert "- service_apply: failed - service_apply failed at proxy_service_save" in rendered
+    assert "  - proxy_service_save: failed returncode=1" in rendered
+    assert "    stdout: proxy stdout" in rendered
+    assert "    stderr: proxy stderr" in rendered
+    assert "socks5_smoke" not in calls
+    assert "leak_check" not in calls
+
+
 def test_run_remote_rollout_cli_stops_at_default_socks5_smoke_failure_and_renders_diagnostics():
     calls = []
     smoke_commands = []
