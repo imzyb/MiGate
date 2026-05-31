@@ -1615,6 +1615,92 @@ def test_xray_systemctl_restart_command_requires_double_gate(monkeypatch):
     assert calls[0][1]["allow_system_changes"] is False
 
 
+def test_xray_systemctl_status_command_accepts_xray_tun_service(monkeypatch):
+    calls = []
+
+    def fake_action(*args, **kwargs):
+        calls.append((args, kwargs))
+        from migate.xray.systemctl_cli import SystemctlActionResult
+
+        return SystemctlActionResult(
+            status="success",
+            action="status",
+            service="migate-xray-tun.service",
+            command=["systemctl", "status", "migate-xray-tun.service", "--no-pager"],
+            returncode=0,
+            stdout="tun active",
+            stderr="",
+            performed_side_effects=False,
+        )
+
+    monkeypatch.setattr(main_module, "run_xray_systemctl_action", fake_action)
+
+    result = runner.invoke(app, ["xray", "systemctl", "status", "--service", "migate-xray-tun.service"])
+
+    assert result.exit_code == 0
+    assert "service: migate-xray-tun.service" in result.output
+    assert "stdout: tun active" in result.output
+    assert calls == [(("status",), {"service": "migate-xray-tun.service"})]
+
+
+def test_xray_systemctl_start_stop_commands_pass_xray_tun_service_and_gates(monkeypatch):
+    calls = []
+
+    def fake_action(*args, **kwargs):
+        calls.append((args, kwargs))
+        from migate.xray.systemctl_cli import SystemctlActionResult
+
+        return SystemctlActionResult(
+            status="success",
+            action=args[0],
+            service=kwargs["service"],
+            command=["systemctl", args[0], kwargs["service"]],
+            returncode=0,
+            stdout="ok",
+            stderr="",
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(main_module, "run_xray_systemctl_action", fake_action)
+
+    start_result = runner.invoke(
+        app,
+        [
+            "xray",
+            "systemctl",
+            "start",
+            "--service",
+            "migate-xray-tun.service",
+            "--yes",
+            "--allow-system-changes",
+        ],
+    )
+    stop_result = runner.invoke(
+        app,
+        [
+            "xray",
+            "systemctl",
+            "stop",
+            "--service",
+            "migate-xray-tun.service",
+            "--yes",
+            "--allow-system-changes",
+        ],
+    )
+
+    assert start_result.exit_code == 0
+    assert "action: start" in start_result.output
+    assert "service: migate-xray-tun.service" in start_result.output
+    assert "performed_side_effects: True" in start_result.output
+    assert stop_result.exit_code == 0
+    assert "action: stop" in stop_result.output
+    assert "service: migate-xray-tun.service" in stop_result.output
+    assert calls == [
+        (("start",), {"service": "migate-xray-tun.service", "yes": True, "allow_system_changes": True}),
+        (("stop",), {"service": "migate-xray-tun.service", "yes": True, "allow_system_changes": True}),
+    ]
+
+
 def test_xray_apply_restart_command_requires_double_gate(monkeypatch):
     from migate.xray.apply_cli import XrayApplyResult
     from migate.xray.validator import XrayValidationResult
