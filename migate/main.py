@@ -62,7 +62,7 @@ from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult, run_xray_install_plan
 from migate.xray.service_cli import DEFAULT_XRAY_SERVICE_PATH, preview_xray_service_unit, save_xray_service_unit
 from migate.xray.systemctl_cli import ALLOWED_XRAY_SERVICE_NAME, SystemctlActionResult, run_xray_systemctl_action
-from migate.xray.tun_config import render_xray_tun_config
+from migate.xray.tun_config import render_xray_tun_config, save_xray_tun_config
 
 app = typer.Typer(help="MiGate smart egress gateway")
 xray_app = typer.Typer(help="Xray runtime and installer commands")
@@ -967,6 +967,29 @@ def xray_config_save(
 def xray_tun_config_preview() -> None:
     typer.echo(render_xray_tun_config(MiGateConfig()), nl=False)
     typer.echo("performed_side_effects: False")
+
+
+@xray_tun_config_app.command("save")
+def xray_tun_config_save(
+    target: str = typer.Option("/etc/migate/xray/config.json", "--target", help="Target xray TUN config path."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge that saving TUN config writes to disk."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually write config when combined with --yes."),
+) -> None:
+    result = save_xray_tun_config(
+        MiGateConfig(),
+        target,
+        yes=yes,
+        allow_system_changes=allow_system_changes,
+    )
+    typer.echo(f"status: {result.status}")
+    typer.echo(f"message: {result.message}")
+    typer.echo(f"target: {result.target}")
+    typer.echo(f"validation_status: {result.validation_status}")
+    if result.backup_path:
+        typer.echo(f"backup_path: {result.backup_path}")
+    typer.echo(f"rollback_performed: {result.rollback_performed}")
+    typer.echo(f"systemctl_commands_executed: {result.systemctl_commands_executed or []}")
+    typer.echo(f"performed_side_effects: {result.performed_side_effects}")
 
 
 @xray_service_app.command("preview")

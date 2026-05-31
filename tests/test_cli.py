@@ -1447,6 +1447,46 @@ def test_xray_tun_config_preview_command_prints_json_without_saving():
     assert "performed_side_effects: False" in result.output
 
 
+def test_xray_tun_config_save_command_requires_double_gate():
+    result = runner.invoke(app, ["xray", "tun-config", "save"])
+
+    assert result.exit_code == 0
+    assert "status: rejected" in result.output
+    assert "xray tun config save requires yes=True and allow_system_changes=True" in result.output
+    assert "systemctl_commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_xray_tun_config_save_command_shows_validation_and_no_systemctl(monkeypatch, tmp_path):
+    from migate.xray.tun_config import XrayTunConfigSaveResult
+
+    target = tmp_path / "tun.json"
+    monkeypatch.setattr(
+        main_module,
+        "save_xray_tun_config",
+        lambda *args, **kwargs: XrayTunConfigSaveResult(
+            status="saved",
+            message="xray tun config saved and validated",
+            target=target,
+            validation_status="valid",
+            performed_side_effects=True,
+            backup_path=None,
+            rollback_performed=False,
+            systemctl_commands_executed=[],
+        ),
+    )
+
+    result = runner.invoke(app, ["xray", "tun-config", "save", "--yes", "--allow-system-changes", "--target", str(target)])
+
+    assert result.exit_code == 0
+    assert "status: saved" in result.output
+    assert f"target: {target}" in result.output
+    assert "validation_status: valid" in result.output
+    assert "rollback_performed: False" in result.output
+    assert "systemctl_commands_executed: []" in result.output
+    assert "performed_side_effects: True" in result.output
+
+
 def test_xray_service_preview_command_prints_unit_without_systemctl():
     result = runner.invoke(app, ["xray", "service", "preview"])
 
