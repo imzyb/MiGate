@@ -383,6 +383,104 @@ def test_panel_xray_install_dry_run_rejection_is_rendered_safely(tmp_path):
     assert ">执行安装<" not in decoded
 
 
+def test_panel_xray_install_apis_return_webui_ready_json_without_side_effects(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def install_plan_loader() -> XrayInstallPlan:
+        calls.append("plan")
+        return XrayInstallPlan(
+            version="v1.8.24",
+            system="linux",
+            arch="64",
+            bin_path="/usr/local/bin/xray",
+            config_dir="/etc/migate/xray",
+            archive_name="Xray-linux-64.zip",
+            download_url="https://example.invalid/Xray-linux-64.zip",
+            steps=[
+                XrayInstallStep("download_archive", "下载 xray-core zip"),
+                XrayInstallStep("verify_version", "xray version 验证"),
+            ],
+            commands=[],
+            performs_side_effects=False,
+        )
+
+    def dry_run_loader() -> XrayInstallDryRunResult:
+        calls.append("dry-run")
+        return XrayInstallDryRunResult(
+            status="dry_run",
+            message="planned only; no commands executed",
+            steps=[
+                XrayInstallDryRunStep(
+                    action="download_archive",
+                    description="下载 xray-core zip",
+                    status="planned",
+                    command_preview="curl -fsSL https://example.invalid/Xray-linux-64.zip -o /tmp/Xray-linux-64.zip",
+                ),
+                XrayInstallDryRunStep(
+                    action="verify_version",
+                    description="xray version 验证",
+                    status="planned",
+                    command_preview="/usr/local/bin/xray version",
+                ),
+            ],
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_install_plan_loader=install_plan_loader,
+            xray_install_dry_run_loader=dry_run_loader,
+        )
+    )
+
+    plan_response = client.get("/api/xray/install-plan")
+    dry_run_response = client.get("/api/xray/install/dry-run")
+
+    assert plan_response.status_code == 200
+    assert plan_response.headers["content-type"].startswith("application/json")
+    assert plan_response.json() == {
+        "version": "v1.8.24",
+        "system": "linux",
+        "arch": "64",
+        "bin_path": "/usr/local/bin/xray",
+        "config_dir": "/etc/migate/xray",
+        "archive_name": "Xray-linux-64.zip",
+        "download_url": "https://example.invalid/Xray-linux-64.zip",
+        "steps": [
+            {"action": "download_archive", "description": "下载 xray-core zip"},
+            {"action": "verify_version", "description": "xray version 验证"},
+        ],
+        "commands": [],
+        "performs_side_effects": False,
+    }
+    assert dry_run_response.status_code == 200
+    assert dry_run_response.headers["content-type"].startswith("application/json")
+    assert dry_run_response.json() == {
+        "status": "dry_run",
+        "message": "planned only; no commands executed",
+        "steps": [
+            {
+                "action": "download_archive",
+                "description": "下载 xray-core zip",
+                "status": "planned",
+                "command_preview": "curl -fsSL https://example.invalid/Xray-linux-64.zip -o /tmp/Xray-linux-64.zip",
+            },
+            {
+                "action": "verify_version",
+                "description": "xray version 验证",
+                "status": "planned",
+                "command_preview": "/usr/local/bin/xray version",
+            },
+        ],
+        "commands_executed": [],
+        "performed_side_effects": False,
+    }
+    assert calls == ["plan", "dry-run"]
+
+
 def test_panel_service_status_refresh_shows_structured_results(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
 

@@ -306,6 +306,42 @@ def _xray_runtime_html(runtime_loader: Callable[[], XrayRuntimeStatus], *, refre
 """
 
 
+def _xray_install_plan_json(plan: XrayInstallPlan) -> dict[str, object]:
+    return {
+        "version": plan.version,
+        "system": plan.system,
+        "arch": plan.arch,
+        "bin_path": plan.bin_path,
+        "config_dir": plan.config_dir,
+        "archive_name": plan.archive_name,
+        "download_url": plan.download_url,
+        "steps": [
+            {"action": step.action, "description": step.description}
+            for step in plan.steps
+        ],
+        "commands": plan.commands,
+        "performs_side_effects": plan.performs_side_effects,
+    }
+
+
+def _xray_install_dry_run_json(result: XrayInstallDryRunResult) -> dict[str, object]:
+    return {
+        "status": result.status,
+        "message": result.message,
+        "steps": [
+            {
+                "action": step.action,
+                "description": step.description,
+                "status": step.status,
+                "command_preview": step.command_preview,
+            }
+            for step in result.steps
+        ],
+        "commands_executed": result.commands_executed,
+        "performed_side_effects": result.performed_side_effects,
+    }
+
+
 def _xray_install_plan_html(plan_loader: Callable[[], XrayInstallPlan], *, refreshed: bool = False) -> str:
     plan = plan_loader()
     heading = "Xray 安装计划已刷新" if refreshed else "Xray 安装计划预览"
@@ -561,6 +597,14 @@ def create_app(
             "config": config,
             "performed_side_effects": False,
         }
+
+    @app.get("/api/xray/install-plan")
+    def api_xray_install_plan() -> dict[str, object]:
+        return _xray_install_plan_json(plan_loader())
+
+    @app.get("/api/xray/install/dry-run")
+    def api_xray_install_dry_run() -> dict[str, object]:
+        return _xray_install_dry_run_json(dry_run_loader())
 
     @app.get("/api/systemd/units/preview")
     def api_systemd_units_preview() -> dict[str, object]:
