@@ -45,7 +45,7 @@ def _command_preview(plan: XrayInstallPlan, step: XrayInstallStep) -> str:
     extract_dir = f"/tmp/migate-xray-{plan.version}"
     previews = {
         "download_archive": f"curl -fsSL {plan.download_url} -o {archive_path}",
-        "verify_archive": f"python -m zipfile -t {archive_path}",
+        "verify_archive": f"python3 -m zipfile -t {archive_path}",
         "extract_binary": f"unzip -o {archive_path} xray -d {extract_dir}",
         "install_binary": f"install -m 0755 {extract_dir}/xray {plan.bin_path}",
         "chmod_executable": f"chmod +x {plan.bin_path}",

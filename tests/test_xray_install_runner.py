@@ -31,6 +31,7 @@ def test_run_xray_install_plan_executes_steps_in_order_with_injected_runner():
         "-o",
         "/tmp/Xray-linux-64.zip",
     ]
+    assert result.steps[1].command == ["python3", "-m", "zipfile", "-t", "/tmp/Xray-linux-64.zip"]
     assert result.steps[-1].command == ["/usr/local/bin/xray", "version"]
     assert calls == [step.command for step in result.steps]
 

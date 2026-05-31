@@ -59,6 +59,15 @@ def _empty_result(*, status: str, message: str, action: str, target: str) -> Rem
     )
 
 
+def _command_status(command_result: RemoteEgressCommandResult) -> str:
+    if command_result.returncode != 0:
+        return "failed"
+    first_line = command_result.stdout.lstrip().splitlines()[0] if command_result.stdout.strip() else ""
+    if first_line in {"status: failed", "status: rejected"}:
+        return "failed"
+    return "success"
+
+
 def run_remote_egress_plan(
     plan: RemoteEgressPlan,
     *,
@@ -100,7 +109,7 @@ def run_remote_egress_plan(
             )
             status = "command_not_found"
         else:
-            status = "success" if command_result.returncode == 0 else "failed"
+            status = _command_status(command_result)
 
         commands_executed.append(command)
         performed_side_effects = performed_side_effects or step.performs_side_effects

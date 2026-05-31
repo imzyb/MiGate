@@ -237,6 +237,40 @@ def test_remote_rollout_command_real_path_uses_phase_runners_with_double_gate(mo
     assert calls == ["install", "readiness", "egress_up", "leak_check"]
 
 
+def test_run_remote_rollout_cli_default_leak_check_uses_proxy_config_socks_port(monkeypatch):
+    captured = {}
+
+    def fake_leak_check_cli(**kwargs):
+        captured.update(kwargs)
+        return RemoteLeakCheckReport(
+            "ok",
+            "root@166.88.232.2:22",
+            "198.51.100.10",
+            "203.0.113.20",
+            [RemoteLeakCheck("egress_guard", "ok", "egress guard passed")],
+            ["leak check command"],
+            False,
+        )
+
+    monkeypatch.setattr(main_module, "run_remote_leak_check_cli", fake_leak_check_cli)
+
+    result = run_remote_rollout_cli(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        staging_dir="/tmp/migate-install",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=True,
+        install_runner=lambda: RemoteRolloutPhaseResult("install", "success", "installed", ["install command"], True),
+        readiness_runner=lambda: RemoteReadinessReport("ok", "root@166.88.232.2:22", [], ["readiness command"], False),
+        egress_up_runner=lambda: RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+    )
+
+    assert result.status == "success"
+    assert captured == {"host": "166.88.232.2", "port": 22, "user": "root", "socks_port": 34501}
+
+
 def test_remote_rollout_command_real_path_rejects_without_allow_remote_changes():
     result = runner.invoke(app, ["remote", "rollout", "--no-dry-run", "--yes"])
 
@@ -546,6 +580,25 @@ def test_remote_egress_command_real_path_rejects_without_allow_remote_changes():
     assert "performed_side_effects: False" in result.output
 
 
+def test_egress_up_command_exits_nonzero_when_lifecycle_fails(monkeypatch):
+    def fake_bring_up_egress(*args, **kwargs):
+        return EgressLifecycleResult(
+            status="failed",
+            message="egress up stopped before routing; OpenVPN start failed",
+            phases=[],
+            commands_executed=["openvpn --config /var/lib/migate/runtime/active.ovpn"],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(main_module, "bring_up_egress", fake_bring_up_egress)
+
+    result = runner.invoke(app, ["egress", "up", "--no-dry-run", "--yes", "--allow-system-changes"])
+
+    assert result.exit_code == 1
+    assert "status: failed" in result.output
+    assert "OpenVPN start failed" in result.output
+
+
 def test_build_remote_install_cli_plan_defaults_to_dedicated_test_vps_redacted():
     plan = build_remote_install_cli_plan()
 
@@ -600,7 +653,7 @@ def test_remote_install_command_accepts_custom_target_and_staging_dir():
     assert result.exit_code == 0
     assert "target: ubuntu@203.0.113.10:62422" in result.output
     assert "rsync -az --delete ./ ubuntu@203.0.113.10:/tmp/migate-custom/" in result.output
-    assert "ssh -p 62422 ubuntu@203.0.113.10 -- cd /tmp/migate-custom && python3 -m pip install ." in result.output
+    assert "ssh -p 62422 ubuntu@203.0.113.10 -- 'cd /tmp/migate-custom && python3 -m venv .venv && .venv/bin/python -m pip install . && ln -sf /tmp/migate-custom/.venv/bin/migate /usr/local/bin/migate'" in result.output
     assert "performed_side_effects: False" in result.output
 
 
@@ -806,6 +859,76 @@ def test_remote_doctor_command_rejects_embedded_credentials_without_probe():
     assert result.exit_code == 1
     assert "embedded credentials are not allowed" in result.output
     assert "secret" not in result.output
+
+
+def test_vpn_config_save_defaults_to_preview_without_writing(tmp_path: Path):
+    source = tmp_path / "source.ovpn"
+    target = tmp_path / "active.ovpn"
+    source.write_text("client\nremote 1.2.3.4 1194\ndev tun\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["vpn", "config", "save", "--source", str(source), "--target", str(target)])
+
+    assert result.exit_code == 0
+    assert "status: dry_run" in result.output
+    assert f"source: {source}" in result.output
+    assert f"target: {target}" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert "dev tun-migate" in result.output
+    assert not target.exists()
+
+
+def test_vpn_config_save_requires_double_gate_before_writing(tmp_path: Path):
+    source = tmp_path / "source.ovpn"
+    target = tmp_path / "active.ovpn"
+    source.write_text("client\nremote 1.2.3.4 1194\ndev tun\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["vpn", "config", "save", "--source", str(source), "--target", str(target), "--yes"])
+
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert not target.exists()
+
+
+def test_vpn_config_save_writes_rendered_active_ovpn_with_double_gate(tmp_path: Path):
+    source = tmp_path / "source.ovpn"
+    target = tmp_path / "runtime" / "active.ovpn"
+    source.write_text("client\nremote 1.2.3.4 1194\ndev tun\nstatus old.log\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "vpn",
+            "config",
+            "save",
+            "--source",
+            str(source),
+            "--target",
+            str(target),
+            "--yes",
+            "--allow-system-changes",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "status: saved" in result.output
+    assert "performed_side_effects: True" in result.output
+    saved = target.read_text(encoding="utf-8")
+    assert "dev tun-migate" in saved
+    assert "status old.log" not in saved
+    assert f"status {target.parent / 'status.json'}" in saved
+
+
+def test_vpn_config_save_fails_when_source_is_missing(tmp_path: Path):
+    source = tmp_path / "missing.ovpn"
+    target = tmp_path / "active.ovpn"
+
+    result = runner.invoke(app, ["vpn", "config", "save", "--source", str(source), "--target", str(target)])
+
+    assert result.exit_code == 1
+    assert "status: failed" in result.output
+    assert "source OpenVPN config not found" in result.output
+    assert not target.exists()
 
 
 def test_egress_up_command_defaults_to_dry_run_without_side_effects(monkeypatch):
@@ -1145,7 +1268,7 @@ def test_xray_install_command_with_real_gate_prints_doctor_report_before_result(
 
     result = runner.invoke(app, ["xray", "install", "--yes", "--allow-system-changes", "--system", "Linux", "--machine", "x86_64"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "Xray 安装前检查" in result.output
     assert "command:unzip: missing - unzip not found" in result.output
     assert "status: rejected" in result.output

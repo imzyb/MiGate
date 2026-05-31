@@ -83,7 +83,7 @@ def run_xray_install_doctor(
     port_checker = port_available or _default_port_available
     checks: list[DoctorCheck] = []
 
-    for command in ["curl", "unzip", "python", "systemctl"]:
+    for command in ["curl", "unzip", "python3", "systemctl"]:
         exists = command_checker(command)
         checks.append(
             DoctorCheck(

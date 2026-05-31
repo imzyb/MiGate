@@ -24,12 +24,12 @@ def test_xray_install_doctor_reports_required_commands_and_writable_paths():
 
     assert isinstance(report, DoctorReport)
     assert report.status == "failed"
-    assert checked_commands == ["curl", "unzip", "python", "systemctl"]
+    assert checked_commands == ["curl", "unzip", "python3", "systemctl"]
     assert checked_writable_paths == ["/usr/local/bin", "/etc/migate/xray", "/etc/systemd/system"]
     assert report.checks == [
         DoctorCheck(name="command:curl", status="ok", message="curl found"),
         DoctorCheck(name="command:unzip", status="missing", message="unzip not found"),
-        DoctorCheck(name="command:python", status="ok", message="python found"),
+        DoctorCheck(name="command:python3", status="ok", message="python3 found"),
         DoctorCheck(name="command:systemctl", status="ok", message="systemctl found"),
         DoctorCheck(name="systemd", status="ok", message="systemd is available"),
         DoctorCheck(name="root", status="ok", message="current user is root"),
@@ -53,6 +53,23 @@ def test_xray_install_doctor_passes_when_all_checks_are_ok():
 
     assert report.status == "ok"
     assert all(check.status == "ok" for check in report.checks)
+
+
+def test_xray_install_doctor_accepts_python3_when_python_alias_is_missing():
+    def command_exists(command: str) -> bool:
+        return command in {"curl", "unzip", "python3", "systemctl"}
+
+    report = run_xray_install_doctor(
+        command_exists=command_exists,
+        path_writable=lambda path: True,
+        systemd_available=lambda: True,
+        is_root=lambda: True,
+        port_available=lambda host, port: True,
+    )
+
+    assert report.status == "ok"
+    assert DoctorCheck(name="command:python3", status="ok", message="python3 found") in report.checks
+    assert not any(check.name == "command:python" for check in report.checks)
 
 
 def test_xray_install_doctor_reports_deploy_preflight_checks_without_side_effects():

@@ -62,6 +62,15 @@ def build_remote_install_dry_run_plan(
 
     target = _target(host, port, user)
     ssh_target = f"{user}@{host}"
+    remote_migate = "migate"
+    install_remote_script = (
+        f"cd {staging_dir} && "
+        "python3 -m venv .venv && "
+        ".venv/bin/python -m pip install . && "
+        f"ln -sf {staging_dir}/.venv/bin/migate /usr/local/bin/migate"
+    )
+    service_preview_remote_script = f"{remote_migate} xray service preview && {remote_migate} proxy service preview"
+
     steps = [
         RemoteInstallStep(
             "doctor",
@@ -77,8 +86,8 @@ def build_remote_install_dry_run_plan(
         ),
         RemoteInstallStep(
             "install_python_package",
-            "install MiGate package on remote host",
-            f"ssh -p {port} {ssh_target} -- cd {staging_dir} && python3 -m pip install .",
+            "install MiGate package in an isolated remote venv",
+            f"ssh -p {port} {ssh_target} -- '{install_remote_script}'",
             True,
         ),
         RemoteInstallStep(
@@ -90,7 +99,7 @@ def build_remote_install_dry_run_plan(
         RemoteInstallStep(
             "write_services",
             "preview service units only; real service writes stay gated",
-            f"ssh -p {port} {ssh_target} -- migate xray service preview && migate proxy service preview",
+            f"ssh -p {port} {ssh_target} -- '{service_preview_remote_script}'",
             False,
         ),
         RemoteInstallStep(

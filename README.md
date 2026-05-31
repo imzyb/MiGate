@@ -74,6 +74,17 @@ migate remote install --no-dry-run --yes --allow-remote-changes
 
 This path executes the planned command previews in order through the runner layer and stops on the first failed step. Treat it as a test-VPS-only orchestration shell, not a production installer. It still does not implement rollback, ownership cleanup, firewall changes, policy routing, or OpenVPN startup.
 
+### VPN runtime config save
+
+Before real egress startup, render an explicit OpenVPN `.ovpn` source into MiGate's managed runtime path:
+
+```bash
+migate vpn config save --source /tmp/vpngate.ovpn
+migate vpn config save --source /tmp/vpngate.ovpn --yes --allow-system-changes
+```
+
+The command defaults to a side-effect-free preview and writes only with both gates. Rendering forces `dev tun-migate`, strips caller-supplied log/status paths, injects MiGate log/status paths, adds OpenVPN 2.5+ compatible `data-ciphers`, and adds `route-nopull` plus `pull-filter ignore redirect-gateway` so VPNGate pushed default routes cannot steal the VPS management route. `migate egress up` fails closed before OpenVPN startup if `/var/lib/migate/runtime/active.ovpn` is missing.
+
 ### Remote egress dry-run
 
 Preview remote egress operations after installation without opening SSH or changing the test VPS:

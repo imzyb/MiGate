@@ -12,6 +12,7 @@ from pathlib import Path
 from migate.config import MiGateConfig
 
 _XRAY_RELEASE_BASE = "https://github.com/XTLS/Xray-core/releases/download"
+_XRAY_LATEST_RELEASE_BASE = "https://github.com/XTLS/Xray-core/releases/latest/download"
 
 
 @dataclass(frozen=True)
@@ -79,7 +80,7 @@ def build_xray_install_plan(
     normalized_system = _normalize_system(system)
     arch = normalize_machine_arch(machine)
     archive_name = f"Xray-{normalized_system}-{arch}.zip"
-    download_url = f"{_XRAY_RELEASE_BASE}/{version}/{archive_name}"
+    download_url = f"{_XRAY_LATEST_RELEASE_BASE}/{archive_name}" if version == "latest" else f"{_XRAY_RELEASE_BASE}/{version}/{archive_name}"
     config_dir = str(Path(config.xray.config_path).parent)
     steps = [
         XrayInstallStep("download_archive", "下载 xray-core zip"),

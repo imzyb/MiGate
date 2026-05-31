@@ -42,6 +42,12 @@ def render_openvpn_config_preview(
 
     if not dev_written:
         rendered_lines.append(f"dev {tun_interface}")
+    if not any(line.strip() == "route-nopull" for line in rendered_lines):
+        rendered_lines.append("route-nopull")
+    if not any(line.strip() == "pull-filter ignore redirect-gateway" for line in rendered_lines):
+        rendered_lines.append("pull-filter ignore redirect-gateway")
+    if not any(line.strip().startswith("data-ciphers ") for line in rendered_lines):
+        rendered_lines.append("data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC")
     rendered_lines.append(f"status {status_path}")
     rendered_lines.append(f"log-append {log_path}")
 

@@ -102,6 +102,28 @@ def test_remote_egress_runner_stops_on_first_failed_step():
     )
 
 
+def test_remote_egress_runner_treats_remote_status_failed_as_failed_even_when_ssh_exits_zero():
+    plan = _plan("up")
+
+    def runner(command: str) -> RemoteEgressCommandResult:
+        if "egress up" in command:
+            return RemoteEgressCommandResult(
+                returncode=0,
+                stdout="status: failed\nmessage: egress up stopped before routing; OpenVPN start failed\n",
+                stderr="",
+            )
+        return RemoteEgressCommandResult(returncode=0, stdout="status: ok\n", stderr="")
+
+    result = run_remote_egress_plan(plan, dry_run=False, yes=True, allow_remote_changes=True, runner=runner)
+
+    assert result.status == "failed"
+    assert result.message == "remote egress up stopped at egress_up"
+    assert [step.action for step in result.steps] == ["doctor", "egress_up"]
+    assert result.steps[-1].status == "failed"
+    assert result.steps[-1].returncode == 0
+    assert "OpenVPN start failed" in result.steps[-1].stdout
+
+
 def test_remote_egress_runner_rejects_rejected_plan_without_calling_runner():
     calls: list[str] = []
     rejected = build_remote_egress_dry_run_plan(host="root:secret@166.88.232.2", port=22, user="root", action="up")

@@ -54,6 +54,8 @@ def build_openvpn_start_plan(
         status_path,
         "--log-append",
         log_path,
+        "--daemon",
+        "migate-openvpn",
     ]
     return OpenVPNStartPlan(
         openvpn_bin=openvpn_bin,

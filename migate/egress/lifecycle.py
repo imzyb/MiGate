@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from migate.routing.policy_apply import apply_policy_routing_plan
@@ -38,6 +39,8 @@ def bring_up_egress(
     runner: Callable[[list[str]], Any] | None = None,
     openvpn_runner: Callable[[list[str]], OpenVPNStartCommandResult] | None = None,
     routing_runner: Callable[[list[str]], Any] | None = None,
+    config_exists: Callable[[str], bool] | None = None,
+    ensure_directory: Callable[[Path], None] | None = None,
     allow_side_effects: bool = False,
 ) -> EgressLifecycleResult:
     if not allow_side_effects:
@@ -48,6 +51,20 @@ def bring_up_egress(
             commands_executed=[],
             performed_side_effects=False,
         )
+
+    exists = config_exists or (lambda path: Path(path).exists())
+    if not exists(start_plan.config_path):
+        return EgressLifecycleResult(
+            status="failed",
+            message=f"egress up preflight failed; OpenVPN config is missing: {start_plan.config_path}",
+            phases=[EgressLifecyclePhase(name="openvpn_preflight", status="failed", result=None)],
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+
+    mkdir = ensure_directory or (lambda path: path.mkdir(parents=True, exist_ok=True))
+    mkdir(Path(start_plan.config_path).parent)
+    mkdir(Path(start_plan.log_path).parent)
 
     phase_runner = openvpn_runner or runner
     routing_phase_runner = routing_runner or runner

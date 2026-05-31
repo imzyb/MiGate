@@ -33,6 +33,9 @@ persist-key
 persist-tun
 keepalive 10 60
 verb 3
+route-nopull
+pull-filter ignore redirect-gateway
+data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC
 status /var/lib/migate/runtime/status.json
 log-append /var/log/migate/openvpn.log
 """,
@@ -57,6 +60,9 @@ dev tun
 
     assert "status old-status.log" not in plan.config_text
     assert "log /tmp/old.log" not in plan.config_text
+    assert "route-nopull" in plan.config_text
+    assert "pull-filter ignore redirect-gateway" in plan.config_text
+    assert "data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC" in plan.config_text
     assert "status /var/lib/migate/runtime/status.json" in plan.config_text
     assert "log-append /var/log/migate/openvpn.log" in plan.config_text
     assert plan.performed_side_effects is False
