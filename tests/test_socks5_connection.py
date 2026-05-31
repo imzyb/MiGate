@@ -41,7 +41,7 @@ def test_socks5_connection_rejects_greeting_and_closes_session():
     assert connection.performed_side_effects is False
 
 
-def test_socks5_connection_accepts_connect_request_after_greeting_without_connecting():
+def test_socks5_connection_accepts_connect_request_after_greeting_and_requests_upstream_connect():
     connection = Socks5Connection()
     connection.receive_greeting(bytes([0x05, 0x01, 0x00]))
     domain = b"example.com"
@@ -52,15 +52,15 @@ def test_socks5_connection_accepts_connect_request_after_greeting_without_connec
         phase="connect",
         status="accepted",
         response=SOCKS5_SUCCESS_REPLY,
-        message="CONNECT request accepted; upstream connection not implemented yet",
+        message="CONNECT request accepted; connect to upstream",
         request_address=Socks5Address(address_type="domain", host="example.com", port=443),
-        should_connect=False,
+        should_connect=True,
         performed_side_effects=False,
     )
     assert connection.state == "accepted"
     assert connection.final_status == "accepted"
     assert connection.request_address == Socks5Address(address_type="domain", host="example.com", port=443)
-    assert connection.should_connect is False
+    assert connection.should_connect is True
     assert connection.performed_side_effects is False
 
 

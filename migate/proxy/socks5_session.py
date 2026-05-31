@@ -93,7 +93,7 @@ def handle_socks5_connect_request(payload: bytes) -> Socks5ConnectDecision:
         status="accepted",
         request_address=request.address,
         reply=SOCKS5_SUCCESS_REPLY,
-        should_connect=False,
-        message="CONNECT request accepted; upstream connection not implemented yet",
+        should_connect=True,
+        message="CONNECT request accepted; connect to upstream",
         performed_side_effects=False,
     )

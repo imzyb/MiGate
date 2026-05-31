@@ -1,11 +1,11 @@
-"""Minimal asyncio SOCKS5 server without upstream forwarding.
+"""Minimal asyncio SOCKS5 server with bounded upstream forwarding.
 
 This server is intentionally constrained for test-driven development:
 - bind on caller-provided host/port
-- accept a single client connection
-- process SOCKS5 greeting and one CONNECT request
-- write SOCKS5 replies and close
-- never connect to upstream destinations
+- accept a bounded number of client connections
+- process SOCKS5 greeting and one CONNECT request per client
+- connect accepted CONNECT requests to upstream destinations
+- relay bytes until either side closes
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from typing import Any
 
 from migate.proxy.socks5_connection import Socks5Connection
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
+from migate.proxy.socks5_session import SOCKS5_GENERAL_FAILURE_REPLY
 
 _current_server: asyncio.AbstractServer | None = None
 
@@ -33,6 +34,36 @@ async def _read_socks5_request(reader: asyncio.StreamReader) -> bytes:
     else:
         rest = await reader.read(2)
     return header + rest
+
+
+async def _pipe_stream(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    try:
+        while data := await reader.read(65536):
+            writer.write(data)
+            await writer.drain()
+    except (ConnectionResetError, BrokenPipeError):
+        return
+    finally:
+        try:
+            writer.write_eof()
+        except (AttributeError, OSError, RuntimeError):
+            writer.close()
+
+
+async def _relay_until_closed(
+    client_reader: asyncio.StreamReader,
+    client_writer: asyncio.StreamWriter,
+    upstream_reader: asyncio.StreamReader,
+    upstream_writer: asyncio.StreamWriter,
+) -> None:
+    client_to_upstream = asyncio.create_task(_pipe_stream(client_reader, upstream_writer))
+    upstream_to_client = asyncio.create_task(_pipe_stream(upstream_reader, client_writer))
+    done, pending = await asyncio.wait({client_to_upstream, upstream_to_client}, return_when=asyncio.FIRST_COMPLETED)
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*done, *pending, return_exceptions=True)
+    upstream_writer.close()
+    await upstream_writer.wait_closed()
 
 
 async def _handle_socks5_client(
@@ -68,11 +99,46 @@ async def _handle_socks5_client(
 
         request_payload = await asyncio.wait_for(_read_socks5_request(reader), timeout=client_timeout)
         connect_event = connection.receive_request(request_payload)
+        target_host = connect_event.request_address.host if connect_event.request_address is not None else None
+        target_port = connect_event.request_address.port if connect_event.request_address is not None else None
+        upstream_connected = False
+        if connect_event.should_connect and target_host is not None and target_port is not None:
+            try:
+                upstream_reader, upstream_writer = await asyncio.wait_for(
+                    asyncio.open_connection(target_host, target_port),
+                    timeout=client_timeout,
+                )
+            except OSError:
+                connect_event = type(connect_event)(
+                    phase=connect_event.phase,
+                    status="rejected",
+                    response=SOCKS5_GENERAL_FAILURE_REPLY,
+                    message="upstream connection failed",
+                    request_address=connect_event.request_address,
+                    should_connect=False,
+                    performed_side_effects=connect_event.performed_side_effects,
+                )
+            else:
+                stats["upstream_connections"] += 1
+                upstream_connected = True
+                if connect_event.response is not None:
+                    writer.write(connect_event.response)
+                    await asyncio.wait_for(writer.drain(), timeout=client_timeout)
+                events.append(
+                    Socks5ServeEvent(
+                        client_id=client_id,
+                        phase="connect",
+                        status=connect_event.status,
+                        target_host=target_host,
+                        target_port=target_port,
+                        upstream_connected=True,
+                    )
+                )
+                await _relay_until_closed(reader, writer, upstream_reader, upstream_writer)
+                return
         if connect_event.response is not None:
             writer.write(connect_event.response)
             await asyncio.wait_for(writer.drain(), timeout=client_timeout)
-        target_host = connect_event.request_address.host if connect_event.request_address is not None else None
-        target_port = connect_event.request_address.port if connect_event.request_address is not None else None
         events.append(
             Socks5ServeEvent(
                 client_id=client_id,
@@ -80,10 +146,9 @@ async def _handle_socks5_client(
                 status=connect_event.status,
                 target_host=target_host,
                 target_port=target_port,
-                upstream_connected=False,
+                upstream_connected=upstream_connected,
             )
         )
-        stats["upstream_connections"] += 0
     except TimeoutError:
         stats["timed_out_connections"] += 1
         events.append(
