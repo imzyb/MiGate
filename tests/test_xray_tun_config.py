@@ -37,7 +37,7 @@ def test_build_xray_tun_config_routes_tun_inbound_to_safe_socks_without_freedom(
     assert config["routing"]["domainStrategy"] == "IPIfNonMatch"
     assert config["routing"]["rules"] == [
         {"type": "field", "inboundTag": ["migate-tun-in"], "outboundTag": "migate-vpngate"},
-        {"type": "field", "outboundTag": "blocked"},
+        {"type": "field", "network": "tcp,udp", "outboundTag": "blocked"},
     ]
 
 
