@@ -401,6 +401,23 @@ def _egress_dry_run_controls_html() -> str:
 """
 
 
+def _egress_lifecycle_result_json(result: EgressLifecycleResult) -> dict[str, object]:
+    return {
+        "status": result.status,
+        "message": result.message,
+        "commands_executed": result.commands_executed,
+        "phases": [
+            {
+                "name": phase.name,
+                "status": phase.status,
+                "result": phase.result,
+            }
+            for phase in result.phases
+        ],
+        "performed_side_effects": result.performed_side_effects,
+    }
+
+
 def _egress_dry_run_result_html(title: str, result_loader: Callable[[], EgressLifecycleResult]) -> str:
     result = result_loader()
     commands = "\n".join(result.commands_executed)
@@ -775,6 +792,14 @@ def create_app(
                 systemd_html=_systemd_preview_html(migate_config),
             )
         )
+
+    @app.get("/api/egress/up/dry-run")
+    def api_egress_up_dry_run() -> dict[str, object]:
+        return _egress_lifecycle_result_json(egress_up_loader())
+
+    @app.get("/api/egress/down/dry-run")
+    def api_egress_down_dry_run() -> dict[str, object]:
+        return _egress_lifecycle_result_json(egress_down_loader())
 
     @app.post("/egress/up/dry-run", response_class=HTMLResponse)
     def dry_run_egress_up() -> str:

@@ -549,6 +549,78 @@ def test_panel_egress_down_dry_run_renders_planned_cleanup_and_stop_commands(tmp
     assert "performed_side_effects: False" in decoded
 
 
+def test_panel_egress_dry_run_api_returns_up_and_down_json_without_side_effects(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def egress_up_dry_run_loader() -> EgressLifecycleResult:
+        calls.append("up")
+        return EgressLifecycleResult(
+            status="dry_run",
+            message="planned only; no egress up commands executed",
+            phases=[],
+            commands_executed=[
+                "openvpn --config /var/lib/migate/runtime/active.ovpn --writepid /var/lib/migate/runtime/openvpn.pid",
+                "ip rule add fwmark 0x66 table 100",
+                "ip route add default dev tun-migate table 100",
+            ],
+            performed_side_effects=False,
+        )
+
+    def egress_down_dry_run_loader() -> EgressLifecycleResult:
+        calls.append("down")
+        return EgressLifecycleResult(
+            status="dry_run",
+            message="planned only; no egress down commands executed",
+            phases=[],
+            commands_executed=[
+                "ip route del default dev tun-migate table 100",
+                "ip rule del fwmark 0x66 table 100",
+                "kill -TERM <pid from /var/lib/migate/runtime/openvpn.pid>",
+            ],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            egress_up_dry_run_loader=egress_up_dry_run_loader,
+            egress_down_dry_run_loader=egress_down_dry_run_loader,
+        )
+    )
+
+    up_response = client.get("/api/egress/up/dry-run")
+    down_response = client.get("/api/egress/down/dry-run")
+
+    assert up_response.status_code == 200
+    assert up_response.headers["content-type"].startswith("application/json")
+    assert up_response.json() == {
+        "status": "dry_run",
+        "message": "planned only; no egress up commands executed",
+        "commands_executed": [
+            "openvpn --config /var/lib/migate/runtime/active.ovpn --writepid /var/lib/migate/runtime/openvpn.pid",
+            "ip rule add fwmark 0x66 table 100",
+            "ip route add default dev tun-migate table 100",
+        ],
+        "phases": [],
+        "performed_side_effects": False,
+    }
+    assert down_response.status_code == 200
+    assert down_response.headers["content-type"].startswith("application/json")
+    assert down_response.json() == {
+        "status": "dry_run",
+        "message": "planned only; no egress down commands executed",
+        "commands_executed": [
+            "ip route del default dev tun-migate table 100",
+            "ip rule del fwmark 0x66 table 100",
+            "kill -TERM <pid from /var/lib/migate/runtime/openvpn.pid>",
+        ],
+        "phases": [],
+        "performed_side_effects": False,
+    }
+    assert calls == ["up", "down"]
+
+
 def test_panel_home_shows_validation_gated_xray_restart_action(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     client = TestClient(create_app(node_repository=repo, xray_config_path=tmp_path / "config.json"))
