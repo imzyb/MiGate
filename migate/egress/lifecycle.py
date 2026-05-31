@@ -7,12 +7,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from migate.config import MiGateConfig
 from migate.routing.policy_apply import apply_policy_routing_plan
 from migate.routing.policy_cleanup import PolicyRoutingCleanupPlan
 from migate.routing.policy_cleanup_runner import PolicyRoutingCleanupCommandResult, apply_policy_routing_cleanup_plan
 from migate.routing.policy_plan import PolicyRoutingPlan
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_tun_start
+from migate.xray.service_cli import DEFAULT_XRAY_TUN_SERVICE_PATH, save_xray_tun_service_unit
 from migate.xray.systemctl_cli import ALLOWED_XRAY_TUN_SERVICE_NAME, SystemctlActionResult, run_xray_systemctl_action
+from migate.xray.tun_config import save_xray_tun_config
+from migate.xray.validator import XrayValidationResult
 from migate.egress.tunnel_backend import (
     CommandResult as TunnelCommandResult,
     TunnelStartPlan,
@@ -63,7 +67,7 @@ def bring_up_egress(
     exists = config_exists or (lambda path: Path(path).exists())
     required_paths = start_plan.required_paths or []
     missing_required_paths = [path for path in required_paths if not exists(path)]
-    if missing_required_paths:
+    if missing_required_paths and start_plan.backend != "xray-tun":
         missing = missing_required_paths[0]
         return EgressLifecycleResult(
             status="failed",
@@ -134,6 +138,34 @@ def bring_up_egress(
 
 
 def _default_xray_tun_start_runner(config_path: str) -> XrayApplyResult:
+    config = MiGateConfig()
+    config_result = save_xray_tun_config(config, config_path, yes=True, allow_system_changes=True)
+    if config_result.status != "saved":
+        return XrayApplyResult(
+            status="invalid_config",
+            message="xray tun config bootstrap failed; service start skipped",
+            config_path=config_path,
+            validation=XrayValidationResult(config_result.validation_status, None, "", config_result.message),
+            systemctl_results=[],
+            performed_side_effects=config_result.performed_side_effects,
+        )
+
+    service_result = save_xray_tun_service_unit(
+        DEFAULT_XRAY_TUN_SERVICE_PATH,
+        yes=True,
+        allow_system_changes=True,
+        config_path=config_path,
+    )
+    if service_result.status != "saved":
+        return XrayApplyResult(
+            status="systemctl_failed",
+            message="xray tun service bootstrap failed; service start skipped",
+            config_path=config_path,
+            validation=XrayValidationResult("valid", 0, config_result.message, ""),
+            systemctl_results=[],
+            performed_side_effects=config_result.performed_side_effects or service_result.performed_side_effects,
+        )
+
     return apply_validated_xray_tun_start(config_path, yes=True, allow_system_changes=True)
 
 

@@ -1,10 +1,13 @@
 from pathlib import Path
 
+from migate.egress import lifecycle as lifecycle_module
 from migate.egress.lifecycle import EgressLifecycleResult, bring_down_egress, bring_up_egress
 from migate.egress.openvpn_backend import build_openvpn_tunnel_start_plan, build_openvpn_tunnel_stop_plan
 from migate.egress.tunnel_backend import TunnelStartPlan, TunnelStopPlan
 from migate.xray.apply_cli import XrayApplyResult
+from migate.xray.service_cli import XrayServiceSaveResult
 from migate.xray.systemctl_cli import ALLOWED_XRAY_TUN_SERVICE_NAME, SystemctlActionResult
+from migate.xray.tun_config import XrayTunConfigSaveResult
 from migate.xray.validator import XrayValidationResult
 from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
 from migate.routing.policy_plan import build_policy_routing_plan
@@ -256,6 +259,171 @@ def test_bring_up_egress_xray_tun_runs_validation_gated_apply_before_policy_rout
         *[" ".join(command) for command in routing_plan.commands],
     ]
     assert result.performed_side_effects is True
+
+
+def test_bring_up_egress_xray_tun_bootstraps_generated_runtime_artifacts_on_fresh_host():
+    tunnel_plan = TunnelStartPlan(
+        backend="xray-tun",
+        command=["systemctl", "start", ALLOWED_XRAY_TUN_SERVICE_NAME],
+        runtime_paths=["/etc/migate/xray/config.json", "/etc/systemd/system/migate-xray-tun.service", "/var/log/migate/xray-tun.log"],
+        required_paths=["/etc/migate/xray/config.json", "/etc/systemd/system/migate-xray-tun.service"],
+    )
+    routing_plan = _routing_plan()
+    apply_calls: list[str] = []
+
+    def xray_tun_start_runner(config_path: str) -> XrayApplyResult:
+        apply_calls.append(config_path)
+        return XrayApplyResult(
+            status="success",
+            message="xray tun config generated, validated, and service started",
+            config_path=config_path,
+            validation=XrayValidationResult("valid", 0, "ok", ""),
+            systemctl_results=[
+                SystemctlActionResult("success", "daemon-reload", ALLOWED_XRAY_TUN_SERVICE_NAME, ["systemctl", "daemon-reload"], 0, "reload ok", "", True),
+                SystemctlActionResult("success", "start", ALLOWED_XRAY_TUN_SERVICE_NAME, ["systemctl", "start", ALLOWED_XRAY_TUN_SERVICE_NAME], 0, "start ok", "", True),
+            ],
+            performed_side_effects=True,
+        )
+
+    result = bring_up_egress(
+        tunnel_plan,
+        routing_plan,
+        xray_tun_start_runner=xray_tun_start_runner,
+        routing_runner=lambda argv: FakeCommandResult(0, stdout="route ok", stderr=""),
+        allow_side_effects=True,
+        config_exists=lambda path: False,
+        ensure_directory=lambda path: None,
+    )
+
+    assert apply_calls == ["/etc/migate/xray/config.json"]
+    assert result.status == "up"
+    assert [phase.name for phase in result.phases] == ["xray_tun_apply_start", "policy_routing_apply"]
+
+
+def test_bootstrap_xray_tun_start_runner_saves_config_and_service_before_starting(monkeypatch):
+    calls: list[tuple[str, str]] = []
+
+    def fake_save_config(config, target, *, yes, allow_system_changes):
+        calls.append(("save_config", str(target)))
+        assert isinstance(config, MiGateConfig)
+        assert yes is True
+        assert allow_system_changes is True
+        return XrayTunConfigSaveResult(
+            status="saved",
+            message="xray tun config saved and validated",
+            target=Path(target),
+            validation_status="valid",
+            performed_side_effects=True,
+        )
+
+    def fake_save_service(target, *, yes, allow_system_changes, config_path):
+        calls.append(("save_service", str(target)))
+        assert yes is True
+        assert allow_system_changes is True
+        assert config_path == "/etc/migate/xray/config.json"
+        return XrayServiceSaveResult(
+            status="saved",
+            message="xray tun service unit saved; daemon-reload not run",
+            target=Path(target),
+            performed_side_effects=True,
+            systemctl_commands_executed=[],
+        )
+
+    def fake_apply(config_path, *, yes, allow_system_changes):
+        calls.append(("apply_start", str(config_path)))
+        assert yes is True
+        assert allow_system_changes is True
+        return XrayApplyResult(
+            status="success",
+            message="xray tun config validated and service started",
+            config_path=str(config_path),
+            validation=XrayValidationResult("valid", 0, "ok", ""),
+            systemctl_results=[
+                SystemctlActionResult("success", "daemon-reload", ALLOWED_XRAY_TUN_SERVICE_NAME, ["systemctl", "daemon-reload"], 0, "reload ok", "", True),
+                SystemctlActionResult("success", "start", ALLOWED_XRAY_TUN_SERVICE_NAME, ["systemctl", "start", ALLOWED_XRAY_TUN_SERVICE_NAME], 0, "start ok", "", True),
+            ],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(lifecycle_module, "save_xray_tun_config", fake_save_config)
+    monkeypatch.setattr(lifecycle_module, "save_xray_tun_service_unit", fake_save_service)
+    monkeypatch.setattr(lifecycle_module, "apply_validated_xray_tun_start", fake_apply)
+
+    result = lifecycle_module._default_xray_tun_start_runner("/etc/migate/xray/config.json")
+
+    assert result.status == "success"
+    assert calls == [
+        ("save_config", "/etc/migate/xray/config.json"),
+        ("save_service", "/etc/systemd/system/migate-xray-tun.service"),
+        ("apply_start", "/etc/migate/xray/config.json"),
+    ]
+
+
+def test_bootstrap_xray_tun_start_runner_stops_when_config_save_fails(monkeypatch):
+    calls: list[str] = []
+
+    def fake_save_config(config, target, *, yes, allow_system_changes):
+        calls.append("save_config")
+        return XrayTunConfigSaveResult(
+            status="invalid",
+            message="xray tun config validation failed; removed invalid new config",
+            target=Path(target),
+            validation_status="invalid",
+            performed_side_effects=True,
+            rollback_performed=True,
+        )
+
+    monkeypatch.setattr(lifecycle_module, "save_xray_tun_config", fake_save_config)
+    monkeypatch.setattr(lifecycle_module, "save_xray_tun_service_unit", lambda *args, **kwargs: calls.append("save_service"))
+    monkeypatch.setattr(lifecycle_module, "apply_validated_xray_tun_start", lambda *args, **kwargs: calls.append("apply_start"))
+
+    result = lifecycle_module._default_xray_tun_start_runner("/etc/migate/xray/config.json")
+
+    assert result.status == "invalid_config"
+    assert result.message == "xray tun config bootstrap failed; service start skipped"
+    assert result.validation.status == "invalid"
+    assert result.systemctl_results == []
+    assert result.performed_side_effects is True
+    assert calls == ["save_config"]
+
+
+def test_bootstrap_xray_tun_start_runner_stops_when_service_save_fails(monkeypatch):
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        lifecycle_module,
+        "save_xray_tun_config",
+        lambda *args, **kwargs: calls.append("save_config")
+        or XrayTunConfigSaveResult(
+            status="saved",
+            message="xray tun config saved and validated",
+            target=Path("/etc/migate/xray/config.json"),
+            validation_status="valid",
+            performed_side_effects=True,
+        ),
+    )
+    monkeypatch.setattr(
+        lifecycle_module,
+        "save_xray_tun_service_unit",
+        lambda *args, **kwargs: calls.append("save_service")
+        or XrayServiceSaveResult(
+            status="rejected",
+            message="xray tun service save requires yes=True and allow_system_changes=True",
+            target=Path("/etc/systemd/system/migate-xray-tun.service"),
+            performed_side_effects=False,
+            systemctl_commands_executed=[],
+        ),
+    )
+    monkeypatch.setattr(lifecycle_module, "apply_validated_xray_tun_start", lambda *args, **kwargs: calls.append("apply_start"))
+
+    result = lifecycle_module._default_xray_tun_start_runner("/etc/migate/xray/config.json")
+
+    assert result.status == "systemctl_failed"
+    assert result.message == "xray tun service bootstrap failed; service start skipped"
+    assert result.validation.status == "valid"
+    assert result.systemctl_results == []
+    assert result.performed_side_effects is True
+    assert calls == ["save_config", "save_service"]
 
 
 def test_bring_up_egress_xray_tun_stops_before_policy_routing_when_apply_fails():
