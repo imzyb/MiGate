@@ -62,10 +62,12 @@ from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult, run_xray_install_plan
 from migate.xray.service_cli import DEFAULT_XRAY_SERVICE_PATH, preview_xray_service_unit, save_xray_service_unit
 from migate.xray.systemctl_cli import ALLOWED_XRAY_SERVICE_NAME, SystemctlActionResult, run_xray_systemctl_action
+from migate.xray.tun_config import render_xray_tun_config
 
 app = typer.Typer(help="MiGate smart egress gateway")
 xray_app = typer.Typer(help="Xray runtime and installer commands")
 xray_config_app = typer.Typer(help="Xray config preview and save commands")
+xray_tun_config_app = typer.Typer(help="Xray TUN config preview commands")
 xray_service_app = typer.Typer(help="Xray systemd service preview and save commands")
 xray_systemctl_app = typer.Typer(help="Safe systemctl controls for MiGate Xray service")
 xray_apply_app = typer.Typer(help="Validation-gated Xray apply operations")
@@ -85,6 +87,7 @@ app.add_typer(remote_app, name="remote")
 proxy_app.add_typer(proxy_service_app, name="service")
 proxy_app.add_typer(proxy_socks5_app, name="socks5")
 xray_app.add_typer(xray_config_app, name="config")
+xray_app.add_typer(xray_tun_config_app, name="tun-config")
 xray_app.add_typer(xray_service_app, name="service")
 xray_app.add_typer(xray_systemctl_app, name="systemctl")
 xray_app.add_typer(xray_apply_app, name="apply")
@@ -958,6 +961,12 @@ def xray_config_save(
         typer.echo(f"backup_path: {result.backup_path}")
     typer.echo(f"rollback_performed: {result.rollback_performed}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+
+
+@xray_tun_config_app.command("preview")
+def xray_tun_config_preview() -> None:
+    typer.echo(render_xray_tun_config(MiGateConfig()), nl=False)
+    typer.echo("performed_side_effects: False")
 
 
 @xray_service_app.command("preview")

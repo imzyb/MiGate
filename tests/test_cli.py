@@ -1437,6 +1437,16 @@ def test_xray_config_save_command_shows_backup_and_rollback_fields(monkeypatch, 
     assert "rollback_performed: True" in result.output
 
 
+def test_xray_tun_config_preview_command_prints_json_without_saving():
+    result = runner.invoke(app, ["xray", "tun-config", "preview"])
+
+    assert result.exit_code == 0
+    assert '"protocol": "tun"' in result.output
+    assert '"interfaceName": "tun-migate"' in result.output
+    assert '"protocol": "freedom"' not in result.output
+    assert "performed_side_effects: False" in result.output
+
+
 def test_xray_service_preview_command_prints_unit_without_systemctl():
     result = runner.invoke(app, ["xray", "service", "preview"])
 
