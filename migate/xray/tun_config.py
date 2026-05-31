@@ -56,7 +56,7 @@ def build_xray_tun_config(config: MiGateConfig) -> XrayTunObject:
             "domainStrategy": "IPIfNonMatch",
             "rules": [
                 {"type": "field", "inboundTag": [tun_inbound["tag"]], "outboundTag": config.xray.default_outbound_tag},
-                {"type": "field", "outboundTag": "blocked"},
+                {"type": "field", "network": "tcp,udp", "outboundTag": "blocked"},
             ],
         },
     }
