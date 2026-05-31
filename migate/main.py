@@ -152,8 +152,9 @@ def build_remote_rollout_cli_plan(
     port: int = 22,
     user: str = "root",
     staging_dir: str = "/tmp/migate-install",
+    backend: str | None = None,
 ):
-    return build_remote_rollout_dry_run_plan(host=host, port=port, user=user, staging_dir=staging_dir)
+    return build_remote_rollout_dry_run_plan(host=host, port=port, user=user, staging_dir=staging_dir, backend=backend)
 
 
 def build_remote_install_cli_plan(
@@ -232,12 +233,13 @@ def run_remote_rollout_cli(
     dry_run: bool,
     yes: bool,
     allow_remote_changes: bool,
+    backend: str | None = None,
     install_runner: Callable[[], PhaseResultLike] | None = None,
     readiness_runner: Callable[[], RemoteReadinessReport] | None = None,
     egress_up_runner: Callable[[], PhaseResultLike] | None = None,
     leak_check_runner: Callable[[], RemoteLeakCheckReport] | None = None,
 ) -> RemoteRolloutRunResult:
-    plan = build_remote_rollout_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir)
+    plan = build_remote_rollout_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir, backend=backend)
     return run_remote_rollout_plan(
         plan,
         dry_run=dry_run,
@@ -247,7 +249,7 @@ def run_remote_rollout_cli(
         or (lambda: run_remote_install_cli(host=host, port=port, user=user, staging_dir=staging_dir, dry_run=False, yes=True, allow_remote_changes=True)),
         readiness_runner=readiness_runner or (lambda: run_remote_readiness(host=host, port=port, user=user)),
         egress_up_runner=egress_up_runner
-        or (lambda: run_remote_egress_cli(action="up", host=host, port=port, user=user, dry_run=False, yes=True, allow_remote_changes=True)),
+        or (lambda: run_remote_egress_cli(action="up", host=host, port=port, user=user, dry_run=False, yes=True, allow_remote_changes=True, backend=backend)),
         leak_check_runner=leak_check_runner or (lambda: run_remote_leak_check_cli(host=host, port=port, user=user, socks_port=MiGateConfig().proxy.socks_port)),
     )
 
@@ -547,9 +549,10 @@ def remote_rollout(
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge remote rollout phase execution."),
     allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote rollout runner shell."),
+    backend: str | None = typer.Option(None, "--backend", help="Remote egress backend override passed through rollout egress phase."),
 ) -> None:
     if dry_run:
-        plan = build_remote_rollout_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir)
+        plan = build_remote_rollout_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir, backend=backend)
         typer.echo(render_remote_rollout_plan(plan), nl=False)
         if plan.status == "rejected":
             raise typer.Exit(code=1)
@@ -563,6 +566,7 @@ def remote_rollout(
         dry_run=dry_run,
         yes=yes,
         allow_remote_changes=allow_remote_changes,
+        backend=backend,
     )
     typer.echo(render_remote_rollout_run_result(result), nl=False)
     if result.status != "success":

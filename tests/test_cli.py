@@ -166,6 +166,14 @@ def test_remote_rollout_command_defaults_to_dry_run_without_remote_side_effects(
     assert "password" not in result.output.lower()
 
 
+def test_remote_rollout_command_accepts_backend_xray_tun_in_dry_run_plan():
+    result = runner.invoke(app, ["remote", "rollout", "--backend", "xray-tun"])
+
+    assert result.exit_code == 0
+    assert "migate remote egress up --host 166.88.232.2 --port 22 --user root --backend xray-tun --no-dry-run --yes --allow-remote-changes" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
 def test_run_remote_rollout_cli_rejects_real_execution_without_double_gate():
     calls = []
 

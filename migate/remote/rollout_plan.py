@@ -44,12 +44,13 @@ def _reject(message: str) -> RemoteRolloutPlan:
     )
 
 
-def build_remote_rollout_dry_run_plan(*, host: str, port: int, user: str, staging_dir: str) -> RemoteRolloutPlan:
+def build_remote_rollout_dry_run_plan(*, host: str, port: int, user: str, staging_dir: str, backend: str | None = None) -> RemoteRolloutPlan:
     if contains_embedded_credentials(host) or contains_embedded_credentials(user):
         return _reject("embedded credentials are not allowed in remote rollout targets")
     if not staging_dir.startswith("/tmp/"):
         return _reject("staging_dir must be under /tmp/ for dry-run rollout planning")
 
+    backend_arg = f" --backend {backend}" if backend else ""
     steps = [
         RemoteRolloutStep(
             action="install",
@@ -69,7 +70,7 @@ def build_remote_rollout_dry_run_plan(*, host: str, port: int, user: str, stagin
         RemoteRolloutStep(
             action="egress_up",
             description="start remote egress through gated remote egress shell",
-            command_preview=f"migate remote egress up --host {host} --port {port} --user {user} --no-dry-run --yes --allow-remote-changes",
+            command_preview=f"migate remote egress up --host {host} --port {port} --user {user}{backend_arg} --no-dry-run --yes --allow-remote-changes",
             performs_side_effects=True,
         ),
         RemoteRolloutStep(

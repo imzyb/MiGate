@@ -69,6 +69,22 @@ def test_remote_rollout_dry_run_accepts_custom_target_and_staging_dir():
     assert plan.steps[3].command_preview == "migate remote leak-check --host 203.0.113.10 --port 62422 --user ubuntu"
 
 
+def test_remote_rollout_plan_threads_backend_override_into_remote_egress_phase_only():
+    plan = build_remote_rollout_dry_run_plan(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        staging_dir="/tmp/migate-install",
+        backend="xray-tun",
+    )
+
+    assert plan.status == "dry_run"
+    assert plan.steps[0].command_preview == "migate remote install --host 166.88.232.2 --port 22 --user root --staging-dir /tmp/migate-install --no-dry-run --yes --allow-remote-changes"
+    assert plan.steps[1].command_preview == "migate remote readiness --host 166.88.232.2 --port 22 --user root"
+    assert plan.steps[2].command_preview == "migate remote egress up --host 166.88.232.2 --port 22 --user root --backend xray-tun --no-dry-run --yes --allow-remote-changes"
+    assert plan.steps[3].command_preview == "migate remote leak-check --host 166.88.232.2 --port 22 --user root"
+
+
 def test_remote_rollout_rejects_embedded_credentials_without_leaking_secret():
     plan = build_remote_rollout_dry_run_plan(
         host="root:secret@166.88.232.2",
