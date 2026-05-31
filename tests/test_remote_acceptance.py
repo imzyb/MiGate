@@ -10,7 +10,7 @@ from migate.remote.rollout_smoke import RemoteRolloutSmokeResult
 
 
 EXPECTED_PHASES = ["doctor", "rollout_smoke"]
-ROLLOUT_PHASES = ["install", "readiness", "egress_up", "leak_check"]
+ROLLOUT_PHASES = ["install", "readiness", "egress_up", "service_apply", "socks5_smoke", "leak_check"]
 
 
 def _ok_doctor() -> RemoteDoctorReport:
@@ -38,6 +38,8 @@ def _ok_smoke() -> RemoteRolloutSmokeResult:
         RemoteRolloutPhaseResult("install", "success", "installed", ["install command"], True),
         RemoteRolloutPhaseResult("readiness", "success", "readiness ok", ["readiness command"], False),
         RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+        RemoteRolloutPhaseResult("service_apply", "success", "service applied", ["service apply command"], True),
+        RemoteRolloutPhaseResult("socks5_smoke", "success", "SOCKS5 smoke ok", ["socks5 smoke command"], False),
         RemoteRolloutPhaseResult("leak_check", "success", "leak_check ok", ["leak check command"], False),
     ]
     rollout = RemoteRolloutRunResult(
@@ -143,7 +145,15 @@ def test_remote_acceptance_runs_doctor_then_rollout_smoke_with_double_gate():
         RemoteAcceptancePhaseResult("doctor", "success", "remote doctor ok", _ok_doctor()),
         RemoteAcceptancePhaseResult("rollout_smoke", "success", "remote rollout smoke passed", _ok_smoke()),
     ]
-    assert result.commands_executed == ["ssh doctor", "install command", "readiness command", "egress command", "leak check command"]
+    assert result.commands_executed == [
+        "ssh doctor",
+        "install command",
+        "readiness command",
+        "egress command",
+        "service apply command",
+        "socks5 smoke command",
+        "leak check command",
+    ]
     assert result.performed_side_effects is True
 
 
@@ -277,7 +287,9 @@ def test_render_remote_acceptance_result_is_structured_and_redacted():
     assert "expected_phases: ['doctor', 'rollout_smoke']" in rendered
     assert "- doctor: success - remote doctor ok" in rendered
     assert "- rollout_smoke: success - remote rollout smoke passed" in rendered
-    assert "commands_executed: ['ssh doctor', 'install command', 'readiness command', 'egress command', 'leak check command']" in rendered
+    assert "commands_executed: ['ssh doctor', 'install command', 'readiness command', 'egress command', 'service apply command', 'socks5 smoke command', 'leak check command']" in rendered
+    assert "service_apply" in rendered
+    assert "socks5_smoke" in rendered
     assert "performed_side_effects: True" in rendered
     assert "password" not in rendered.lower()
     assert "secret" not in rendered.lower()

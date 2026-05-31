@@ -169,5 +169,12 @@ def render_remote_acceptance_result(result: RemoteAcceptanceResult) -> str:
     ]
     if result.phases:
         lines.append("phases:")
-        lines.extend(f"- {phase.name}: {phase.status} - {phase.message}" for phase in result.phases)
+        for phase in result.phases:
+            lines.append(f"- {phase.name}: {phase.status} - {phase.message}")
+            if phase.name == "rollout_smoke" and isinstance(phase.result, RemoteRolloutSmokeResult) and phase.result.rollout is not None:
+                lines.append("  rollout_phases:")
+                lines.extend(
+                    f"  - {rollout_phase.action}: {rollout_phase.status} - {rollout_phase.message}"
+                    for rollout_phase in phase.result.rollout.phases
+                )
     return "\n".join(lines) + "\n"
