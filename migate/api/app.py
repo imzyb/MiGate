@@ -598,6 +598,20 @@ def create_app(
             "performed_side_effects": False,
         }
 
+    @app.get("/api/xray/runtime")
+    def api_xray_runtime() -> dict[str, object]:
+        runtime = runtime_loader()
+        return {
+            "status": runtime.status,
+            "bin_path": runtime.bin_path,
+            "version": runtime.version,
+            "message": runtime.message,
+            "returncode": runtime.returncode,
+            "stdout": runtime.stdout,
+            "stderr": runtime.stderr,
+            "performed_side_effects": False,
+        }
+
     @app.get("/api/xray/install-plan")
     def api_xray_install_plan() -> dict[str, object]:
         return _xray_install_plan_json(plan_loader())

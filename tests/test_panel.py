@@ -244,6 +244,40 @@ def test_panel_xray_runtime_refresh_shows_not_installed_guidance(tmp_path):
     assert "安装 Xray" not in decoded
 
 
+def test_api_xray_runtime_returns_read_only_runtime_status(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def runtime_loader() -> XrayRuntimeStatus:
+        calls.append("runtime")
+        return XrayRuntimeStatus(
+            status="installed",
+            bin_path="/usr/local/bin/xray",
+            version="1.8.24",
+            message="xray is installed",
+            returncode=0,
+            stdout="Xray 1.8.24\n",
+            stderr="",
+        )
+
+    client = TestClient(create_app(node_repository=repo, xray_runtime_loader=runtime_loader))
+
+    response = client.get("/api/xray/runtime")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "installed",
+        "bin_path": "/usr/local/bin/xray",
+        "version": "1.8.24",
+        "message": "xray is installed",
+        "returncode": 0,
+        "stdout": "Xray 1.8.24\n",
+        "stderr": "",
+        "performed_side_effects": False,
+    }
+    assert calls == ["runtime"]
+
+
 def test_panel_home_shows_xray_install_plan_preview_without_side_effects(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     calls = []
