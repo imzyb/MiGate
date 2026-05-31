@@ -24,7 +24,9 @@ from migate.egress.lifecycle import EgressLifecyclePhase, EgressLifecycleResult
 from migate.egress.status import EgressStatusCheck, EgressStatusReport
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
 from migate.xray.doctor import DoctorCheck, DoctorReport
+from migate.xray.apply_cli import XrayApplyResult
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult
+from migate.xray.validator import XrayValidationResult
 from migate.remote.egress_runner import RemoteEgressCommandResult
 from migate.remote.install_runner import RemoteInstallCommandResult
 from migate.remote.leak_check import RemoteLeakCheck, RemoteLeakCheckReport
@@ -760,6 +762,41 @@ def test_egress_up_command_exits_nonzero_when_lifecycle_fails(monkeypatch):
     assert result.exit_code == 1
     assert "status: failed" in result.output
     assert "OpenVPN start failed" in result.output
+
+
+def test_egress_result_renderer_includes_xray_tun_phase_failure_details():
+    lifecycle_result = EgressLifecycleResult(
+        status="failed",
+        message="egress up stopped before routing; xray-tun apply start failed",
+        phases=[
+            EgressLifecyclePhase(
+                name="xray_tun_apply_start",
+                status="invalid_config",
+                result=XrayApplyResult(
+                    status="invalid_config",
+                    message="xray tun config bootstrap failed; service start skipped",
+                    config_path="/etc/migate/xray/config.json",
+                    validation=XrayValidationResult(
+                        "invalid",
+                        1,
+                        "",
+                        "failed to parse inbound protocol tun: unknown protocol",
+                    ),
+                    systemctl_results=[],
+                    performed_side_effects=True,
+                ),
+            )
+        ],
+        commands_executed=[],
+        performed_side_effects=True,
+    )
+
+    rendered = main_module._render_egress_result(lifecycle_result)
+
+    assert "- phase: xray_tun_apply_start status: invalid_config" in rendered
+    assert "message: xray tun config bootstrap failed; service start skipped" in rendered
+    assert "validation_status: invalid" in rendered
+    assert "validation_stderr: failed to parse inbound protocol tun: unknown protocol" in rendered
 
 
 def test_egress_up_dry_run_accepts_backend_xray_tun_without_side_effects():

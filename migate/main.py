@@ -387,6 +387,16 @@ def _render_egress_result(result: EgressLifecycleResult) -> str:
         lines.append("phases:")
         for phase in result.phases:
             lines.append(f"- phase: {phase.name} status: {phase.status}")
+            phase_message = getattr(phase.result, "message", None)
+            if phase_message:
+                lines.append(f"  message: {phase_message}")
+            validation = getattr(phase.result, "validation", None)
+            if validation is not None:
+                lines.append(f"  validation_status: {validation.status}")
+                if validation.stdout:
+                    lines.append(f"  validation_stdout: {validation.stdout}")
+                if validation.stderr:
+                    lines.append(f"  validation_stderr: {validation.stderr}")
     return "\n".join(lines) + "\n"
 
 
