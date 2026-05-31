@@ -813,6 +813,29 @@ def test_panel_xray_config_preview_api_returns_readonly_generated_config(tmp_pat
     assert not config_path.exists()
 
 
+def test_panel_systemd_units_preview_api_returns_readonly_unit_contract(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    unit_dir = tmp_path / "systemd"
+    client = TestClient(create_app(node_repository=repo, systemd_unit_dir=unit_dir))
+
+    response = client.get("/api/systemd/units/preview")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    payload = response.json()
+    assert payload["status"] == "preview"
+    assert payload["target_dir"] == str(unit_dir)
+    assert payload["performed_side_effects"] is False
+    assert payload["systemctl_commands_executed"] == []
+    assert payload["units"][0]["name"] == "migate-xray.service"
+    assert payload["units"][0]["target_path"] == str(unit_dir / "migate-xray.service")
+    assert "ExecStart=/usr/local/bin/xray run -config /etc/migate/xray/config.json" in payload["units"][0]["content"]
+    assert payload["units"][1]["name"] == "migate-panel.service"
+    assert payload["units"][1]["target_path"] == str(unit_dir / "migate-panel.service")
+    assert "ExecStart=/usr/local/bin/migate panel --host 127.0.0.1 --port 8787" in payload["units"][1]["content"]
+    assert not unit_dir.exists()
+
+
 def test_panel_create_trojan_node_returns_share_link():
     client = TestClient(create_app())
 
