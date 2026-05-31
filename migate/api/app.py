@@ -437,6 +437,21 @@ def _egress_dry_run_controls_html() -> str:
 """
 
 
+def _egress_status_report_json(report: EgressStatusReport) -> dict[str, object]:
+    return {
+        "status": report.status,
+        "checks": [
+            {
+                "name": check.name,
+                "status": check.status,
+                "message": check.message,
+            }
+            for check in report.checks
+        ],
+        "performed_side_effects": report.performed_side_effects,
+    }
+
+
 def _egress_lifecycle_result_json(result: EgressLifecycleResult) -> dict[str, object]:
     return {
         "status": result.status,
@@ -870,6 +885,10 @@ def create_app(
                 systemd_html=_systemd_preview_html(migate_config),
             )
         )
+
+    @app.get("/api/egress/status")
+    def api_egress_status() -> dict[str, object]:
+        return _egress_status_report_json(egress_loader())
 
     @app.get("/api/egress/up/dry-run")
     def api_egress_up_dry_run() -> dict[str, object]:
