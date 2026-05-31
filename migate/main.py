@@ -53,7 +53,7 @@ from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
 from migate.routing.policy_plan import build_policy_routing_plan
 from migate.vpn.config_render import OpenVPNRenderPlan, render_openvpn_config_preview
 from migate.vpn.config_save import OpenVPNConfigSaveResult, save_openvpn_config_preview
-from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
+from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart, apply_validated_xray_tun_start
 from migate.xray.config_cli import preview_xray_config, save_xray_config
 from migate.xray.deploy_cli import render_xray_deploy_plan, render_xray_deploy_result, run_xray_deploy
 from migate.xray.doctor import DoctorReport, run_xray_install_doctor
@@ -1140,6 +1140,15 @@ def xray_apply_restart(
     allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually run daemon-reload and restart when combined with --yes."),
 ) -> None:
     _echo_apply_result(apply_validated_xray_restart(config, yes=yes, allow_system_changes=allow_system_changes))
+
+
+@xray_apply_app.command("tun-start")
+def xray_apply_tun_start(
+    config: str = typer.Option("/etc/migate/xray/config.json", "--config", help="Xray TUN config path to validate before starting service."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge validation-gated xray-tun start side effects."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually run daemon-reload and start migate-xray-tun.service when combined with --yes."),
+) -> None:
+    _echo_apply_result(apply_validated_xray_tun_start(config, yes=yes, allow_system_changes=allow_system_changes))
 
 
 @xray_app.command("deploy")
