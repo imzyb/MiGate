@@ -625,6 +625,9 @@ def remote_acceptance(
         backend=backend,
     )
     typer.echo(render_remote_acceptance_result(result), nl=False)
+    if result.status == "dry_run":
+        rollout_plan = build_remote_rollout_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir, backend=backend)
+        typer.echo(render_remote_rollout_plan(rollout_plan), nl=False)
     if result.status not in {"success", "dry_run"}:
         raise typer.Exit(code=1)
 

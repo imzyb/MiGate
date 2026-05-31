@@ -488,6 +488,21 @@ def test_remote_acceptance_command_defaults_to_dry_run_without_remote_side_effec
     assert "expected_phases: ['doctor', 'rollout_smoke']" in result.output
     assert "commands_executed: []" in result.output
     assert "performed_side_effects: False" in result.output
+    assert "Remote rollout dry-run" in result.output
+    assert "migate remote egress up --host 166.88.232.2 --port 22 --user root --no-dry-run --yes --allow-remote-changes" in result.output
+    assert "sshpass" not in result.output.lower()
+    assert "password" not in result.output.lower()
+
+
+def test_remote_acceptance_command_dry_run_with_backend_xray_tun_shows_rollout_egress_preview():
+    result = runner.invoke(app, ["remote", "acceptance", "--backend", "xray-tun"])
+
+    assert result.exit_code == 0
+    assert "Remote acceptance result" in result.output
+    assert "status: dry_run" in result.output
+    assert "Remote rollout dry-run" in result.output
+    assert "migate remote egress up --host 166.88.232.2 --port 22 --user root --backend xray-tun --no-dry-run --yes --allow-remote-changes" in result.output
+    assert "performed_side_effects: False" in result.output
     assert "sshpass" not in result.output.lower()
     assert "password" not in result.output.lower()
 
