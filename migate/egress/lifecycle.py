@@ -11,6 +11,8 @@ from migate.routing.policy_apply import apply_policy_routing_plan
 from migate.routing.policy_cleanup import PolicyRoutingCleanupPlan
 from migate.routing.policy_cleanup_runner import PolicyRoutingCleanupCommandResult, apply_policy_routing_cleanup_plan
 from migate.routing.policy_plan import PolicyRoutingPlan
+from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_tun_start
+from migate.xray.systemctl_cli import ALLOWED_XRAY_TUN_SERVICE_NAME, SystemctlActionResult, run_xray_systemctl_action
 from migate.egress.tunnel_backend import (
     CommandResult as TunnelCommandResult,
     TunnelStartPlan,
@@ -44,6 +46,7 @@ def bring_up_egress(
     tunnel_runner: Callable[[list[str]], TunnelCommandResult] | None = None,
     openvpn_runner: Callable[[list[str]], TunnelCommandResult] | None = None,
     routing_runner: Callable[[list[str]], Any] | None = None,
+    xray_tun_start_runner: Callable[[str], XrayApplyResult] | None = None,
     config_exists: Callable[[str], bool] | None = None,
     ensure_directory: Callable[[Path], None] | None = None,
     allow_side_effects: bool = False,
@@ -78,18 +81,37 @@ def bring_up_egress(
             mkdir(parent)
             ensured_parents.add(parent)
 
-    phase_runner = tunnel_runner or openvpn_runner or runner
     routing_phase_runner = routing_runner or runner
-    start_result = run_tunnel_start_plan(start_plan, runner=phase_runner, allow_side_effects=True)
-    phases = [EgressLifecyclePhase(name="tunnel_start", status=start_result.status, result=start_result)]
-    if start_result.status != "started":
-        return EgressLifecycleResult(
-            status="failed",
-            message=f"egress up stopped before routing; {start_plan.backend} tunnel start failed",
-            phases=phases,
-            commands_executed=start_result.commands_executed,
-            performed_side_effects=start_result.performed_side_effects,
-        )
+    if start_plan.backend == "xray-tun":
+        run_xray_tun_start = xray_tun_start_runner or _default_xray_tun_start_runner
+        config_path = (start_plan.required_paths or start_plan.runtime_paths)[0]
+        xray_tun_result = run_xray_tun_start(config_path)
+        phases = [EgressLifecyclePhase(name="xray_tun_apply_start", status=xray_tun_result.status, result=xray_tun_result)]
+        xray_tun_commands = _xray_apply_systemctl_commands(xray_tun_result)
+        if xray_tun_result.status != "success":
+            return EgressLifecycleResult(
+                status="failed",
+                message="egress up stopped before routing; xray-tun apply start failed",
+                phases=phases,
+                commands_executed=xray_tun_commands,
+                performed_side_effects=xray_tun_result.performed_side_effects,
+            )
+        tunnel_commands_executed = xray_tun_commands
+        tunnel_performed_side_effects = xray_tun_result.performed_side_effects
+    else:
+        phase_runner = tunnel_runner or openvpn_runner or runner
+        start_result = run_tunnel_start_plan(start_plan, runner=phase_runner, allow_side_effects=True)
+        phases = [EgressLifecyclePhase(name="tunnel_start", status=start_result.status, result=start_result)]
+        if start_result.status != "started":
+            return EgressLifecycleResult(
+                status="failed",
+                message=f"egress up stopped before routing; {start_plan.backend} tunnel start failed",
+                phases=phases,
+                commands_executed=start_result.commands_executed,
+                performed_side_effects=start_result.performed_side_effects,
+            )
+        tunnel_commands_executed = start_result.commands_executed
+        tunnel_performed_side_effects = start_result.performed_side_effects
 
     routing_result = apply_policy_routing_plan(routing_plan, runner=routing_phase_runner, allow_side_effects=True)
     phases.append(EgressLifecyclePhase(name="policy_routing_apply", status=routing_result.status, result=routing_result))
@@ -98,16 +120,33 @@ def bring_up_egress(
             status="failed",
             message="egress up failed during policy routing apply",
             phases=phases,
-            commands_executed=[*start_result.commands_executed, *routing_result.commands_executed],
-            performed_side_effects=start_result.performed_side_effects or routing_result.performed_side_effects,
+            commands_executed=[*tunnel_commands_executed, *routing_result.commands_executed],
+            performed_side_effects=tunnel_performed_side_effects or routing_result.performed_side_effects,
         )
 
     return EgressLifecycleResult(
         status="up",
         message="egress brought up",
         phases=phases,
-        commands_executed=[*start_result.commands_executed, *routing_result.commands_executed],
-        performed_side_effects=start_result.performed_side_effects or routing_result.performed_side_effects,
+        commands_executed=[*tunnel_commands_executed, *routing_result.commands_executed],
+        performed_side_effects=tunnel_performed_side_effects or routing_result.performed_side_effects,
+    )
+
+
+def _default_xray_tun_start_runner(config_path: str) -> XrayApplyResult:
+    return apply_validated_xray_tun_start(config_path, yes=True, allow_system_changes=True)
+
+
+def _xray_apply_systemctl_commands(result: XrayApplyResult) -> list[str]:
+    return [" ".join(item.command) for item in result.systemctl_results]
+
+
+def _default_xray_tun_stop_runner() -> SystemctlActionResult:
+    return run_xray_systemctl_action(
+        "stop",
+        service=ALLOWED_XRAY_TUN_SERVICE_NAME,
+        yes=True,
+        allow_system_changes=True,
     )
 
 
@@ -118,6 +157,7 @@ def bring_down_egress(
     runner: Callable[[list[str]], Any] | None = None,
     cleanup_runner: Callable[[list[str]], PolicyRoutingCleanupCommandResult] | None = None,
     stop_runner: Callable[[list[str]], TunnelCommandResult] | None = None,
+    xray_tun_stop_runner: Callable[[], SystemctlActionResult] | None = None,
     allow_side_effects: bool = False,
 ) -> EgressLifecycleResult:
     if not allow_side_effects:
@@ -142,21 +182,39 @@ def bring_down_egress(
             performed_side_effects=cleanup_result.performed_side_effects,
         )
 
-    stop_result = run_tunnel_stop_plan(stop_plan, runner=stop_phase_runner, allow_side_effects=True)
-    phases.append(EgressLifecyclePhase(name="tunnel_stop", status=stop_result.status, result=stop_result))
-    if stop_result.status != "stopped":
-        return EgressLifecycleResult(
-            status="failed",
-            message=f"egress down failed during {stop_plan.backend} tunnel stop",
-            phases=phases,
-            commands_executed=[*cleanup_result.commands_executed, *stop_result.commands_executed],
-            performed_side_effects=cleanup_result.performed_side_effects or stop_result.performed_side_effects,
-        )
+    if stop_plan.backend == "xray-tun":
+        run_xray_tun_stop = xray_tun_stop_runner or _default_xray_tun_stop_runner
+        xray_tun_stop_result = run_xray_tun_stop()
+        phases.append(EgressLifecyclePhase(name="xray_tun_stop", status=xray_tun_stop_result.status, result=xray_tun_stop_result))
+        xray_tun_stop_commands = [" ".join(xray_tun_stop_result.command)] if xray_tun_stop_result.command else []
+        if xray_tun_stop_result.status != "success":
+            return EgressLifecycleResult(
+                status="failed",
+                message="egress down failed during xray-tun service stop",
+                phases=phases,
+                commands_executed=[*cleanup_result.commands_executed, *xray_tun_stop_commands],
+                performed_side_effects=cleanup_result.performed_side_effects or xray_tun_stop_result.performed_side_effects,
+            )
+        stop_commands_executed = xray_tun_stop_commands
+        stop_performed_side_effects = xray_tun_stop_result.performed_side_effects
+    else:
+        stop_result = run_tunnel_stop_plan(stop_plan, runner=stop_phase_runner, allow_side_effects=True)
+        phases.append(EgressLifecyclePhase(name="tunnel_stop", status=stop_result.status, result=stop_result))
+        if stop_result.status != "stopped":
+            return EgressLifecycleResult(
+                status="failed",
+                message=f"egress down failed during {stop_plan.backend} tunnel stop",
+                phases=phases,
+                commands_executed=[*cleanup_result.commands_executed, *stop_result.commands_executed],
+                performed_side_effects=cleanup_result.performed_side_effects or stop_result.performed_side_effects,
+            )
+        stop_commands_executed = stop_result.commands_executed
+        stop_performed_side_effects = stop_result.performed_side_effects
 
     return EgressLifecycleResult(
         status="down",
         message="egress brought down",
         phases=phases,
-        commands_executed=[*cleanup_result.commands_executed, *stop_result.commands_executed],
-        performed_side_effects=cleanup_result.performed_side_effects or stop_result.performed_side_effects,
+        commands_executed=[*cleanup_result.commands_executed, *stop_commands_executed],
+        performed_side_effects=cleanup_result.performed_side_effects or stop_performed_side_effects,
     )
