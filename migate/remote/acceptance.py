@@ -68,7 +68,7 @@ def run_remote_acceptance(
 ) -> RemoteAcceptanceResult:
     backend_label = backend or "default"
     if contains_embedded_credentials(host) or contains_embedded_credentials(user):
-        return _empty_result(status="rejected", message="embedded credentials are not allowed", target="[REDACTED]")
+        return _empty_result(status="rejected", message="embedded credentials are not allowed", target="[REDACTED]", backend=backend_label)
 
     target = _target(host, port, user)
     if dry_run:
