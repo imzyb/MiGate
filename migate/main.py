@@ -60,7 +60,14 @@ from migate.xray.doctor import DoctorReport, run_xray_install_doctor
 from migate.xray.install_executor import dry_run_xray_install_plan
 from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult, run_xray_install_plan
-from migate.xray.service_cli import DEFAULT_XRAY_SERVICE_PATH, preview_xray_service_unit, save_xray_service_unit
+from migate.xray.service_cli import (
+    DEFAULT_XRAY_SERVICE_PATH,
+    DEFAULT_XRAY_TUN_SERVICE_PATH,
+    preview_xray_service_unit,
+    preview_xray_tun_service_unit,
+    save_xray_service_unit,
+    save_xray_tun_service_unit,
+)
 from migate.xray.systemctl_cli import ALLOWED_XRAY_SERVICE_NAME, SystemctlActionResult, run_xray_systemctl_action
 from migate.xray.tun_config import render_xray_tun_config, save_xray_tun_config
 
@@ -68,6 +75,7 @@ app = typer.Typer(help="MiGate smart egress gateway")
 xray_app = typer.Typer(help="Xray runtime and installer commands")
 xray_config_app = typer.Typer(help="Xray config preview and save commands")
 xray_tun_config_app = typer.Typer(help="Xray TUN config preview commands")
+xray_tun_service_app = typer.Typer(help="Xray TUN systemd service preview and save commands")
 xray_service_app = typer.Typer(help="Xray systemd service preview and save commands")
 xray_systemctl_app = typer.Typer(help="Safe systemctl controls for MiGate Xray service")
 xray_apply_app = typer.Typer(help="Validation-gated Xray apply operations")
@@ -88,6 +96,7 @@ proxy_app.add_typer(proxy_service_app, name="service")
 proxy_app.add_typer(proxy_socks5_app, name="socks5")
 xray_app.add_typer(xray_config_app, name="config")
 xray_app.add_typer(xray_tun_config_app, name="tun-config")
+xray_app.add_typer(xray_tun_service_app, name="tun-service")
 xray_app.add_typer(xray_service_app, name="service")
 xray_app.add_typer(xray_systemctl_app, name="systemctl")
 xray_app.add_typer(xray_apply_app, name="apply")
@@ -988,6 +997,27 @@ def xray_tun_config_save(
     if result.backup_path:
         typer.echo(f"backup_path: {result.backup_path}")
     typer.echo(f"rollback_performed: {result.rollback_performed}")
+    typer.echo(f"systemctl_commands_executed: {result.systemctl_commands_executed or []}")
+    typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+
+
+@xray_tun_service_app.command("preview")
+def xray_tun_service_preview() -> None:
+    typer.echo(preview_xray_tun_service_unit(), nl=False)
+    typer.echo("systemctl_commands_executed: []")
+    typer.echo("performed_side_effects: False")
+
+
+@xray_tun_service_app.command("save")
+def xray_tun_service_save(
+    target: str = typer.Option(DEFAULT_XRAY_TUN_SERVICE_PATH, "--target", help="Target Xray TUN systemd unit path."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge that saving TUN service writes to disk."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually write TUN service unit when combined with --yes."),
+) -> None:
+    result = save_xray_tun_service_unit(target, yes=yes, allow_system_changes=allow_system_changes)
+    typer.echo(f"status: {result.status}")
+    typer.echo(f"message: {result.message}")
+    typer.echo(f"target: {result.target}")
     typer.echo(f"systemctl_commands_executed: {result.systemctl_commands_executed or []}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
 

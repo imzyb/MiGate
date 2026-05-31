@@ -1487,6 +1487,54 @@ def test_xray_tun_config_save_command_shows_validation_and_no_systemctl(monkeypa
     assert "performed_side_effects: True" in result.output
 
 
+def test_xray_tun_service_preview_command_prints_unit_without_systemctl():
+    result = runner.invoke(app, ["xray", "tun-service", "preview"])
+
+    assert result.exit_code == 0
+    assert "Description=MiGate managed Xray TUN service" in result.output
+    assert "ExecStart=/usr/local/bin/xray run -config /etc/migate/xray/config.json" in result.output
+    assert "daemon-reload" not in result.output
+    assert "restart" not in result.output
+    assert "systemctl_commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_xray_tun_service_save_command_requires_double_gate():
+    result = runner.invoke(app, ["xray", "tun-service", "save"])
+
+    assert result.exit_code == 0
+    assert "status: rejected" in result.output
+    assert "xray tun service save requires yes=True and allow_system_changes=True" in result.output
+    assert "systemctl_commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_xray_tun_service_save_command_shows_saved_without_systemctl(monkeypatch, tmp_path):
+    from migate.xray.service_cli import XrayServiceSaveResult
+
+    target = tmp_path / "migate-xray-tun.service"
+    monkeypatch.setattr(
+        main_module,
+        "save_xray_tun_service_unit",
+        lambda *args, **kwargs: XrayServiceSaveResult(
+            status="saved",
+            message="xray tun service unit saved; daemon-reload not run",
+            target=target,
+            performed_side_effects=True,
+            systemctl_commands_executed=[],
+        ),
+    )
+
+    result = runner.invoke(app, ["xray", "tun-service", "save", "--yes", "--allow-system-changes", "--target", str(target)])
+
+    assert result.exit_code == 0
+    assert "status: saved" in result.output
+    assert "xray tun service unit saved; daemon-reload not run" in result.output
+    assert f"target: {target}" in result.output
+    assert "systemctl_commands_executed: []" in result.output
+    assert "performed_side_effects: True" in result.output
+
+
 def test_xray_service_preview_command_prints_unit_without_systemctl():
     result = runner.invoke(app, ["xray", "service", "preview"])
 
