@@ -34,17 +34,19 @@ class RemoteAcceptanceResult:
     phases: list[RemoteAcceptancePhaseResult]
     commands_executed: list[str]
     performed_side_effects: bool
+    backend: str = "default"
 
 
 def _target(host: str, port: int, user: str) -> str:
     return f"{user}@{host}:{port}"
 
 
-def _empty_result(*, status: str, message: str, target: str) -> RemoteAcceptanceResult:
+def _empty_result(*, status: str, message: str, target: str, backend: str = "default") -> RemoteAcceptanceResult:
     return RemoteAcceptanceResult(
         status=status,
         message=message,
         target=target,
+        backend=backend,
         expected_phases=EXPECTED_REMOTE_ACCEPTANCE_PHASES,
         phases=[],
         commands_executed=[],
@@ -60,9 +62,11 @@ def run_remote_acceptance(
     dry_run: bool,
     yes: bool,
     allow_remote_changes: bool,
+    backend: str | None = None,
     doctor_runner: Callable[[], RemoteDoctorReport] | None = None,
     rollout_smoke_runner: Callable[[], RemoteRolloutSmokeResult] | None = None,
 ) -> RemoteAcceptanceResult:
+    backend_label = backend or "default"
     if contains_embedded_credentials(host) or contains_embedded_credentials(user):
         return _empty_result(status="rejected", message="embedded credentials are not allowed", target="[REDACTED]")
 
@@ -72,12 +76,14 @@ def run_remote_acceptance(
             status="dry_run",
             message="remote acceptance dry-run only; no remote commands executed",
             target=target,
+            backend=backend_label,
         )
     if not yes or not allow_remote_changes:
         return _empty_result(
             status="rejected",
             message="remote acceptance requires yes=True and allow_remote_changes=True",
             target=target,
+            backend=backend_label,
         )
 
     doctor = (doctor_runner or (lambda: run_remote_doctor(host=host, port=port, user=user)))()
@@ -96,6 +102,7 @@ def run_remote_acceptance(
             status="failed",
             message="remote acceptance stopped at doctor",
             target=target,
+            backend=backend_label,
             expected_phases=EXPECTED_REMOTE_ACCEPTANCE_PHASES,
             phases=phases,
             commands_executed=commands_executed,
@@ -107,6 +114,7 @@ def run_remote_acceptance(
             status="rejected",
             message="remote acceptance requires injected rollout smoke runner",
             target=target,
+            backend=backend_label,
             expected_phases=EXPECTED_REMOTE_ACCEPTANCE_PHASES,
             phases=phases,
             commands_executed=commands_executed,
@@ -129,6 +137,7 @@ def run_remote_acceptance(
             status="failed",
             message="remote acceptance stopped at rollout_smoke",
             target=target,
+            backend=backend_label,
             expected_phases=EXPECTED_REMOTE_ACCEPTANCE_PHASES,
             phases=phases,
             commands_executed=commands_executed,
@@ -139,6 +148,7 @@ def run_remote_acceptance(
         status="success",
         message="remote acceptance passed",
         target=target,
+        backend=backend_label,
         expected_phases=EXPECTED_REMOTE_ACCEPTANCE_PHASES,
         phases=phases,
         commands_executed=commands_executed,
@@ -152,6 +162,7 @@ def render_remote_acceptance_result(result: RemoteAcceptanceResult) -> str:
         f"status: {result.status}",
         f"message: {result.message}",
         f"target: {result.target}",
+        f"backend: {result.backend}",
         f"expected_phases: {result.expected_phases}",
         f"commands_executed: {result.commands_executed}",
         f"performed_side_effects: {result.performed_side_effects}",

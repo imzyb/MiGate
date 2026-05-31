@@ -553,6 +553,7 @@ def test_remote_acceptance_command_real_path_accepts_backend_xray_tun(monkeypatc
         phases=[],
         commands_executed=["ssh doctor", "rollout smoke xray-tun"],
         performed_side_effects=True,
+        backend="xray-tun",
     )
 
     def fake_run_remote_acceptance_cli(**kwargs):
@@ -566,6 +567,7 @@ def test_remote_acceptance_command_real_path_accepts_backend_xray_tun(monkeypatc
     assert result.exit_code == 0
     assert captured["backend"] == "xray-tun"
     assert "status: success" in result.output
+    assert "backend: xray-tun" in result.output
 
 
 def test_run_remote_acceptance_cli_threads_backend_to_default_rollout_smoke_runner(monkeypatch):

@@ -136,6 +136,7 @@ def test_remote_acceptance_runs_doctor_then_rollout_smoke_with_double_gate():
 
     assert result.status == "success"
     assert result.message == "remote acceptance passed"
+    assert result.backend == "default"
     assert calls == ["doctor", "rollout_smoke"]
     assert [phase.name for phase in result.phases] == EXPECTED_PHASES
     assert result.phases == [
@@ -144,6 +145,24 @@ def test_remote_acceptance_runs_doctor_then_rollout_smoke_with_double_gate():
     ]
     assert result.commands_executed == ["ssh doctor", "install command", "readiness command", "egress command", "leak check command"]
     assert result.performed_side_effects is True
+
+
+def test_remote_acceptance_records_backend_override_for_operator_audit():
+    result = run_remote_acceptance(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=True,
+        backend="xray-tun",
+        doctor_runner=_ok_doctor,
+        rollout_smoke_runner=_ok_smoke,
+    )
+
+    assert result.status == "success"
+    assert result.backend == "xray-tun"
+    assert "backend: xray-tun" in render_remote_acceptance_result(result)
 
 
 def test_remote_acceptance_stops_before_rollout_smoke_when_doctor_fails():

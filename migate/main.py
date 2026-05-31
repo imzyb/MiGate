@@ -308,6 +308,7 @@ def run_remote_acceptance_cli(
         dry_run=dry_run,
         yes=yes,
         allow_remote_changes=allow_remote_changes,
+        backend=backend,
         doctor_runner=doctor_runner or (lambda: run_remote_doctor(host=host, port=port, user=user)),
         rollout_smoke_runner=rollout_smoke_runner
         or (
