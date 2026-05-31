@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sized
 from html import escape
 import platform
 from pathlib import Path
@@ -502,6 +502,48 @@ def create_app(
     egress_down_loader = egress_down_dry_run_loader or (lambda: _default_egress_down_dry_run(migate_config))
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
+
+    @app.get("/api/nodes")
+    def api_nodes() -> dict[str, object]:
+        nodes = repo.list_nodes()
+        return {
+            "nodes": [
+                {
+                    "id": node.id,
+                    "protocol": node.protocol,
+                    "name": node.name,
+                    "host": node.host,
+                    "port": node.port,
+                    "enabled": node.enabled,
+                    "created_at": node.created_at,
+                }
+                for node in nodes
+            ],
+            "counts": {
+                "total": len(nodes),
+                "enabled": sum(1 for node in nodes if node.enabled),
+            },
+            "performed_side_effects": False,
+        }
+
+    @app.get("/api/xray/config/preview")
+    def api_xray_config_preview() -> dict[str, object]:
+        nodes = repo.list_nodes()
+        enabled_nodes = [node for node in nodes if node.enabled]
+        config = _xray_config_for_nodes(nodes)
+        inbounds = config.get("inbounds", [])
+        inbound_count = len(inbounds) if isinstance(inbounds, Sized) else 0
+        return {
+            "status": "preview",
+            "target_path": str(config_path),
+            "counts": {
+                "total_nodes": len(nodes),
+                "enabled_nodes": len(enabled_nodes),
+                "inbounds": inbound_count,
+            },
+            "config": config,
+            "performed_side_effects": False,
+        }
 
     @app.get("/api/status/summary")
     def status_summary() -> dict[str, object]:

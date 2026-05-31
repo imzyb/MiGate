@@ -728,6 +728,91 @@ def test_panel_status_summary_api_returns_webui_ready_readonly_json(tmp_path):
     assert calls == ["runtime", "egress", "status:migate-xray.service", "status:migate-panel.service"]
 
 
+def test_panel_nodes_api_returns_sanitized_webui_ready_json(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    node = repo.create_node(
+        protocol="vless",
+        name="MiGate JP",
+        host="example.com",
+        port=443,
+        credential="00000000-0000-4000-8000-000000000001",
+        share_link="vless://00000000-0000-4000-8000-000000000001@example.com:443#MiGate%20JP",
+        subscription="dmxlc3M6Ly8wMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDFAZXhhbXBsZS5jb206NDQzI01pR2F0ZSUyMEpQ",
+    )
+    client = TestClient(create_app(node_repository=repo))
+
+    response = client.get("/api/nodes")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "nodes": [
+            {
+                "id": node.id,
+                "protocol": "vless",
+                "name": "MiGate JP",
+                "host": "example.com",
+                "port": 443,
+                "enabled": True,
+                "created_at": node.created_at,
+            }
+        ],
+        "counts": {"total": 1, "enabled": 1},
+        "performed_side_effects": False,
+    }
+    body = response.text
+    assert "credential" not in body
+    assert "subscription" not in body
+    assert "share_link" not in body
+    assert "00000000-0000-4000-8000-000000000001" not in body
+    assert "dmxlc3M" not in body
+
+
+def test_panel_xray_config_preview_api_returns_readonly_generated_config(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="MiGate JP",
+        host="example.com",
+        port=443,
+        credential="00000000-0000-4000-8000-000000000001",
+        share_link="vless://example",
+        subscription="dmxlc3M=",
+    )
+    repo.create_node(
+        protocol="trojan",
+        name="Disabled Trojan",
+        host="disabled.example.com",
+        port=8443,
+        credential="disabled-secret",
+        share_link="trojan://disabled",
+        subscription="dHJvamFu",
+    )
+    with repo._connect() as conn:
+        conn.execute("UPDATE nodes SET enabled = 0 WHERE protocol = 'trojan'")
+        conn.commit()
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+    client = TestClient(create_app(node_repository=repo, xray_config_path=config_path))
+
+    response = client.get("/api/xray/config/preview")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    payload = response.json()
+    assert payload["status"] == "preview"
+    assert payload["target_path"] == str(config_path)
+    assert payload["counts"] == {"total_nodes": 2, "enabled_nodes": 1, "inbounds": 1}
+    assert payload["performed_side_effects"] is False
+    assert payload["config"]["inbounds"][0]["tag"] == "node-1-vless"
+    assert payload["config"]["inbounds"][0]["protocol"] == "vless"
+    assert {outbound["protocol"] for outbound in payload["config"]["outbounds"]} == {"socks", "blackhole"}
+    assert "freedom" not in response.text
+    assert "disabled-secret" not in response.text
+    assert not config_path.exists()
+
+
 def test_panel_create_trojan_node_returns_share_link():
     client = TestClient(create_app())
 
