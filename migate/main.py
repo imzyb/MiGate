@@ -332,6 +332,12 @@ def run_remote_lifecycle_cli(
     )
 
 
+def _config_with_backend_override(config: MiGateConfig, backend: str | None) -> MiGateConfig:
+    if backend is None:
+        return config
+    return config.model_copy(update={"egress": config.egress.model_copy(update={"backend": backend})})
+
+
 def _select_tunnel_start_plan(config: MiGateConfig) -> TunnelStartPlan:
     if config.egress.backend == "openvpn":
         return build_openvpn_tunnel_start_plan(config)
@@ -346,6 +352,13 @@ def _select_tunnel_stop_plan(config: MiGateConfig, pid_file: Path) -> TunnelStop
     if config.egress.backend == "xray-tun":
         return build_xray_tun_stop_plan()
     raise ValueError(f"unsupported egress backend: {config.egress.backend}")
+
+
+def _echo_unsupported_egress_backend(exc: ValueError) -> None:
+    typer.echo("status: rejected")
+    typer.echo(f"message: {exc}")
+    typer.echo("commands_executed: []")
+    typer.echo("performed_side_effects: False")
 
 
 def _render_egress_result(result: EgressLifecycleResult) -> str:
@@ -882,12 +895,17 @@ def vpn_config_save(
 @egress_app.command("up")
 def egress_up(
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview egress bring-up without system changes."),
+    backend: str | None = typer.Option(None, "--backend", help="Override configured egress backend: openvpn or xray-tun."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge egress bring-up side effects."),
     allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually allow egress bring-up when combined with --no-dry-run and --yes."),
 ) -> None:
-    config = MiGateConfig()
+    config = _config_with_backend_override(MiGateConfig(), backend)
     if dry_run:
-        typer.echo(_render_egress_up_dry_run(config), nl=False)
+        try:
+            typer.echo(_render_egress_up_dry_run(config), nl=False)
+        except ValueError as exc:
+            _echo_unsupported_egress_backend(exc)
+            raise typer.Exit(code=1) from exc
         return
     if not yes or not allow_system_changes:
         typer.echo("status: rejected")
@@ -898,10 +916,7 @@ def egress_up(
     try:
         tunnel_plan = _select_tunnel_start_plan(config)
     except ValueError as exc:
-        typer.echo("status: rejected")
-        typer.echo(f"message: {exc}")
-        typer.echo("commands_executed: []")
-        typer.echo("performed_side_effects: False")
+        _echo_unsupported_egress_backend(exc)
         raise typer.Exit(code=1) from exc
     result = bring_up_egress(
         tunnel_plan,
@@ -917,13 +932,18 @@ def egress_up(
 def egress_down(
     pid_file: str = typer.Option("/var/lib/migate/runtime/openvpn.pid", "--pid-file", help="OpenVPN pid file path for stop planning."),
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview egress bring-down without system changes."),
+    backend: str | None = typer.Option(None, "--backend", help="Override configured egress backend: openvpn or xray-tun."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge egress bring-down side effects."),
     allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually allow egress bring-down when combined with --no-dry-run and --yes."),
 ) -> None:
-    config = MiGateConfig()
+    config = _config_with_backend_override(MiGateConfig(), backend)
     pid_path = Path(pid_file)
     if dry_run:
-        typer.echo(_render_egress_down_dry_run(config, pid_path), nl=False)
+        try:
+            typer.echo(_render_egress_down_dry_run(config, pid_path), nl=False)
+        except ValueError as exc:
+            _echo_unsupported_egress_backend(exc)
+            raise typer.Exit(code=1) from exc
         return
     if not yes or not allow_system_changes:
         typer.echo("status: rejected")
@@ -934,10 +954,7 @@ def egress_down(
     try:
         tunnel_stop_plan = _select_tunnel_stop_plan(config, pid_path)
     except ValueError as exc:
-        typer.echo("status: rejected")
-        typer.echo(f"message: {exc}")
-        typer.echo("commands_executed: []")
-        typer.echo("performed_side_effects: False")
+        _echo_unsupported_egress_backend(exc)
         raise typer.Exit(code=1) from exc
     result = bring_down_egress(
         build_policy_routing_cleanup_plan(config),
