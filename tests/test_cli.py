@@ -1158,7 +1158,7 @@ def test_egress_status_command_renders_observational_report(monkeypatch):
     report = EgressStatusReport(
         status="observed",
         checks=[
-            EgressStatusCheck("openvpn_process", "failed", "OpenVPN process for tun-migate is not running"),
+            EgressStatusCheck("tunnel_process", "failed", "openvpn tunnel for tun-migate is not running"),
             EgressStatusCheck("policy_routing_plan", "ok", "policy routing plan targets table 100 fwmark 0x66 via tun-migate"),
         ],
         performed_side_effects=False,
@@ -1170,7 +1170,7 @@ def test_egress_status_command_renders_observational_report(monkeypatch):
     assert result.exit_code == 0
     assert "Egress status" in result.output
     assert "status: observed" in result.output
-    assert "openvpn_process: failed - OpenVPN process for tun-migate is not running" in result.output
+    assert "tunnel_process: failed - openvpn tunnel for tun-migate is not running" in result.output
     assert "policy_routing_plan: ok - policy routing plan targets table 100 fwmark 0x66 via tun-migate" in result.output
     assert "performed_side_effects: False" in result.output
 

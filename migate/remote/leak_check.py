@@ -113,7 +113,7 @@ def _guard_check(native_ip: str | None, egress_ip: str | None) -> RemoteLeakChec
             fail_policy="block",
             tun_interface="tun-migate",
             tun_interface_exists=True,
-            openvpn_running=True,
+            tunnel_running=True,
             native_public_ip=native_ip,
             egress_public_ip=egress_ip,
         )

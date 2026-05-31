@@ -44,6 +44,18 @@ class OpenVPNProcessStatus:
     performed_side_effects: bool = False
 
 
+@dataclass(frozen=True)
+class TunnelProcessStatus:
+    backend: str
+    status: str
+    message: str
+    command: list[str]
+    returncode: int | None
+    stdout: str
+    stderr: str
+    performed_side_effects: bool = False
+
+
 def _default_port_listening(host: str, port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.2)
@@ -110,6 +122,63 @@ def detect_openvpn_process(
     )
 
 
+def detect_tunnel_process(
+    backend: str,
+    tun_interface: str,
+    *,
+    runner: Callable[[list[str]], CommandResult] = _subprocess_runner,
+) -> TunnelProcessStatus:
+    command = ["pgrep", "-f", f"{backend}.*{tun_interface}"]
+    try:
+        result = runner(command)
+    except FileNotFoundError as exc:
+        return TunnelProcessStatus(
+            backend=backend,
+            status="error",
+            message=f"{backend} tunnel probe failed for {tun_interface}",
+            command=command,
+            returncode=None,
+            stdout="",
+            stderr=str(exc),
+            performed_side_effects=False,
+        )
+
+    stdout = result.stdout.strip()
+    stderr = result.stderr.strip()
+    if result.returncode == 0:
+        return TunnelProcessStatus(
+            backend=backend,
+            status="running",
+            message=f"{backend} tunnel for {tun_interface} is running",
+            command=command,
+            returncode=result.returncode,
+            stdout=stdout,
+            stderr=stderr,
+            performed_side_effects=False,
+        )
+    if result.returncode == 1:
+        return TunnelProcessStatus(
+            backend=backend,
+            status="stopped",
+            message=f"{backend} tunnel for {tun_interface} is not running",
+            command=command,
+            returncode=result.returncode,
+            stdout=stdout,
+            stderr=stderr,
+            performed_side_effects=False,
+        )
+    return TunnelProcessStatus(
+        backend=backend,
+        status="error",
+        message=f"{backend} tunnel probe failed for {tun_interface}",
+        command=command,
+        returncode=result.returncode,
+        stdout=stdout,
+        stderr=stderr,
+        performed_side_effects=False,
+    )
+
+
 def _openvpn_status_from_bool(tun_interface: str, is_running: bool) -> OpenVPNProcessStatus:
     return OpenVPNProcessStatus(
         status="running" if is_running else "stopped",
@@ -124,12 +193,27 @@ def _openvpn_status_from_bool(tun_interface: str, is_running: bool) -> OpenVPNPr
     )
 
 
+def _tunnel_status_from_bool(backend: str, tun_interface: str, is_running: bool) -> TunnelProcessStatus:
+    return TunnelProcessStatus(
+        backend=backend,
+        status="running" if is_running else "stopped",
+        message=f"{backend} tunnel for {tun_interface} is running"
+        if is_running
+        else f"{backend} tunnel for {tun_interface} is not running",
+        command=[],
+        returncode=0 if is_running else 1,
+        stdout="",
+        stderr="",
+        performed_side_effects=False,
+    )
+
+
 def _build_proxy_runtime_checks(
     config: MiGateConfig,
     *,
     port_listening: Callable[[str, int], bool],
     interface_exists: Callable[[str], bool],
-    openvpn_status: Callable[[str], OpenVPNProcessStatus],
+    tunnel_status: Callable[[str, str], TunnelProcessStatus],
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> list[ProxyRuntimeCheck]:
@@ -182,13 +266,13 @@ def _build_proxy_runtime_checks(
         )
     )
 
-    openvpn_process = openvpn_status(config.vpn.interface)
-    openvpn_ok = openvpn_process.status == "running"
+    tunnel_process = tunnel_status(config.egress.backend, config.vpn.interface)
+    tunnel_ok = tunnel_process.status == "running"
     checks.append(
         ProxyRuntimeCheck(
-            "openvpn_process",
-            "ok" if openvpn_ok else "failed",
-            openvpn_process.message,
+            "tunnel_process",
+            "ok" if tunnel_ok else "failed",
+            tunnel_process.message,
         )
     )
 
@@ -198,7 +282,7 @@ def _build_proxy_runtime_checks(
             fail_policy=config.security.fail_policy,
             tun_interface=config.vpn.interface,
             tun_interface_exists=tun_ok,
-            openvpn_running=openvpn_ok,
+            tunnel_running=tunnel_ok,
             native_public_ip=native_public_ip,
             egress_public_ip=egress_public_ip,
         )
@@ -220,20 +304,23 @@ def run_proxy_doctor(
     port_listening: Callable[[str, int], bool] | None = None,
     interface_exists: Callable[[str], bool] | None = None,
     openvpn_running: Callable[[], bool] | None = None,
+    tunnel_running: Callable[[], bool] | None = None,
+    tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> ProxyRuntimeReport:
     cfg = config or MiGateConfig()
-    openvpn_status = (
-        (lambda tun_interface: _openvpn_status_from_bool(tun_interface, openvpn_running()))
-        if openvpn_running is not None
-        else detect_openvpn_process
+    running_probe = tunnel_running or openvpn_running
+    tunnel_status = (
+        (lambda backend, tun_interface: _tunnel_status_from_bool(backend, tun_interface, running_probe()))
+        if running_probe is not None
+        else tunnel_process_detector or detect_tunnel_process
     )
     checks = _build_proxy_runtime_checks(
         cfg,
         port_listening=port_listening or _default_port_listening,
         interface_exists=interface_exists or _default_interface_exists,
-        openvpn_status=openvpn_status,
+        tunnel_status=tunnel_status,
         native_public_ip=native_public_ip,
         egress_public_ip=egress_public_ip,
     )
@@ -250,20 +337,23 @@ def run_proxy_status(
     port_listening: Callable[[str, int], bool] | None = None,
     interface_exists: Callable[[str], bool] | None = None,
     openvpn_running: Callable[[], bool] | None = None,
+    tunnel_running: Callable[[], bool] | None = None,
+    tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> ProxyRuntimeReport:
     cfg = config or MiGateConfig()
-    openvpn_status = (
-        (lambda tun_interface: _openvpn_status_from_bool(tun_interface, openvpn_running()))
-        if openvpn_running is not None
-        else detect_openvpn_process
+    running_probe = tunnel_running or openvpn_running
+    tunnel_status = (
+        (lambda backend, tun_interface: _tunnel_status_from_bool(backend, tun_interface, running_probe()))
+        if running_probe is not None
+        else tunnel_process_detector or detect_tunnel_process
     )
     checks = _build_proxy_runtime_checks(
         cfg,
         port_listening=port_listening or _default_port_listening,
         interface_exists=interface_exists or _default_interface_exists,
-        openvpn_status=openvpn_status,
+        tunnel_status=tunnel_status,
         native_public_ip=native_public_ip,
         egress_public_ip=egress_public_ip,
     )

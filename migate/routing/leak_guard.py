@@ -11,9 +11,10 @@ class EgressGuardState:
     fail_policy: str
     tun_interface: str
     tun_interface_exists: bool
-    openvpn_running: bool
-    native_public_ip: str | None
-    egress_public_ip: str | None
+    tunnel_running: bool | None = None
+    openvpn_running: bool | None = None
+    native_public_ip: str | None = None
+    egress_public_ip: str | None = None
 
 
 @dataclass(frozen=True)
@@ -54,11 +55,12 @@ def evaluate_egress_guard(state: EgressGuardState) -> EgressGuardDecision:
             f"{state.tun_interface} interface is missing; egress blocked",
             ["tun_interface"],
         )
-    if not state.openvpn_running:
+    tunnel_running = state.tunnel_running if state.tunnel_running is not None else bool(state.openvpn_running)
+    if not tunnel_running:
         return _block(
-            "openvpn_not_running",
-            "OpenVPN is not running; egress blocked",
-            ["openvpn"],
+            "tunnel_not_running",
+            "tunnel backend is not running; egress blocked",
+            ["tunnel"],
         )
     if not state.native_public_ip or not state.egress_public_ip:
         return _block(
