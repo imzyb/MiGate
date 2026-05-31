@@ -263,9 +263,10 @@ def run_remote_rollout_smoke_cli(
     dry_run: bool,
     yes: bool,
     allow_remote_changes: bool,
+    backend: str | None = None,
     rollout_runner: Callable[[], RemoteRolloutRunResult] | None = None,
 ) -> RemoteRolloutSmokeResult:
-    plan = build_remote_rollout_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir)
+    plan = build_remote_rollout_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir, backend=backend)
     return run_remote_rollout_smoke(
         plan,
         dry_run=dry_run,
@@ -281,6 +282,7 @@ def run_remote_rollout_smoke_cli(
                 dry_run=False,
                 yes=True,
                 allow_remote_changes=True,
+                backend=backend,
             )
         ),
     )
@@ -295,6 +297,7 @@ def run_remote_acceptance_cli(
     dry_run: bool,
     yes: bool,
     allow_remote_changes: bool,
+    backend: str | None = None,
     doctor_runner: Callable[[], object] | None = None,
     rollout_smoke_runner: Callable[[], RemoteRolloutSmokeResult] | None = None,
 ) -> RemoteAcceptanceResult:
@@ -316,6 +319,7 @@ def run_remote_acceptance_cli(
                 dry_run=False,
                 yes=True,
                 allow_remote_changes=True,
+                backend=backend,
             )
         ),
     )
@@ -582,6 +586,7 @@ def remote_rollout_smoke(
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge remote rollout smoke execution."),
     allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote rollout smoke shell."),
+    backend: str | None = typer.Option(None, "--backend", help="Remote egress backend override passed through rollout smoke."),
 ) -> None:
     result = run_remote_rollout_smoke_cli(
         host=host,
@@ -591,6 +596,7 @@ def remote_rollout_smoke(
         dry_run=dry_run,
         yes=yes,
         allow_remote_changes=allow_remote_changes,
+        backend=backend,
     )
     typer.echo(render_remote_rollout_smoke_result(result), nl=False)
     if result.status not in {"success", "dry_run"}:
@@ -606,6 +612,7 @@ def remote_acceptance(
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge remote acceptance execution."),
     allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote acceptance workflow."),
+    backend: str | None = typer.Option(None, "--backend", help="Remote egress backend override passed through acceptance rollout smoke."),
 ) -> None:
     result = run_remote_acceptance_cli(
         host=host,
@@ -615,6 +622,7 @@ def remote_acceptance(
         dry_run=dry_run,
         yes=yes,
         allow_remote_changes=allow_remote_changes,
+        backend=backend,
     )
     typer.echo(render_remote_acceptance_result(result), nl=False)
     if result.status not in {"success", "dry_run"}:

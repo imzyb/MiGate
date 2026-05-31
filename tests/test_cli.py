@@ -378,6 +378,68 @@ def test_remote_rollout_smoke_command_real_path_uses_rollout_runner_with_double_
     assert "performed_side_effects: True" in result.output
 
 
+def test_remote_rollout_smoke_command_real_path_accepts_backend_xray_tun(monkeypatch):
+    captured = {}
+    smoke = RemoteRolloutSmokeResult(
+        status="success",
+        message="remote rollout smoke passed",
+        target="root@166.88.232.2:22",
+        expected_phases=["install", "readiness", "egress_up", "leak_check"],
+        rollout=None,
+        commands_executed=["egress xray-tun"],
+        performed_side_effects=True,
+    )
+
+    def fake_run_remote_rollout_smoke_cli(**kwargs):
+        captured.update(kwargs)
+        return smoke
+
+    monkeypatch.setattr(main_module, "run_remote_rollout_smoke_cli", fake_run_remote_rollout_smoke_cli)
+
+    result = runner.invoke(app, ["remote", "rollout-smoke", "--backend", "xray-tun", "--no-dry-run", "--yes", "--allow-remote-changes"])
+
+    assert result.exit_code == 0
+    assert captured["backend"] == "xray-tun"
+    assert "status: success" in result.output
+
+
+def test_run_remote_rollout_smoke_cli_threads_backend_to_default_rollout_runner(monkeypatch):
+    captured = {}
+    rollout = RemoteRolloutRunResult(
+        status="success",
+        message="remote rollout completed through injected phase runners",
+        target="root@166.88.232.2:22",
+        phases=[
+            RemoteRolloutPhaseResult("install", "success", "installed", ["install command"], True),
+            RemoteRolloutPhaseResult("readiness", "success", "readiness ok", ["readiness command"], False),
+            RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+            RemoteRolloutPhaseResult("leak_check", "success", "leak_check ok", ["leak check command"], False),
+        ],
+        commands_executed=["install command", "readiness command", "egress command", "leak check command"],
+        performed_side_effects=True,
+    )
+
+    def fake_run_remote_rollout_cli(**kwargs):
+        captured.update(kwargs)
+        return rollout
+
+    monkeypatch.setattr(main_module, "run_remote_rollout_cli", fake_run_remote_rollout_cli)
+
+    result = run_remote_rollout_smoke_cli(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        staging_dir="/tmp/migate-install",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=True,
+        backend="xray-tun",
+    )
+
+    assert result.status == "success"
+    assert captured["backend"] == "xray-tun"
+
+
 def test_remote_rollout_smoke_command_real_path_rejects_without_allow_remote_changes():
     result = runner.invoke(app, ["remote", "rollout-smoke", "--no-dry-run", "--yes"])
 
@@ -464,6 +526,64 @@ def test_remote_acceptance_command_real_path_delegates_with_double_gate(monkeypa
     assert "status: success" in result.output
     assert "message: remote acceptance passed" in result.output
     assert "performed_side_effects: True" in result.output
+
+
+def test_remote_acceptance_command_real_path_accepts_backend_xray_tun(monkeypatch):
+    captured = {}
+    acceptance = RemoteAcceptanceResult(
+        status="success",
+        message="remote acceptance passed",
+        target="root@166.88.232.2:22",
+        expected_phases=["doctor", "rollout_smoke"],
+        phases=[],
+        commands_executed=["ssh doctor", "rollout smoke xray-tun"],
+        performed_side_effects=True,
+    )
+
+    def fake_run_remote_acceptance_cli(**kwargs):
+        captured.update(kwargs)
+        return acceptance
+
+    monkeypatch.setattr(main_module, "run_remote_acceptance_cli", fake_run_remote_acceptance_cli)
+
+    result = runner.invoke(app, ["remote", "acceptance", "--backend", "xray-tun", "--no-dry-run", "--yes", "--allow-remote-changes"])
+
+    assert result.exit_code == 0
+    assert captured["backend"] == "xray-tun"
+    assert "status: success" in result.output
+
+
+def test_run_remote_acceptance_cli_threads_backend_to_default_rollout_smoke_runner(monkeypatch):
+    captured = {}
+    smoke = RemoteRolloutSmokeResult(
+        status="success",
+        message="remote rollout smoke passed",
+        target="root@166.88.232.2:22",
+        expected_phases=["install", "readiness", "egress_up", "leak_check"],
+        rollout=None,
+        commands_executed=["rollout smoke xray-tun"],
+        performed_side_effects=True,
+    )
+
+    def fake_run_remote_rollout_smoke_cli(**kwargs):
+        captured.update(kwargs)
+        return smoke
+
+    monkeypatch.setattr(main_module, "run_remote_rollout_smoke_cli", fake_run_remote_rollout_smoke_cli)
+
+    result = run_remote_acceptance_cli(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        staging_dir="/tmp/migate-install",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=True,
+        backend="xray-tun",
+    )
+
+    assert result.status == "success"
+    assert captured["backend"] == "xray-tun"
 
 
 def test_remote_acceptance_command_real_path_rejects_without_allow_remote_changes():
