@@ -51,6 +51,23 @@ def build_remote_rollout_dry_run_plan(*, host: str, port: int, user: str, stagin
         return _reject("staging_dir must be under /tmp/ for dry-run rollout planning")
 
     backend_arg = f" --backend {backend}" if backend else ""
+    ssh_target = f"{user}@{host}"
+    service_apply_remote_script = (
+        "migate xray service save --yes --allow-system-changes && "
+        "migate proxy service save --yes --allow-system-changes && "
+        "systemctl daemon-reload && "
+        "systemctl restart migate-xray.service migate-proxy.service && "
+        "systemctl is-active migate-xray.service migate-proxy.service"
+    )
+    socks5_smoke_remote_script = (
+        'python3 - <<"PY"\n'
+        "import socket\n"
+        's=socket.create_connection(("127.0.0.1", 1080), timeout=5)\n'
+        "s.sendall(bytes([5,1,0]))\n"
+        "assert s.recv(2) == bytes([5,0])\n"
+        "s.close()\n"
+        "PY"
+    )
     steps = [
         RemoteRolloutStep(
             action="install",
@@ -72,6 +89,18 @@ def build_remote_rollout_dry_run_plan(*, host: str, port: int, user: str, stagin
             description="start remote egress through gated remote egress shell",
             command_preview=f"migate remote egress up --host {host} --port {port} --user {user}{backend_arg} --no-dry-run --yes --allow-remote-changes",
             performs_side_effects=True,
+        ),
+        RemoteRolloutStep(
+            action="service_apply",
+            description="save and restart MiGate xray/proxy systemd services on remote host",
+            command_preview=f"ssh -p {port} {ssh_target} -- '{service_apply_remote_script}'",
+            performs_side_effects=True,
+        ),
+        RemoteRolloutStep(
+            action="socks5_smoke",
+            description="run read-only remote SOCKS5 loopback smoke check after proxy service starts",
+            command_preview=f"ssh -p {port} {ssh_target} -- '{socks5_smoke_remote_script}'",
+            performs_side_effects=False,
         ),
         RemoteRolloutStep(
             action="leak_check",

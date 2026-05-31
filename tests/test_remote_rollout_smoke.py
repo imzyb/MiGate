@@ -7,7 +7,7 @@ from migate.remote.rollout_smoke import (
 )
 
 
-EXPECTED_PHASES = ["install", "readiness", "egress_up", "leak_check"]
+EXPECTED_PHASES = ["install", "readiness", "egress_up", "service_apply", "socks5_smoke", "leak_check"]
 
 
 def _plan():
@@ -34,6 +34,8 @@ def _successful_rollout() -> RemoteRolloutRunResult:
         _phase("install", side_effects=True),
         _phase("readiness"),
         _phase("egress_up", side_effects=True),
+        _phase("service_apply", side_effects=True),
+        _phase("socks5_smoke"),
         _phase("leak_check"),
     ]
     return RemoteRolloutRunResult(
@@ -88,7 +90,7 @@ def test_remote_rollout_smoke_rejects_real_execution_without_double_gate():
     assert calls == []
 
 
-def test_remote_rollout_smoke_passes_when_rollout_reaches_expected_four_phases():
+def test_remote_rollout_smoke_passes_when_rollout_reaches_expected_service_and_smoke_phases():
     calls = []
 
     result = run_remote_rollout_smoke(
@@ -107,6 +109,8 @@ def test_remote_rollout_smoke_passes_when_rollout_reaches_expected_four_phases()
         "install command",
         "readiness command",
         "egress_up command",
+        "service_apply command",
+        "socks5_smoke command",
         "leak_check command",
     ]
     assert result.performed_side_effects is True
@@ -121,9 +125,11 @@ def test_remote_rollout_smoke_fails_when_rollout_fails():
             _phase("install", side_effects=True),
             _phase("readiness"),
             _phase("egress_up", side_effects=True),
+            _phase("service_apply", side_effects=True),
+            _phase("socks5_smoke"),
             _phase("leak_check", status="failed"),
         ],
-        commands_executed=["install command", "readiness command", "egress_up command", "leak_check command"],
+        commands_executed=["install command", "readiness command", "egress_up command", "service_apply command", "socks5_smoke command", "leak_check command"],
         performed_side_effects=True,
     )
 
@@ -142,7 +148,7 @@ def test_remote_rollout_smoke_fails_when_rollout_fails():
     assert result.performed_side_effects is True
 
 
-def test_remote_rollout_smoke_fails_when_leak_check_phase_is_missing():
+def test_remote_rollout_smoke_fails_when_service_smoke_phase_is_missing():
     rollout = RemoteRolloutRunResult(
         status="success",
         message="remote rollout completed but old phase list was returned",
@@ -165,7 +171,7 @@ def test_remote_rollout_smoke_fails_when_leak_check_phase_is_missing():
     )
 
     assert result.status == "failed"
-    assert result.message == "remote rollout smoke expected phases install -> readiness -> egress_up -> leak_check"
+    assert result.message == "remote rollout smoke expected phases install -> readiness -> egress_up -> service_apply -> socks5_smoke -> leak_check"
     assert result.rollout == rollout
     assert result.commands_executed == rollout.commands_executed
     assert result.performed_side_effects is True
@@ -207,10 +213,12 @@ def test_render_remote_rollout_smoke_result_is_structured_and_redacted():
 
     assert "Remote rollout smoke result" in rendered
     assert "status: success" in rendered
-    assert "expected_phases: ['install', 'readiness', 'egress_up', 'leak_check']" in rendered
+    assert "expected_phases: ['install', 'readiness', 'egress_up', 'service_apply', 'socks5_smoke', 'leak_check']" in rendered
     assert "rollout_status: success" in rendered
+    assert "- service_apply: success - service_apply success" in rendered
+    assert "- socks5_smoke: success - socks5_smoke success" in rendered
     assert "- leak_check: success - leak_check success" in rendered
-    assert "commands_executed: ['install command', 'readiness command', 'egress_up command', 'leak_check command']" in rendered
+    assert "commands_executed: ['install command', 'readiness command', 'egress_up command', 'service_apply command', 'socks5_smoke command', 'leak_check command']" in rendered
     assert "password" not in rendered.lower()
     assert "secret" not in rendered.lower()
     assert "sshpass" not in rendered.lower()
