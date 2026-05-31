@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 
 from migate.config import MiGateConfig
-from migate.proxy.runtime import CommandResult, detect_openvpn_process
+from migate.proxy.runtime import CommandResult, TunnelProcessStatus, detect_tunnel_process
 from migate.routing.leak_guard import EgressGuardState, evaluate_egress_guard
 from migate.routing.policy_plan import build_policy_routing_plan
 
@@ -40,6 +40,7 @@ def _build_egress_status_checks(
     *,
     interface_exists: Callable[[str], bool],
     command_runner: Callable[[list[str]], CommandResult],
+    tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> list[EgressStatusCheck]:
@@ -52,13 +53,14 @@ def _build_egress_status_checks(
         )
     ]
 
-    openvpn_process = detect_openvpn_process(config.vpn.interface, runner=command_runner)
-    openvpn_ok = openvpn_process.status == "running"
+    detector = tunnel_process_detector or (lambda backend, tun_interface: detect_tunnel_process(backend, tun_interface, runner=command_runner))
+    tunnel_process = detector(config.egress.backend, config.vpn.interface)
+    tunnel_ok = tunnel_process.status == "running"
     checks.append(
         EgressStatusCheck(
-            "openvpn_process",
-            "ok" if openvpn_ok else "failed",
-            openvpn_process.message,
+            "tunnel_process",
+            "ok" if tunnel_ok else "failed",
+            tunnel_process.message,
         )
     )
 
@@ -77,7 +79,7 @@ def _build_egress_status_checks(
             fail_policy=config.security.fail_policy,
             tun_interface=config.vpn.interface,
             tun_interface_exists=tun_ok,
-            openvpn_running=openvpn_ok,
+            tunnel_running=tunnel_ok,
             native_public_ip=native_public_ip,
             egress_public_ip=egress_public_ip,
         )
@@ -97,6 +99,7 @@ def run_egress_doctor(
     *,
     interface_exists: Callable[[str], bool] | None = None,
     command_runner: Callable[[list[str]], CommandResult] | None = None,
+    tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> EgressStatusReport:
@@ -105,6 +108,7 @@ def run_egress_doctor(
         cfg,
         interface_exists=interface_exists or _default_interface_exists,
         command_runner=command_runner or _default_command_runner,
+        tunnel_process_detector=tunnel_process_detector,
         native_public_ip=native_public_ip,
         egress_public_ip=egress_public_ip,
     )
@@ -120,6 +124,7 @@ def run_egress_status(
     *,
     interface_exists: Callable[[str], bool] | None = None,
     command_runner: Callable[[list[str]], CommandResult] | None = None,
+    tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> EgressStatusReport:
@@ -128,6 +133,7 @@ def run_egress_status(
         cfg,
         interface_exists=interface_exists or _default_interface_exists,
         command_runner=command_runner or _default_command_runner,
+        tunnel_process_detector=tunnel_process_detector,
         native_public_ip=native_public_ip,
         egress_public_ip=egress_public_ip,
     )

@@ -1,5 +1,6 @@
 from migate.config import MiGateConfig
 from migate.egress.status import EgressStatusCheck, EgressStatusReport, render_egress_status_report, run_egress_doctor, run_egress_status
+from migate.proxy.runtime import TunnelProcessStatus
 
 
 class FakeCommandResult:
@@ -9,7 +10,7 @@ class FakeCommandResult:
         self.stderr = stderr
 
 
-def test_egress_doctor_fails_closed_when_tun_missing_and_openvpn_not_running():
+def test_egress_doctor_fails_closed_when_tun_missing_and_tunnel_not_running():
     calls: list[list[str]] = []
 
     def fake_runner(argv: list[str]) -> FakeCommandResult:
@@ -27,7 +28,7 @@ def test_egress_doctor_fails_closed_when_tun_missing_and_openvpn_not_running():
         status="failed",
         checks=[
             EgressStatusCheck("tun_interface", "failed", "tun-migate interface is missing"),
-            EgressStatusCheck("openvpn_process", "failed", "OpenVPN process for tun-migate is not running"),
+            EgressStatusCheck("tunnel_process", "failed", "openvpn tunnel for tun-migate is not running"),
             EgressStatusCheck("policy_routing_plan", "ok", "policy routing plan targets table 100 fwmark 0x66 via tun-migate"),
             EgressStatusCheck("egress_guard", "failed", "tun-migate interface is missing; egress blocked"),
         ],
@@ -48,7 +49,7 @@ def test_egress_doctor_passes_when_interface_openvpn_and_guard_are_safe():
     assert report.performed_side_effects is False
     assert [check.name for check in report.checks] == [
         "tun_interface",
-        "openvpn_process",
+        "tunnel_process",
         "policy_routing_plan",
         "egress_guard",
     ]
@@ -65,6 +66,46 @@ def test_egress_status_is_observational_even_when_checks_fail():
     assert report.status == "observed"
     assert any(check.status == "failed" for check in report.checks)
     assert report.performed_side_effects is False
+
+
+def test_egress_doctor_uses_backend_neutral_tunnel_process_check():
+    config = MiGateConfig()
+    config.egress.backend = "xray-tun"
+    calls: list[tuple[str, str]] = []
+
+    def fake_tunnel_detector(backend: str, tun_interface: str) -> TunnelProcessStatus:
+        calls.append((backend, tun_interface))
+        return TunnelProcessStatus(
+            backend=backend,
+            status="stopped",
+            message=f"{backend} tunnel for {tun_interface} is not running",
+            command=["pgrep", "-f", "xray.*tun-migate"],
+            returncode=1,
+            stdout="",
+            stderr="",
+            performed_side_effects=False,
+        )
+
+    report = run_egress_doctor(
+        config,
+        interface_exists=lambda name: True,
+        tunnel_process_detector=fake_tunnel_detector,
+        native_public_ip="198.51.100.10",
+        egress_public_ip="203.0.113.20",
+    )
+
+    assert calls == [("xray-tun", "tun-migate")]
+    assert EgressStatusCheck(
+        "tunnel_process",
+        "failed",
+        "xray-tun tunnel for tun-migate is not running",
+    ) in report.checks
+    assert "openvpn_process" not in [check.name for check in report.checks]
+    assert next(check for check in report.checks if check.name == "egress_guard") == EgressStatusCheck(
+        "egress_guard",
+        "failed",
+        "tunnel backend is not running; egress blocked",
+    )
 
 
 def test_egress_doctor_detects_native_ip_leak():

@@ -8,7 +8,7 @@ def test_egress_guard_allows_when_tunnel_openvpn_and_exit_are_safe():
             fail_policy="block",
             tun_interface="tun-migate",
             tun_interface_exists=True,
-            openvpn_running=True,
+            tunnel_running=True,
             native_public_ip="203.0.113.10",
             egress_public_ip="198.51.100.20",
         )
@@ -27,7 +27,7 @@ def test_egress_guard_blocks_when_tun_interface_is_missing():
             fail_policy="block",
             tun_interface="tun-migate",
             tun_interface_exists=False,
-            openvpn_running=True,
+            tunnel_running=True,
             native_public_ip="203.0.113.10",
             egress_public_ip="198.51.100.20",
         )
@@ -40,23 +40,23 @@ def test_egress_guard_blocks_when_tun_interface_is_missing():
     assert decision.performed_side_effects is False
 
 
-def test_egress_guard_blocks_when_openvpn_is_not_running():
+def test_egress_guard_blocks_when_tunnel_is_not_running():
     decision = evaluate_egress_guard(
         EgressGuardState(
             leak_guard_enabled=True,
             fail_policy="block",
             tun_interface="tun-migate",
             tun_interface_exists=True,
-            openvpn_running=False,
+            tunnel_running=False,
             native_public_ip="203.0.113.10",
             egress_public_ip="198.51.100.20",
         )
     )
 
     assert decision.allowed is False
-    assert decision.reason == "openvpn_not_running"
-    assert decision.blocked_by == ["openvpn"]
-    assert decision.message == "OpenVPN is not running; egress blocked"
+    assert decision.reason == "tunnel_not_running"
+    assert decision.blocked_by == ["tunnel"]
+    assert decision.message == "tunnel backend is not running; egress blocked"
 
 
 def test_egress_guard_blocks_when_egress_ip_matches_native_vps_ip():
@@ -66,7 +66,7 @@ def test_egress_guard_blocks_when_egress_ip_matches_native_vps_ip():
             fail_policy="block",
             tun_interface="tun-migate",
             tun_interface_exists=True,
-            openvpn_running=True,
+            tunnel_running=True,
             native_public_ip="203.0.113.10",
             egress_public_ip="203.0.113.10",
         )
@@ -85,7 +85,7 @@ def test_egress_guard_blocks_when_egress_ip_cannot_be_verified():
             fail_policy="block",
             tun_interface="tun-migate",
             tun_interface_exists=True,
-            openvpn_running=True,
+            tunnel_running=True,
             native_public_ip="203.0.113.10",
             egress_public_ip=None,
         )
@@ -104,7 +104,7 @@ def test_egress_guard_blocks_when_fail_policy_is_not_block():
             fail_policy="direct",
             tun_interface="tun-migate",
             tun_interface_exists=True,
-            openvpn_running=True,
+            tunnel_running=True,
             native_public_ip="203.0.113.10",
             egress_public_ip="198.51.100.20",
         )
@@ -123,7 +123,7 @@ def test_egress_guard_blocks_when_leak_guard_is_disabled():
             fail_policy="block",
             tun_interface="tun-migate",
             tun_interface_exists=True,
-            openvpn_running=True,
+            tunnel_running=True,
             native_public_ip="203.0.113.10",
             egress_public_ip="198.51.100.20",
         )

@@ -414,7 +414,7 @@ def test_panel_home_shows_egress_status_card_without_start_stop_actions(tmp_path
             status="observed",
             checks=[
                 EgressStatusCheck("tun_interface", "failed", "tun-migate interface is missing"),
-                EgressStatusCheck("openvpn_process", "failed", "OpenVPN process for tun-migate is not running"),
+                EgressStatusCheck("tunnel_process", "failed", "openvpn tunnel for tun-migate is not running"),
                 EgressStatusCheck("policy_routing_plan", "ok", "policy routing plan targets table 200 fwmark 0x1 via tun-migate"),
                 EgressStatusCheck("egress_guard", "failed", "blocked: tunnel interface is missing"),
             ],
@@ -446,7 +446,7 @@ def test_panel_egress_status_refresh_renders_latest_readonly_report(tmp_path):
             status="observed",
             checks=[
                 EgressStatusCheck("tun_interface", "ok", "tun-migate interface exists"),
-                EgressStatusCheck("openvpn_process", "ok", "OpenVPN process for tun-migate is running"),
+                EgressStatusCheck("tunnel_process", "ok", "openvpn tunnel for tun-migate is running"),
                 EgressStatusCheck("policy_routing_plan", "ok", "policy routing plan targets table 200 fwmark 0x1 via tun-migate"),
                 EgressStatusCheck("egress_guard", "ok", "egress is allowed"),
             ],
@@ -462,7 +462,7 @@ def test_panel_egress_status_refresh_renders_latest_readonly_report(tmp_path):
     assert "Egress 出口状态已刷新" in decoded
     assert "observed" in decoded
     assert "tun-migate interface exists" in decoded
-    assert "OpenVPN process for tun-migate is running" in decoded
+    assert "openvpn tunnel for tun-migate is running" in decoded
     assert "egress is allowed" in decoded
     assert "performed_side_effects: False" in decoded
     assert "启动 Egress" not in decoded

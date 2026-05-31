@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from migate.proxy.runtime import OpenVPNProcessStatus, detect_openvpn_process
+from migate.proxy.runtime import OpenVPNProcessStatus, TunnelProcessStatus, detect_openvpn_process, detect_tunnel_process
 
 
 @dataclass(frozen=True)
@@ -53,3 +53,25 @@ def test_detect_openvpn_process_reports_probe_error_on_unexpected_failure():
     assert status.message == "OpenVPN process probe failed for tun-migate"
     assert status.stderr == "permission denied"
     assert status.performed_side_effects is False
+
+
+def test_detect_tunnel_process_uses_backend_neutral_probe_shape():
+    calls = []
+
+    def runner(argv: list[str]) -> FakeCommandResult:
+        calls.append(argv)
+        return FakeCommandResult(returncode=0, stdout="5678\n", stderr="")
+
+    status = detect_tunnel_process("xray-tun", "tun-migate", runner=runner)
+
+    assert status == TunnelProcessStatus(
+        backend="xray-tun",
+        status="running",
+        message="xray-tun tunnel for tun-migate is running",
+        command=["pgrep", "-f", "xray-tun.*tun-migate"],
+        returncode=0,
+        stdout="5678",
+        stderr="",
+        performed_side_effects=False,
+    )
+    assert calls == [["pgrep", "-f", "xray-tun.*tun-migate"]]
