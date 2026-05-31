@@ -1,10 +1,10 @@
 from pathlib import Path
 
 from migate.egress.lifecycle import EgressLifecycleResult, bring_down_egress, bring_up_egress
+from migate.egress.openvpn_backend import build_openvpn_tunnel_start_plan, build_openvpn_tunnel_stop_plan
+from migate.egress.tunnel_backend import TunnelStartPlan, TunnelStopPlan
 from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
 from migate.routing.policy_plan import build_policy_routing_plan
-from migate.vpn.process_plan import build_openvpn_start_plan
-from migate.vpn.process_stop import build_openvpn_stop_plan
 from migate.config import MiGateConfig
 
 
@@ -16,13 +16,7 @@ class FakeCommandResult:
 
 
 def _start_plan():
-    return build_openvpn_start_plan(
-        MiGateConfig(),
-        config_path="/var/lib/migate/runtime/active.ovpn",
-        pid_path="/var/lib/migate/runtime/openvpn.pid",
-        status_path="/var/lib/migate/runtime/status.json",
-        log_path="/var/log/migate/openvpn.log",
-    )
+    return build_openvpn_tunnel_start_plan(MiGateConfig())
 
 
 def _routing_plan():
@@ -34,7 +28,7 @@ def _cleanup_plan():
 
 
 def _stop_plan(pid_file: Path):
-    return build_openvpn_stop_plan(pid_file=pid_file)
+    return build_openvpn_tunnel_stop_plan(pid_file)
 
 
 def test_bring_up_egress_rejects_without_side_effect_gate(tmp_path: Path):
@@ -70,14 +64,14 @@ def test_bring_up_egress_starts_openvpn_then_applies_policy_routing():
         routing_plan,
         runner=runner,
         allow_side_effects=True,
-        config_exists=lambda path: path == start_plan.config_path,
+        config_exists=lambda path: path in (start_plan.required_paths or []),
         ensure_directory=lambda path: None,
     )
 
     assert calls == [start_plan.command, *routing_plan.commands]
     assert result.status == "up"
     assert result.message == "egress brought up"
-    assert [phase.name for phase in result.phases] == ["openvpn_start", "policy_routing_apply"]
+    assert [phase.name for phase in result.phases] == ["tunnel_start", "policy_routing_apply"]
     assert [phase.status for phase in result.phases] == ["started", "applied"]
     assert result.commands_executed == [" ".join(start_plan.command), *[" ".join(command) for command in routing_plan.commands]]
     assert result.performed_side_effects is True
@@ -99,8 +93,8 @@ def test_bring_up_egress_stops_before_openvpn_when_runtime_config_is_missing():
 
     assert calls == []
     assert result.status == "failed"
-    assert result.message == f"egress up preflight failed; OpenVPN config is missing: {start_plan.config_path}"
-    assert [phase.name for phase in result.phases] == ["openvpn_preflight"]
+    assert result.message == f"egress up preflight failed; openvpn runtime path is missing: {(start_plan.required_paths or [])[0]}"
+    assert [phase.name for phase in result.phases] == ["tunnel_preflight"]
     assert [phase.status for phase in result.phases] == ["failed"]
     assert result.commands_executed == []
     assert result.performed_side_effects is False
@@ -150,8 +144,8 @@ def test_bring_up_egress_stops_before_routing_when_openvpn_start_fails():
 
     assert calls == [start_plan.command]
     assert result.status == "failed"
-    assert result.message == "egress up stopped before routing; OpenVPN start failed"
-    assert [phase.name for phase in result.phases] == ["openvpn_start"]
+    assert result.message == "egress up stopped before routing; openvpn tunnel start failed"
+    assert [phase.name for phase in result.phases] == ["tunnel_start"]
     assert result.commands_executed == [" ".join(start_plan.command)]
     assert result.performed_side_effects is True
 
@@ -188,6 +182,31 @@ def test_bring_up_egress_accepts_separate_openvpn_and_routing_runners():
     assert result.commands_executed == [" ".join(start_plan.command), *[" ".join(command) for command in routing_plan.commands]]
 
 
+def test_bring_up_egress_accepts_non_openvpn_tunnel_backend_plan():
+    tunnel_plan = TunnelStartPlan(
+        backend="xray-tun",
+        command=["systemctl", "start", "migate-xray-tun.service"],
+        runtime_paths=["/etc/migate/xray-tun.json", "/var/log/migate/xray-tun.log"],
+    )
+    routing_plan = _routing_plan()
+    calls: list[list[str]] = []
+    ensured: list[Path] = []
+
+    result = bring_up_egress(
+        tunnel_plan,
+        routing_plan,
+        runner=lambda argv: calls.append(argv) or FakeCommandResult(0, stdout="ok", stderr=""),
+        allow_side_effects=True,
+        config_exists=lambda path: path == "/etc/migate/xray-tun.json",
+        ensure_directory=lambda path: ensured.append(path),
+    )
+
+    assert calls == [tunnel_plan.command, *routing_plan.commands]
+    assert result.status == "up"
+    assert [phase.name for phase in result.phases] == ["tunnel_start", "policy_routing_apply"]
+    assert ensured == [Path("/etc/migate"), Path("/var/log/migate")]
+
+
 def test_bring_down_egress_rejects_without_side_effect_gate(tmp_path: Path):
     calls: list[list[str]] = []
 
@@ -220,12 +239,12 @@ def test_bring_down_egress_cleans_policy_routing_then_stops_openvpn(tmp_path: Pa
 
     result = bring_down_egress(cleanup_plan, stop_plan, runner=runner, allow_side_effects=True)
 
-    assert calls == [*cleanup_plan.commands, ["kill", "-TERM", "4321"]]
+    assert calls == [*cleanup_plan.commands, stop_plan.command]
     assert result.status == "down"
     assert result.message == "egress brought down"
-    assert [phase.name for phase in result.phases] == ["policy_routing_cleanup", "openvpn_stop"]
+    assert [phase.name for phase in result.phases] == ["policy_routing_cleanup", "tunnel_stop"]
     assert [phase.status for phase in result.phases] == ["applied", "stopped"]
-    assert result.commands_executed == [*[" ".join(command) for command in cleanup_plan.commands], "kill -TERM 4321"]
+    assert result.commands_executed == [*[" ".join(command) for command in cleanup_plan.commands], " ".join(stop_plan.command)]
     assert result.performed_side_effects is True
 
 
@@ -244,7 +263,7 @@ def test_bring_down_egress_accepts_separate_cleanup_and_stop_runners(tmp_path: P
 
     def stop_runner(argv: list[str]) -> FakeCommandResult:
         stop_calls.append(argv)
-        assert argv[0] == "kill"
+        assert argv == stop_plan.command
         return FakeCommandResult(returncode=0, stdout="stop ok", stderr="")
 
     result = bring_down_egress(
@@ -256,9 +275,27 @@ def test_bring_down_egress_accepts_separate_cleanup_and_stop_runners(tmp_path: P
     )
 
     assert cleanup_calls == cleanup_plan.commands
-    assert stop_calls == [["kill", "-TERM", "4321"]]
+    assert stop_calls == [stop_plan.command]
     assert result.status == "down"
-    assert result.commands_executed == [*[" ".join(command) for command in cleanup_plan.commands], "kill -TERM 4321"]
+    assert result.commands_executed == [*[" ".join(command) for command in cleanup_plan.commands], " ".join(stop_plan.command)]
+
+
+def test_bring_down_egress_accepts_non_openvpn_tunnel_backend_stop_plan():
+    cleanup_plan = _cleanup_plan()
+    stop_plan = TunnelStopPlan(backend="xray-tun", command=["systemctl", "stop", "migate-xray-tun.service"])
+    calls: list[list[str]] = []
+
+    result = bring_down_egress(
+        cleanup_plan,
+        stop_plan,
+        runner=lambda argv: calls.append(argv) or FakeCommandResult(0, stdout="ok", stderr=""),
+        allow_side_effects=True,
+    )
+
+    assert calls == [*cleanup_plan.commands, stop_plan.command]
+    assert result.status == "down"
+    assert [phase.name for phase in result.phases] == ["policy_routing_cleanup", "tunnel_stop"]
+    assert result.commands_executed == [*[" ".join(command) for command in cleanup_plan.commands], "systemctl stop migate-xray-tun.service"]
 
 
 def test_bring_down_egress_stops_before_openvpn_stop_when_cleanup_fails(tmp_path: Path):
@@ -276,7 +313,7 @@ def test_bring_down_egress_stops_before_openvpn_stop_when_cleanup_fails(tmp_path
 
     assert calls == [cleanup_plan.commands[0]]
     assert result.status == "failed"
-    assert result.message == "egress down stopped before OpenVPN stop; routing cleanup failed"
+    assert result.message == "egress down stopped before openvpn tunnel stop; routing cleanup failed"
     assert [phase.name for phase in result.phases] == ["policy_routing_cleanup"]
     assert result.commands_executed == [" ".join(cleanup_plan.commands[0])]
     assert result.performed_side_effects is True

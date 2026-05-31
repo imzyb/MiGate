@@ -10,6 +10,7 @@ import uvicorn
 
 from migate.config import MiGateConfig
 from migate.egress.lifecycle import EgressLifecycleResult, bring_down_egress, bring_up_egress
+from migate.egress.openvpn_backend import build_openvpn_tunnel_start_plan, build_openvpn_tunnel_stop_plan
 from migate.egress.status import render_egress_status_report, run_egress_doctor, run_egress_status
 from migate.proxy.run import render_proxy_run_result, run_proxy_placeholder
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
@@ -48,8 +49,6 @@ from migate.proxy.socks5_listener import (
 )
 from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
 from migate.routing.policy_plan import build_policy_routing_plan
-from migate.vpn.process_plan import build_openvpn_start_plan
-from migate.vpn.process_stop import build_openvpn_stop_plan
 from migate.vpn.config_render import OpenVPNRenderPlan, render_openvpn_config_preview
 from migate.vpn.config_save import OpenVPNConfigSaveResult, save_openvpn_config_preview
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart
@@ -315,13 +314,7 @@ def run_remote_lifecycle_cli(
 
 
 def _default_openvpn_start_plan(config: MiGateConfig):
-    return build_openvpn_start_plan(
-        config,
-        config_path="/var/lib/migate/runtime/active.ovpn",
-        pid_path="/var/lib/migate/runtime/openvpn.pid",
-        status_path="/var/lib/migate/runtime/status.json",
-        log_path="/var/log/migate/openvpn.log",
-    )
+    return build_openvpn_tunnel_start_plan(config)
 
 
 def _render_egress_result(result: EgressLifecycleResult) -> str:
@@ -356,7 +349,7 @@ def _render_egress_up_dry_run(config: MiGateConfig) -> str:
 
 def _render_egress_down_dry_run(config: MiGateConfig, pid_file: Path) -> str:
     cleanup_plan = build_policy_routing_cleanup_plan(config)
-    stop_plan = build_openvpn_stop_plan(pid_file=pid_file)
+    stop_plan = build_openvpn_tunnel_stop_plan(pid_file)
     lines = [
         "status: dry_run",
         "message: egress down dry-run preview",
@@ -364,7 +357,7 @@ def _render_egress_down_dry_run(config: MiGateConfig, pid_file: Path) -> str:
         "performed_side_effects: False",
         "phases:",
         *[f"- policy routing cleanup: {' '.join(command)}" for command in cleanup_plan.commands],
-        f"- openvpn stop: kill -{stop_plan.kill_signal} <pid from {stop_plan.pid_file}>",
+        f"- openvpn stop: {' '.join(stop_plan.command)}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -907,7 +900,7 @@ def egress_down(
         return
     result = bring_down_egress(
         build_policy_routing_cleanup_plan(config),
-        build_openvpn_stop_plan(pid_file=pid_path),
+        build_openvpn_tunnel_stop_plan(pid_path),
         allow_side_effects=True,
     )
     typer.echo(_render_egress_result(result), nl=False)
