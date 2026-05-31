@@ -50,7 +50,7 @@ def _build_egress_status_checks(
     interface_exists: Callable[[str], bool],
     command_runner: Callable[[list[str]], CommandResult],
     tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
-    upstream_proxy_connectable: Callable[[str, int], bool],
+    upstream_proxy_connectable: Callable[[str, int], bool] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> list[EgressStatusCheck]:
@@ -84,7 +84,8 @@ def _build_egress_status_checks(
     )
 
     if config.egress.backend == "xray-tun":
-        upstream_ok = upstream_proxy_connectable(config.proxy.socks_host, config.proxy.socks_port)
+        connectable = upstream_proxy_connectable or _default_upstream_proxy_connectable
+        upstream_ok = connectable(config.proxy.socks_host, config.proxy.socks_port)
         checks.append(
             EgressStatusCheck(
                 "upstream_proxy",

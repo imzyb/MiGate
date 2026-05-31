@@ -1,8 +1,7 @@
-"""Side-effect-free SOCKS5 listener planning.
+"""SOCKS5 listener planning and bounded runtime helpers.
 
-The real TCP listener is not implemented in this layer. This module only
-materializes the intended bind address and runtime wiring so the future network
-server can be introduced behind a tested contract.
+The plan remains side-effect-free, while the gated serve helpers can open a
+local listener and fail closed before upstream forwarding is enabled.
 """
 
 from __future__ import annotations
@@ -94,8 +93,8 @@ def build_socks5_listener_plan(config: MiGateConfig) -> Socks5ListenerPlan:
         bind_port=config.proxy.socks_port,
         protocol="socks5",
         connection_driver="Socks5Connection",
-        upstream_mode="not_implemented",
-        will_listen=False,
+        upstream_mode="fail_closed_until_forwarding_enabled",
+        will_listen=True,
         will_connect_upstream=False,
         performed_side_effects=False,
     )

@@ -2335,7 +2335,7 @@ def test_proxy_run_command_rejects_when_preflight_fails(monkeypatch):
     assert "forwarding_started: False" in result.output
 
 
-def test_proxy_run_command_reports_placeholder_when_preflight_passes(monkeypatch):
+def test_proxy_run_command_reports_listener_started_when_preflight_passes(monkeypatch):
     from migate.proxy.run import ProxyRunResult
     from migate.proxy.runtime import ProxyRuntimeCheck
 
@@ -2343,22 +2343,23 @@ def test_proxy_run_command_reports_placeholder_when_preflight_passes(monkeypatch
         main_module,
         "run_proxy_placeholder",
         lambda *args, **kwargs: ProxyRunResult(
-            status="placeholder",
-            message="proxy forwarding is not implemented yet; listener not started",
+            status="running",
+            message="SOCKS5 listener started; upstream forwarding is not implemented yet",
             checks=[ProxyRuntimeCheck("fail_policy", "ok", "fail_policy is block")],
-            listener_started=False,
+            listener_started=True,
             forwarding_started=False,
-            performed_side_effects=False,
+            performed_side_effects=True,
         ),
     )
 
     result = runner.invoke(app, ["proxy", "run"])
 
     assert result.exit_code == 0
-    assert "status: placeholder" in result.output
-    assert "proxy forwarding is not implemented yet" in result.output
-    assert "listener_started: False" in result.output
+    assert "status: running" in result.output
+    assert "SOCKS5 listener started; upstream forwarding is not implemented yet" in result.output
+    assert "listener_started: True" in result.output
     assert "forwarding_started: False" in result.output
+    assert "performed_side_effects: True" in result.output
 
 
 def test_proxy_socks5_plan_command_prints_dry_run_listener_plan():
@@ -2369,7 +2370,7 @@ def test_proxy_socks5_plan_command_prints_dry_run_listener_plan():
     assert "bind_host: 127.0.0.1" in result.output
     assert "bind_port: 34501" in result.output
     assert "connection_driver: Socks5Connection" in result.output
-    assert "will_listen: False" in result.output
+    assert "will_listen: True" in result.output
     assert "will_connect_upstream: False" in result.output
     assert "performed_side_effects: False" in result.output
 

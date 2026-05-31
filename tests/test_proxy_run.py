@@ -1,6 +1,7 @@
 from migate.config import MiGateConfig
 from migate.proxy.run import ProxyRunResult, render_proxy_run_result, run_proxy_placeholder
 from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport
+from migate.proxy.socks5_listener import Socks5ServeResult
 
 
 def test_proxy_run_rejects_when_safety_preflight_fails():
@@ -27,7 +28,26 @@ def test_proxy_run_rejects_when_safety_preflight_fails():
     assert len(calls) == 1
 
 
-def test_proxy_run_placeholder_does_not_listen_even_when_preflight_passes():
+def test_proxy_run_starts_local_socks_listener_when_preflight_passes():
+    calls: list[tuple[str, int, int, float]] = []
+
+    def fake_server_starter(host: str, port: int, max_clients: int, client_timeout: float) -> Socks5ServeResult:
+        calls.append((host, port, max_clients, client_timeout))
+        return Socks5ServeResult(
+            status="stopped",
+            message="SOCKS5 listener handled one client without upstream forwarding",
+            bind_host=host,
+            bind_port=port,
+            listener_started=True,
+            accepted_connections=1,
+            upstream_connections=0,
+            timed_out_connections=0,
+            max_clients=max_clients,
+            client_timeout=client_timeout,
+            events=[],
+            performed_side_effects=True,
+        )
+
     result = run_proxy_placeholder(
         MiGateConfig(),
         doctor_loader=lambda config: ProxyRuntimeReport(
@@ -39,13 +59,17 @@ def test_proxy_run_placeholder_does_not_listen_even_when_preflight_passes():
             ],
             performed_side_effects=False,
         ),
+        server_starter=fake_server_starter,
+        max_clients=1,
+        client_timeout=0.25,
     )
 
-    assert result.status == "placeholder"
-    assert result.message == "proxy forwarding is not implemented yet; listener not started"
-    assert result.listener_started is False
+    assert calls == [("127.0.0.1", 34501, 1, 0.25)]
+    assert result.status == "running"
+    assert result.message == "SOCKS5 listener started; upstream forwarding is not implemented yet"
+    assert result.listener_started is True
     assert result.forwarding_started is False
-    assert result.performed_side_effects is False
+    assert result.performed_side_effects is True
 
 
 def test_render_proxy_run_result_is_structured():

@@ -1,4 +1,4 @@
-"""Safe placeholder entrypoint for the MiGate local proxy runtime."""
+"""Safe entrypoint for the MiGate local proxy runtime."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from migate.config import MiGateConfig
 from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport, run_proxy_doctor
+from migate.proxy.socks5_listener import Socks5ServerStarter, run_socks5_serve_placeholder
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,9 @@ def run_proxy_placeholder(
     config: MiGateConfig | None = None,
     *,
     doctor_loader: Callable[[MiGateConfig], ProxyRuntimeReport] | None = None,
+    server_starter: Socks5ServerStarter | None = None,
+    max_clients: int = 1,
+    client_timeout: float = 5.0,
 ) -> ProxyRunResult:
     cfg = config or MiGateConfig()
     doctor = (doctor_loader or run_proxy_doctor)(cfg)
@@ -36,13 +40,22 @@ def run_proxy_placeholder(
             performed_side_effects=False,
         )
 
+    serve_result = run_socks5_serve_placeholder(
+        cfg,
+        dry_run=False,
+        yes=True,
+        allow_network_listen=True,
+        max_clients=max_clients,
+        client_timeout=client_timeout,
+        server_starter=server_starter,
+    )
     return ProxyRunResult(
-        status="placeholder",
-        message="proxy forwarding is not implemented yet; listener not started",
+        status="running" if serve_result.listener_started else serve_result.status,
+        message="SOCKS5 listener started; upstream forwarding is not implemented yet" if serve_result.listener_started else serve_result.message,
         checks=doctor.checks,
-        listener_started=False,
+        listener_started=serve_result.listener_started,
         forwarding_started=False,
-        performed_side_effects=False,
+        performed_side_effects=serve_result.performed_side_effects,
     )
 
 
