@@ -43,6 +43,23 @@ def _format_command(command: list[str]) -> str:
     return " ".join(command)
 
 
+_ALREADY_ABSENT_ERROR_FRAGMENTS = (
+    "fib table does not exist",
+    "no such process",
+    "cannot find device",
+    "no such file or directory",
+)
+
+
+def _cleanup_step_status(result: PolicyRoutingCleanupCommandResult) -> str:
+    if result.returncode == 0:
+        return "success"
+    output = f"{result.stdout}\n{result.stderr}".lower()
+    if any(fragment in output for fragment in _ALREADY_ABSENT_ERROR_FRAGMENTS):
+        return "already_absent"
+    return "failed"
+
+
 def apply_policy_routing_cleanup_plan(
     plan: PolicyRoutingCleanupPlan,
     *,
@@ -86,7 +103,7 @@ def apply_policy_routing_cleanup_plan(
                 performed_side_effects=True,
             )
 
-        step_status = "success" if command_result.returncode == 0 else "failed"
+        step_status = _cleanup_step_status(command_result)
         steps.append(
             PolicyRoutingCleanupApplyStep(
                 action="cleanup_policy_routing_command",
@@ -97,7 +114,7 @@ def apply_policy_routing_cleanup_plan(
                 stderr=command_result.stderr.strip(),
             )
         )
-        if command_result.returncode != 0:
+        if command_result.returncode != 0 and step_status != "already_absent":
             return PolicyRoutingCleanupApplyResult(
                 status="failed",
                 message=f"cleanup routing command failed: {command_preview}",
