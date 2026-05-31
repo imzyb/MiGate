@@ -68,7 +68,12 @@ from migate.xray.service_cli import (
     save_xray_service_unit,
     save_xray_tun_service_unit,
 )
-from migate.xray.systemctl_cli import ALLOWED_XRAY_SERVICE_NAME, SystemctlActionResult, run_xray_systemctl_action
+from migate.xray.systemctl_cli import (
+    ALLOWED_XRAY_SERVICE_NAME,
+    ALLOWED_XRAY_TUN_SERVICE_NAME,
+    SystemctlActionResult,
+    run_xray_systemctl_action,
+)
 from migate.xray.tun_config import render_xray_tun_config, save_xray_tun_config
 
 app = typer.Typer(help="MiGate smart egress gateway")
@@ -1054,9 +1059,14 @@ def _echo_systemctl_result(result: SystemctlActionResult) -> None:
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
 
 
+_XRAY_SYSTEMCTL_SERVICE_HELP = (
+    f"Service name; allowed: {ALLOWED_XRAY_SERVICE_NAME}, {ALLOWED_XRAY_TUN_SERVICE_NAME}."
+)
+
+
 @xray_systemctl_app.command("status")
 def xray_systemctl_status(
-    service: str = typer.Option(ALLOWED_XRAY_SERVICE_NAME, "--service", help="Service name; only migate-xray.service is allowed."),
+    service: str = typer.Option(ALLOWED_XRAY_SERVICE_NAME, "--service", help=_XRAY_SYSTEMCTL_SERVICE_HELP),
 ) -> None:
     _echo_systemctl_result(run_xray_systemctl_action("status", service=service))
 
@@ -1073,12 +1083,34 @@ def xray_systemctl_daemon_reload(
 
 @xray_systemctl_app.command("restart")
 def xray_systemctl_restart(
-    service: str = typer.Option(ALLOWED_XRAY_SERVICE_NAME, "--service", help="Service name; only migate-xray.service is allowed."),
+    service: str = typer.Option(ALLOWED_XRAY_SERVICE_NAME, "--service", help=_XRAY_SYSTEMCTL_SERVICE_HELP),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge restart side effects."),
     allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually restart when combined with --yes."),
 ) -> None:
     _echo_systemctl_result(
         run_xray_systemctl_action("restart", service=service, yes=yes, allow_system_changes=allow_system_changes)
+    )
+
+
+@xray_systemctl_app.command("start")
+def xray_systemctl_start(
+    service: str = typer.Option(ALLOWED_XRAY_TUN_SERVICE_NAME, "--service", help=_XRAY_SYSTEMCTL_SERVICE_HELP),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge start side effects."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually start when combined with --yes."),
+) -> None:
+    _echo_systemctl_result(
+        run_xray_systemctl_action("start", service=service, yes=yes, allow_system_changes=allow_system_changes)
+    )
+
+
+@xray_systemctl_app.command("stop")
+def xray_systemctl_stop(
+    service: str = typer.Option(ALLOWED_XRAY_TUN_SERVICE_NAME, "--service", help=_XRAY_SYSTEMCTL_SERVICE_HELP),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge stop side effects."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually stop when combined with --yes."),
+) -> None:
+    _echo_systemctl_result(
+        run_xray_systemctl_action("stop", service=service, yes=yes, allow_system_changes=allow_system_changes)
     )
 
 

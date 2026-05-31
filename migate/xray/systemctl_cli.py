@@ -8,8 +8,10 @@ import subprocess
 
 
 ALLOWED_XRAY_SERVICE_NAME = "migate-xray.service"
-ALLOWED_SYSTEMCTL_ACTIONS = {"status", "daemon-reload", "restart"}
-SIDE_EFFECT_ACTIONS = {"daemon-reload", "restart"}
+ALLOWED_XRAY_TUN_SERVICE_NAME = "migate-xray-tun.service"
+ALLOWED_XRAY_SERVICE_NAMES = {ALLOWED_XRAY_SERVICE_NAME, ALLOWED_XRAY_TUN_SERVICE_NAME}
+ALLOWED_SYSTEMCTL_ACTIONS = {"status", "daemon-reload", "restart", "start", "stop"}
+SIDE_EFFECT_ACTIONS = {"daemon-reload", "restart", "start", "stop"}
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,10 @@ def build_systemctl_command(action: str, service: str) -> list[str]:
         return ["systemctl", "daemon-reload"]
     if action == "restart":
         return ["systemctl", "restart", service]
+    if action == "start":
+        return ["systemctl", "start", service]
+    if action == "stop":
+        return ["systemctl", "stop", service]
     return []
 
 
@@ -42,7 +48,7 @@ def run_xray_systemctl_action(
     allow_system_changes: bool = False,
     runner: Callable[[list[str]], subprocess.CompletedProcess[str]] | None = None,
 ) -> SystemctlActionResult:
-    if service != ALLOWED_XRAY_SERVICE_NAME:
+    if service not in ALLOWED_XRAY_SERVICE_NAMES:
         return SystemctlActionResult(
             status="rejected",
             action=action,
