@@ -599,6 +599,105 @@ def test_egress_up_command_exits_nonzero_when_lifecycle_fails(monkeypatch):
     assert "OpenVPN start failed" in result.output
 
 
+def test_egress_up_dry_run_accepts_backend_xray_tun_without_side_effects():
+    result = runner.invoke(app, ["egress", "up", "--backend", "xray-tun"])
+
+    assert result.exit_code == 0
+    assert "status: dry_run" in result.output
+    assert "backend: xray-tun" in result.output
+    assert "systemctl start migate-xray-tun.service" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_egress_up_dry_run_rejects_unknown_backend_without_traceback():
+    result = runner.invoke(app, ["egress", "up", "--backend", "wireguard"])
+
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "unsupported egress backend: wireguard" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_egress_down_dry_run_accepts_backend_xray_tun_without_side_effects():
+    result = runner.invoke(app, ["egress", "down", "--backend", "xray-tun"])
+
+    assert result.exit_code == 0
+    assert "status: dry_run" in result.output
+    assert "systemctl stop migate-xray-tun.service" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_egress_down_dry_run_rejects_unknown_backend_without_traceback():
+    result = runner.invoke(app, ["egress", "down", "--backend", "wireguard"])
+
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "unsupported egress backend: wireguard" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_egress_up_command_accepts_backend_xray_tun_and_delegates_to_lifecycle(monkeypatch):
+    captured = {}
+
+    def fake_bring_up_egress(tunnel_plan, routing_plan, **kwargs):
+        captured["tunnel_backend"] = tunnel_plan.backend
+        captured["tunnel_command"] = tunnel_plan.command
+        captured["required_paths"] = tunnel_plan.required_paths
+        captured["routing_commands"] = routing_plan.commands
+        captured["kwargs"] = kwargs
+        return EgressLifecycleResult(
+            status="up",
+            message="egress brought up",
+            phases=[EgressLifecyclePhase("xray_tun_apply_start", "success", None)],
+            commands_executed=["systemctl start migate-xray-tun.service"],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(main_module, "bring_up_egress", fake_bring_up_egress)
+
+    result = runner.invoke(app, ["egress", "up", "--backend", "xray-tun", "--no-dry-run", "--yes", "--allow-system-changes"])
+
+    assert result.exit_code == 0
+    assert captured["tunnel_backend"] == "xray-tun"
+    assert captured["tunnel_command"] == ["systemctl", "start", "migate-xray-tun.service"]
+    assert captured["required_paths"] == ["/etc/migate/xray/config.json"]
+    assert captured["kwargs"] == {"allow_side_effects": True}
+    assert "status: up" in result.output
+    assert "xray_tun_apply_start" in result.output
+
+
+def test_egress_down_command_accepts_backend_xray_tun_and_delegates_to_lifecycle(monkeypatch):
+    captured = {}
+
+    def fake_bring_down_egress(cleanup_plan, stop_plan, **kwargs):
+        captured["stop_backend"] = stop_plan.backend
+        captured["stop_command"] = stop_plan.command
+        captured["cleanup_commands"] = cleanup_plan.commands
+        captured["kwargs"] = kwargs
+        return EgressLifecycleResult(
+            status="down",
+            message="egress brought down",
+            phases=[EgressLifecyclePhase("xray_tun_stop", "success", None)],
+            commands_executed=["systemctl stop migate-xray-tun.service"],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(main_module, "bring_down_egress", fake_bring_down_egress)
+
+    result = runner.invoke(app, ["egress", "down", "--backend", "xray-tun", "--no-dry-run", "--yes", "--allow-system-changes"])
+
+    assert result.exit_code == 0
+    assert captured["stop_backend"] == "xray-tun"
+    assert captured["stop_command"] == ["systemctl", "stop", "migate-xray-tun.service"]
+    assert captured["kwargs"] == {"allow_side_effects": True}
+    assert "status: down" in result.output
+    assert "xray_tun_stop" in result.output
+
+
 def test_build_remote_install_cli_plan_defaults_to_dedicated_test_vps_redacted():
     plan = build_remote_install_cli_plan()
 
