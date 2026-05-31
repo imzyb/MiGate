@@ -97,6 +97,30 @@ def test_apply_policy_routing_cleanup_plan_stops_after_first_failed_command():
     assert result.performed_side_effects is True
 
 
+def test_apply_policy_routing_cleanup_plan_treats_already_absent_routes_as_clean():
+    plan = build_policy_routing_cleanup_plan(MiGateConfig())
+    calls: list[list[str]] = []
+    failures = [
+        FakeCommandResult(returncode=2, stderr="Error: ipv4: FIB table does not exist.\nDump terminated"),
+        FakeCommandResult(returncode=2, stderr="Error: No such process"),
+    ]
+
+    def runner(argv: list[str]) -> FakeCommandResult:
+        calls.append(argv)
+        return failures.pop(0)
+
+    result = apply_policy_routing_cleanup_plan(plan, runner=runner, allow_side_effects=True)
+
+    assert calls == plan.commands
+    assert result.status == "applied"
+    assert result.message == "cleanup routing commands applied"
+    assert [step.status for step in result.steps] == ["already_absent", "already_absent"]
+    assert result.commands_executed == [
+        "ip route del default dev tun-migate table 100",
+        "ip rule del fwmark 0x66 table 100",
+    ]
+
+
 def test_apply_policy_routing_cleanup_plan_maps_missing_ip_command_to_structured_failure():
     plan = build_policy_routing_cleanup_plan(MiGateConfig())
 
