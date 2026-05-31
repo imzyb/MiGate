@@ -7,6 +7,7 @@ from migate.remote.rollout_runner import (
     RemoteRolloutRunResult,
     RemoteRolloutSubstepResult,
     build_remote_rollout_service_apply_runner,
+    build_remote_rollout_socks5_smoke_runner,
     render_remote_rollout_run_result,
     run_remote_rollout_plan,
 )
@@ -197,6 +198,43 @@ def test_service_apply_runner_reports_ordered_substep_results_and_stops_on_first
     assert [step.stdout for step in phase.command_results] == [calls[0].join(["ok: ", ""]), "proxy stdout"]
     assert [step.stderr for step in phase.command_results] == ["", "proxy stderr"]
     assert [step.status for step in phase.command_results] == ["success", "failed"]
+
+
+def test_socks5_smoke_runner_reports_loopback_greeting_diagnostics_without_side_effects():
+    plan = _plan()
+    calls = []
+
+    def runner(command: str) -> RemoteRolloutCommandResult:
+        calls.append(command)
+        return RemoteRolloutCommandResult(1, "connect stdout", "connection refused")
+
+    phase = build_remote_rollout_socks5_smoke_runner(plan, runner=runner)()
+
+    expected_command = (
+        "ssh -p 22 root@166.88.232.2 -- 'python3 - <<\"PY\"\n"
+        "import socket\n"
+        "s=socket.create_connection((\"127.0.0.1\", 1080), timeout=5)\n"
+        "s.sendall(bytes([5,1,0]))\n"
+        "assert s.recv(2) == bytes([5,0])\n"
+        "s.close()\n"
+        "PY'"
+    )
+    assert phase.action == "socks5_smoke"
+    assert phase.status == "failed"
+    assert phase.message == "socks5_smoke failed at loopback_greeting"
+    assert calls == [expected_command]
+    assert phase.commands_executed == [expected_command]
+    assert phase.performed_side_effects is False
+    assert phase.command_results == [
+        RemoteRolloutSubstepResult(
+            name="loopback_greeting",
+            status="failed",
+            command=expected_command,
+            returncode=1,
+            stdout="connect stdout",
+            stderr="connection refused",
+        )
+    ]
 
 
 def test_run_remote_rollout_plan_stops_before_egress_when_readiness_fails():

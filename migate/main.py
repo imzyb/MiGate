@@ -39,6 +39,7 @@ from migate.remote.rollout_runner import (
     RemoteRolloutRunResult,
     build_remote_rollout_command_phase_runner,
     build_remote_rollout_service_apply_runner,
+    build_remote_rollout_socks5_smoke_runner,
     render_remote_rollout_run_result,
     run_remote_rollout_plan,
 )
@@ -256,7 +257,7 @@ def run_remote_rollout_cli(
         egress_up_runner=egress_up_runner
         or (lambda: run_remote_egress_cli(action="up", host=host, port=port, user=user, dry_run=False, yes=True, allow_remote_changes=True, backend=backend)),
         service_apply_runner=service_apply_runner or build_remote_rollout_service_apply_runner(plan),
-        socks5_smoke_runner=socks5_smoke_runner or build_remote_rollout_command_phase_runner(plan, "socks5_smoke"),
+        socks5_smoke_runner=socks5_smoke_runner or build_remote_rollout_socks5_smoke_runner(plan),
         leak_check_runner=leak_check_runner or (lambda: run_remote_leak_check_cli(host=host, port=port, user=user, socks_port=MiGateConfig().proxy.socks_port)),
     )
 

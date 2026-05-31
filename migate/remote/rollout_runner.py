@@ -182,6 +182,50 @@ def _service_apply_ssh_prefix(command_preview: str) -> str:
     return command_preview.split(marker, 1)[0] + " -- "
 
 
+def build_remote_rollout_socks5_smoke_runner(
+    plan: RemoteRolloutPlan,
+    *,
+    runner: Callable[[str], RemoteRolloutCommandResult] | None = None,
+) -> Callable[[], RemoteRolloutPhaseResult]:
+    matching_steps = [step for step in plan.steps if step.action == "socks5_smoke"]
+    if len(matching_steps) != 1:
+        raise ValueError("remote rollout plan must contain exactly one socks5_smoke step")
+    step = matching_steps[0]
+
+    def run_phase() -> RemoteRolloutPhaseResult:
+        run_command = runner or _default_command_runner
+        command = step.command_preview
+        try:
+            command_result = run_command(command)
+        except FileNotFoundError:
+            command_result = RemoteRolloutCommandResult(
+                returncode=None,
+                stdout="",
+                stderr=f"command not found: {command.split()[0] if command.split() else command}",
+            )
+        status = "success" if command_result.returncode == 0 else "failed"
+        command_results = [
+            RemoteRolloutSubstepResult(
+                name="loopback_greeting",
+                status=status,
+                command=command,
+                returncode=command_result.returncode,
+                stdout=command_result.stdout,
+                stderr=command_result.stderr,
+            )
+        ]
+        return RemoteRolloutPhaseResult(
+            action="socks5_smoke",
+            status=status,
+            message="socks5_smoke ok" if status == "success" else "socks5_smoke failed at loopback_greeting",
+            commands_executed=[command],
+            performed_side_effects=step.performs_side_effects,
+            command_results=command_results,
+        )
+
+    return run_phase
+
+
 def _phase_from_readiness(report: RemoteReadinessReport) -> RemoteRolloutPhaseResult:
     return RemoteRolloutPhaseResult(
         action="readiness",
