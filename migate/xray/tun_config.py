@@ -87,7 +87,7 @@ def save_xray_tun_config(
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     backup_path = target_path.with_name(target_path.name + backup_suffix) if target_path.exists() else None
-    temp_path = target_path.with_name(target_path.name + ".tmp")
+    temp_path = target_path.with_suffix(f".tmp{target_path.suffix}")
 
     if backup_path is not None:
         shutil.copy2(target_path, backup_path)

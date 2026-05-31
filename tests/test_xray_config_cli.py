@@ -74,7 +74,7 @@ def test_save_xray_config_writes_then_validates_when_double_gate_passes(tmp_path
     assert result.performed_side_effects is True
     assert target.exists()
     assert json.loads(target.read_text(encoding="utf-8"))["outbounds"][0]["protocol"] == "socks"
-    assert calls == [["xray", "test", "-config", str(target.with_name("config.json.tmp"))]]
+    assert calls == [["xray", "test", "-config", str(target.with_name("config.tmp.json"))]]
 
 
 def test_save_xray_config_backs_up_existing_config_and_keeps_backup_on_success(tmp_path):

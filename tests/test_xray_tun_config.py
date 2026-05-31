@@ -105,7 +105,7 @@ def test_save_xray_tun_config_writes_tmp_validates_then_replaces_without_systemc
     saved = json.loads(target.read_text(encoding="utf-8"))
     assert saved["inbounds"][0]["protocol"] == "tun"
     assert {outbound["protocol"] for outbound in saved["outbounds"]} == {"socks", "blackhole"}
-    assert calls == [["xray", "test", "-config", str(target.with_name("tun.json.tmp"))]]
+    assert calls == [["xray", "test", "-config", str(target.with_name("tun.tmp.json"))]]
 
 
 def test_save_xray_tun_config_restores_existing_config_when_validation_fails(tmp_path):
