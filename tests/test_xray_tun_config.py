@@ -21,9 +21,8 @@ def test_build_xray_tun_config_routes_tun_inbound_to_safe_socks_without_freedom(
             "tag": "migate-tun-in",
             "protocol": "tun",
             "settings": {
-                "interfaceName": "tun-migate",
+                "name": "tun-migate",
                 "mtu": 1500,
-                "stack": "system",
             },
             "sniffing": {"enabled": True, "destOverride": ["http", "tls"]},
         }
