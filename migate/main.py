@@ -12,6 +12,8 @@ from migate.config import MiGateConfig
 from migate.egress.lifecycle import EgressLifecycleResult, bring_down_egress, bring_up_egress
 from migate.egress.openvpn_backend import build_openvpn_tunnel_start_plan, build_openvpn_tunnel_stop_plan
 from migate.egress.status import render_egress_status_report, run_egress_doctor, run_egress_status
+from migate.egress.tunnel_backend import TunnelStartPlan, TunnelStopPlan
+from migate.egress.xray_tun_backend import build_xray_tun_start_plan, build_xray_tun_stop_plan
 from migate.proxy.run import render_proxy_run_result, run_proxy_placeholder
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
@@ -313,8 +315,20 @@ def run_remote_lifecycle_cli(
     )
 
 
-def _default_openvpn_start_plan(config: MiGateConfig):
-    return build_openvpn_tunnel_start_plan(config)
+def _select_tunnel_start_plan(config: MiGateConfig) -> TunnelStartPlan:
+    if config.egress.backend == "openvpn":
+        return build_openvpn_tunnel_start_plan(config)
+    if config.egress.backend == "xray-tun":
+        return build_xray_tun_start_plan(config)
+    raise ValueError(f"unsupported egress backend: {config.egress.backend}")
+
+
+def _select_tunnel_stop_plan(config: MiGateConfig, pid_file: Path) -> TunnelStopPlan:
+    if config.egress.backend == "openvpn":
+        return build_openvpn_tunnel_stop_plan(pid_file)
+    if config.egress.backend == "xray-tun":
+        return build_xray_tun_stop_plan()
+    raise ValueError(f"unsupported egress backend: {config.egress.backend}")
 
 
 def _render_egress_result(result: EgressLifecycleResult) -> str:
@@ -332,7 +346,7 @@ def _render_egress_result(result: EgressLifecycleResult) -> str:
 
 
 def _render_egress_up_dry_run(config: MiGateConfig) -> str:
-    openvpn_plan = _default_openvpn_start_plan(config)
+    tunnel_plan = _select_tunnel_start_plan(config)
     routing_plan = build_policy_routing_plan(config)
     lines = [
         "status: dry_run",
@@ -341,7 +355,7 @@ def _render_egress_up_dry_run(config: MiGateConfig) -> str:
         "performed_side_effects: False",
         f"backend: {config.egress.backend}",
         "phases:",
-        f"- {config.egress.backend} start: {' '.join(openvpn_plan.command)}",
+        f"- {config.egress.backend} start: {' '.join(tunnel_plan.command)}",
         *[f"- policy routing apply: {' '.join(command)}" for command in routing_plan.commands],
     ]
     return "\n".join(lines) + "\n"
@@ -349,7 +363,7 @@ def _render_egress_up_dry_run(config: MiGateConfig) -> str:
 
 def _render_egress_down_dry_run(config: MiGateConfig, pid_file: Path) -> str:
     cleanup_plan = build_policy_routing_cleanup_plan(config)
-    stop_plan = build_openvpn_tunnel_stop_plan(pid_file)
+    stop_plan = _select_tunnel_stop_plan(config, pid_file)
     lines = [
         "status: dry_run",
         "message: egress down dry-run preview",
@@ -357,7 +371,7 @@ def _render_egress_down_dry_run(config: MiGateConfig, pid_file: Path) -> str:
         "performed_side_effects: False",
         "phases:",
         *[f"- policy routing cleanup: {' '.join(command)}" for command in cleanup_plan.commands],
-        f"- openvpn stop: {' '.join(stop_plan.command)}",
+        f"- {config.egress.backend} stop: {' '.join(stop_plan.command)}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -864,14 +878,16 @@ def egress_up(
         typer.echo("commands_executed: []")
         typer.echo("performed_side_effects: False")
         return
-    if config.egress.backend != "openvpn":
+    try:
+        tunnel_plan = _select_tunnel_start_plan(config)
+    except ValueError as exc:
         typer.echo("status: rejected")
-        typer.echo(f"message: unsupported egress backend: {config.egress.backend}")
+        typer.echo(f"message: {exc}")
         typer.echo("commands_executed: []")
         typer.echo("performed_side_effects: False")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
     result = bring_up_egress(
-        _default_openvpn_start_plan(config),
+        tunnel_plan,
         build_policy_routing_plan(config),
         allow_side_effects=True,
     )
@@ -898,9 +914,17 @@ def egress_down(
         typer.echo("commands_executed: []")
         typer.echo("performed_side_effects: False")
         return
+    try:
+        tunnel_stop_plan = _select_tunnel_stop_plan(config, pid_path)
+    except ValueError as exc:
+        typer.echo("status: rejected")
+        typer.echo(f"message: {exc}")
+        typer.echo("commands_executed: []")
+        typer.echo("performed_side_effects: False")
+        raise typer.Exit(code=1) from exc
     result = bring_down_egress(
         build_policy_routing_cleanup_plan(config),
-        build_openvpn_tunnel_stop_plan(pid_path),
+        tunnel_stop_plan,
         allow_side_effects=True,
     )
     typer.echo(_render_egress_result(result), nl=False)

@@ -959,6 +959,23 @@ def test_egress_up_command_defaults_to_dry_run_without_side_effects(monkeypatch)
     assert calls == []
 
 
+def test_egress_up_dry_run_renders_xray_tun_backend_plan(monkeypatch):
+    def fake_config():
+        from migate.config import EgressConfig, MiGateConfig
+
+        return MiGateConfig(egress=EgressConfig(backend="xray-tun"))
+
+    monkeypatch.setattr(main_module, "MiGateConfig", fake_config)
+
+    result = runner.invoke(app, ["egress", "up"])
+
+    assert result.exit_code == 0
+    assert "status: dry_run" in result.output
+    assert "backend: xray-tun" in result.output
+    assert "xray-tun start: systemctl start migate-xray-tun.service" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
 def test_egress_down_command_defaults_to_dry_run_without_side_effects(monkeypatch, tmp_path: Path):
     calls = []
     pid_file = tmp_path / "openvpn.pid"
@@ -986,6 +1003,23 @@ def test_egress_down_command_defaults_to_dry_run_without_side_effects(monkeypatc
     assert "policy routing cleanup" in result.output
     assert "openvpn stop" in result.output
     assert calls == []
+
+
+def test_egress_down_dry_run_renders_xray_tun_backend_plan(monkeypatch, tmp_path: Path):
+    def fake_config():
+        from migate.config import EgressConfig, MiGateConfig
+
+        return MiGateConfig(egress=EgressConfig(backend="xray-tun"))
+
+    monkeypatch.setattr(main_module, "MiGateConfig", fake_config)
+
+    result = runner.invoke(app, ["egress", "down", "--pid-file", str(tmp_path / "ignored.pid")])
+
+    assert result.exit_code == 0
+    assert "status: dry_run" in result.output
+    assert "xray-tun stop: systemctl stop migate-xray-tun.service" in result.output
+    assert "openvpn stop" not in result.output
+    assert "performed_side_effects: False" in result.output
 
 
 def test_egress_up_command_runs_orchestration_only_with_double_gate(monkeypatch):
@@ -1018,7 +1052,7 @@ def test_egress_up_command_runs_orchestration_only_with_double_gate(monkeypatch)
     assert len(calls) == 1
 
 
-def test_egress_up_command_rejects_non_openvpn_backend_without_running_openvpn(monkeypatch):
+def test_egress_up_command_uses_xray_tun_backend_plan_when_selected(monkeypatch):
     calls = []
 
     def fake_config():
@@ -1028,7 +1062,39 @@ def test_egress_up_command_rejects_non_openvpn_backend_without_running_openvpn(m
 
     def fake_bring_up_egress(*args, **kwargs):
         calls.append((args, kwargs))
-        raise AssertionError("bring_up_egress should not run for unsupported backend")
+        return EgressLifecycleResult(
+            status="up",
+            message="egress brought up",
+            phases=[EgressLifecyclePhase(name="tunnel_start", status="started", result=object())],
+            commands_executed=["systemctl start migate-xray-tun.service"],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(main_module, "MiGateConfig", fake_config)
+    monkeypatch.setattr(main_module, "bring_up_egress", fake_bring_up_egress)
+
+    result = runner.invoke(app, ["egress", "up", "--no-dry-run", "--yes", "--allow-system-changes"])
+
+    assert result.exit_code == 0
+    assert "status: up" in result.output
+    assert "systemctl start migate-xray-tun.service" in result.output
+    assert len(calls) == 1
+    tunnel_plan = calls[0][0][0]
+    assert tunnel_plan.backend == "xray-tun"
+    assert tunnel_plan.command == ["systemctl", "start", "migate-xray-tun.service"]
+
+
+def test_egress_up_command_rejects_unknown_backend_without_orchestration(monkeypatch):
+    calls = []
+
+    def fake_config():
+        from migate.config import EgressConfig, MiGateConfig
+
+        return MiGateConfig(egress=EgressConfig(backend="wireguard"))
+
+    def fake_bring_up_egress(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("bring_up_egress should not run for unknown backend")
 
     monkeypatch.setattr(main_module, "MiGateConfig", fake_config)
     monkeypatch.setattr(main_module, "bring_up_egress", fake_bring_up_egress)
@@ -1037,7 +1103,7 @@ def test_egress_up_command_rejects_non_openvpn_backend_without_running_openvpn(m
 
     assert result.exit_code == 1
     assert "status: rejected" in result.output
-    assert "unsupported egress backend: xray-tun" in result.output
+    assert "unsupported egress backend: wireguard" in result.output
     assert "performed_side_effects: False" in result.output
     assert calls == []
 
