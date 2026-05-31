@@ -503,6 +503,53 @@ def create_app(
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
+    @app.get("/api/status/summary")
+    def status_summary() -> dict[str, object]:
+        nodes = repo.list_nodes()
+        runtime = runtime_loader()
+        egress = egress_loader()
+        services = {
+            "migate-xray.service": status_loader("migate-xray.service"),
+            "migate-panel.service": status_loader("migate-panel.service"),
+        }
+        healthy = (
+            runtime.status == "installed"
+            and all(check.status == "ok" for check in egress.checks)
+            and all(service.status == "success" for service in services.values())
+        )
+        return {
+            "status": "ok" if healthy else "degraded",
+            "nodes": {
+                "total": len(nodes),
+                "enabled": sum(1 for node in nodes if node.enabled),
+            },
+            "xray": {
+                "status": runtime.status,
+                "bin_path": runtime.bin_path,
+                "version": runtime.version,
+                "message": runtime.message,
+                "returncode": runtime.returncode,
+            },
+            "egress": {
+                "status": egress.status,
+                "performed_side_effects": egress.performed_side_effects,
+                "checks": [
+                    {"name": check.name, "status": check.status, "message": check.message}
+                    for check in egress.checks
+                ],
+            },
+            "services": {
+                name: {
+                    "status": result.status,
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                }
+                for name, result in services.items()
+            },
+            "performed_side_effects": False,
+        }
+
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:
         return _page_shell(
