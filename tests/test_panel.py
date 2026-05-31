@@ -681,6 +681,40 @@ def test_panel_egress_down_dry_run_renders_planned_cleanup_and_stop_commands(tmp
     assert "performed_side_effects: False" in decoded
 
 
+def test_panel_egress_status_api_returns_readonly_report(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def egress_status_loader() -> EgressStatusReport:
+        calls.append("egress-status")
+        return EgressStatusReport(
+            status="observed",
+            checks=[
+                EgressStatusCheck("tun_interface", "ok", "tun-migate interface exists"),
+                EgressStatusCheck("tunnel_process", "failed", "xray-tun tunnel for tun-migate is not running"),
+                EgressStatusCheck("egress_guard", "failed", "blocked: tunnel is not running"),
+            ],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(create_app(node_repository=repo, egress_status_loader=egress_status_loader))
+
+    response = client.get("/api/egress/status")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "status": "observed",
+        "checks": [
+            {"name": "tun_interface", "status": "ok", "message": "tun-migate interface exists"},
+            {"name": "tunnel_process", "status": "failed", "message": "xray-tun tunnel for tun-migate is not running"},
+            {"name": "egress_guard", "status": "failed", "message": "blocked: tunnel is not running"},
+        ],
+        "performed_side_effects": False,
+    }
+    assert calls == ["egress-status"]
+
+
 def test_panel_egress_dry_run_api_returns_up_and_down_json_without_side_effects(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     calls = []
