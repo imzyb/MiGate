@@ -520,6 +520,24 @@ def test_remote_egress_command_rejects_embedded_credentials():
     assert "secret" not in result.output
 
 
+def test_remote_egress_up_command_accepts_backend_xray_tun_in_dry_run_plan():
+    result = runner.invoke(app, ["remote", "egress", "up", "--backend", "xray-tun"])
+
+    assert result.exit_code == 0
+    assert "ssh -p 22 root@166.88.232.2 -- migate egress up --backend xray-tun --no-dry-run --yes --allow-system-changes" in result.output
+    assert "ssh -p 22 root@166.88.232.2 -- migate egress status --backend xray-tun" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_remote_egress_down_command_accepts_backend_xray_tun_in_dry_run_plan():
+    result = runner.invoke(app, ["remote", "egress", "down", "--backend", "xray-tun"])
+
+    assert result.exit_code == 0
+    assert "ssh -p 22 root@166.88.232.2 -- migate egress down --backend xray-tun --no-dry-run --yes --allow-system-changes" in result.output
+    assert "ssh -p 22 root@166.88.232.2 -- migate egress status --backend xray-tun" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
 def test_run_remote_egress_cli_rejects_real_execution_without_double_gate():
     calls: list[str] = []
 

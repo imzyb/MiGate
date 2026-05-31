@@ -36,6 +36,23 @@ def test_remote_egress_down_dry_run_plan_previews_remote_down_without_side_effec
     assert plan.performed_side_effects is False
 
 
+def test_remote_egress_plan_threads_backend_override_into_remote_egress_commands():
+    plan = build_remote_egress_dry_run_plan(host="166.88.232.2", port=22, user="root", action="up", backend="xray-tun")
+
+    assert plan.status == "dry_run"
+    assert plan.steps[0].command_preview == "migate remote doctor --host 166.88.232.2 --port 22 --user root"
+    assert plan.steps[1].command_preview == "ssh -p 22 root@166.88.232.2 -- migate egress up --backend xray-tun --no-dry-run --yes --allow-system-changes"
+    assert plan.steps[2].command_preview == "ssh -p 22 root@166.88.232.2 -- migate egress status --backend xray-tun"
+
+
+def test_remote_egress_down_plan_threads_backend_override_into_remote_egress_commands():
+    plan = build_remote_egress_dry_run_plan(host="166.88.232.2", port=22, user="root", action="down", backend="xray-tun")
+
+    assert plan.status == "dry_run"
+    assert plan.steps[1].command_preview == "ssh -p 22 root@166.88.232.2 -- migate egress down --backend xray-tun --no-dry-run --yes --allow-system-changes"
+    assert plan.steps[2].command_preview == "ssh -p 22 root@166.88.232.2 -- migate egress status --backend xray-tun"
+
+
 def test_remote_egress_plan_rejects_unknown_action():
     plan = build_remote_egress_dry_run_plan(host="166.88.232.2", port=22, user="root", action="restart")
 

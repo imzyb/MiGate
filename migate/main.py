@@ -135,8 +135,15 @@ def build_xray_install_cli_plan(*, system: str | None = None, machine: str | Non
     )
 
 
-def build_remote_egress_cli_plan(*, action: str, host: str = "166.88.232.2", port: int = 22, user: str = "root"):
-    return build_remote_egress_dry_run_plan(host=host, port=port, user=user, action=action)
+def build_remote_egress_cli_plan(
+    *,
+    action: str,
+    host: str = "166.88.232.2",
+    port: int = 22,
+    user: str = "root",
+    backend: str | None = None,
+):
+    return build_remote_egress_dry_run_plan(host=host, port=port, user=user, action=action, backend=backend)
 
 
 def build_remote_rollout_cli_plan(
@@ -172,9 +179,10 @@ def run_remote_egress_cli(
     dry_run: bool,
     yes: bool,
     allow_remote_changes: bool,
+    backend: str | None = None,
     command_runner: Callable[[str], RemoteEgressCommandResult] | None = None,
 ) -> RemoteEgressRunResult:
-    plan = build_remote_egress_cli_plan(action=action, host=host, port=port, user=user)
+    plan = build_remote_egress_cli_plan(action=action, host=host, port=port, user=user, backend=backend)
     return run_remote_egress_plan(
         plan,
         dry_run=dry_run,
@@ -472,9 +480,18 @@ def _echo_install_result(result: XrayInstallResult) -> None:
             )
 
 
-def _echo_remote_egress(action: str, host: str, port: int, user: str, dry_run: bool, yes: bool, allow_remote_changes: bool) -> None:
+def _echo_remote_egress(
+    action: str,
+    host: str,
+    port: int,
+    user: str,
+    dry_run: bool,
+    yes: bool,
+    allow_remote_changes: bool,
+    backend: str | None,
+) -> None:
     if dry_run:
-        plan = build_remote_egress_cli_plan(action=action, host=host, port=port, user=user)
+        plan = build_remote_egress_cli_plan(action=action, host=host, port=port, user=user, backend=backend)
         typer.echo(render_remote_egress_plan(plan), nl=False)
         if plan.status == "rejected":
             raise typer.Exit(code=1)
@@ -488,6 +505,7 @@ def _echo_remote_egress(action: str, host: str, port: int, user: str, dry_run: b
         dry_run=dry_run,
         yes=yes,
         allow_remote_changes=allow_remote_changes,
+        backend=backend,
     )
     typer.echo(render_remote_egress_run_result(result), nl=False)
     if result.status != "success":
@@ -502,8 +520,9 @@ def remote_egress_up(
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge remote egress command execution."),
     allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote egress runner shell."),
+    backend: str | None = typer.Option(None, "--backend", help="Remote egress backend override passed to migate egress up/status."),
 ) -> None:
-    _echo_remote_egress("up", host, port, user, dry_run, yes, allow_remote_changes)
+    _echo_remote_egress("up", host, port, user, dry_run, yes, allow_remote_changes, backend)
 
 
 @remote_egress_app.command("down")
@@ -514,8 +533,9 @@ def remote_egress_down(
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge remote egress command execution."),
     allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote egress runner shell."),
+    backend: str | None = typer.Option(None, "--backend", help="Remote egress backend override passed to migate egress down/status."),
 ) -> None:
-    _echo_remote_egress("down", host, port, user, dry_run, yes, allow_remote_changes)
+    _echo_remote_egress("down", host, port, user, dry_run, yes, allow_remote_changes, backend)
 
 
 @remote_app.command("rollout")

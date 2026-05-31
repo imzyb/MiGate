@@ -44,23 +44,24 @@ def _reject(action: str, message: str) -> RemoteEgressPlan:
     )
 
 
-def build_remote_egress_dry_run_plan(*, host: str, port: int, user: str, action: str) -> RemoteEgressPlan:
+def build_remote_egress_dry_run_plan(*, host: str, port: int, user: str, action: str, backend: str | None = None) -> RemoteEgressPlan:
     if action not in {"up", "down"}:
         return _reject(action, "action must be one of: up, down")
     if contains_embedded_credentials(host) or contains_embedded_credentials(user):
         return _reject(action, "embedded credentials are not allowed in remote egress targets")
 
     target = _target(host, port, user)
+    backend_arg = f" --backend {backend}" if backend else ""
     if action == "up":
         steps = [
             RemoteEgressStep("doctor", "run read-only remote doctor before egress up", f"migate remote doctor --host {host} --port {port} --user {user}", False),
             RemoteEgressStep(
                 "egress_up",
                 "start remote OpenVPN egress and policy routing through MiGate gates",
-                f"ssh -p {port} {user}@{host} -- migate egress up --no-dry-run --yes --allow-system-changes",
+                f"ssh -p {port} {user}@{host} -- migate egress up{backend_arg} --no-dry-run --yes --allow-system-changes",
                 True,
             ),
-            RemoteEgressStep("post_up_status", "read remote egress status after up preview", f"ssh -p {port} {user}@{host} -- migate egress status", False),
+            RemoteEgressStep("post_up_status", "read remote egress status after up preview", f"ssh -p {port} {user}@{host} -- migate egress status{backend_arg}", False),
         ]
         message = "remote egress up dry-run only; no SSH or system changes performed"
     else:
@@ -69,10 +70,10 @@ def build_remote_egress_dry_run_plan(*, host: str, port: int, user: str, action:
             RemoteEgressStep(
                 "egress_down",
                 "stop remote OpenVPN egress and cleanup policy routing through MiGate gates",
-                f"ssh -p {port} {user}@{host} -- migate egress down --no-dry-run --yes --allow-system-changes",
+                f"ssh -p {port} {user}@{host} -- migate egress down{backend_arg} --no-dry-run --yes --allow-system-changes",
                 True,
             ),
-            RemoteEgressStep("post_down_status", "read remote egress status after down preview", f"ssh -p {port} {user}@{host} -- migate egress status", False),
+            RemoteEgressStep("post_down_status", "read remote egress status after down preview", f"ssh -p {port} {user}@{host} -- migate egress status{backend_arg}", False),
         ]
         message = "remote egress down dry-run only; no SSH or system changes performed"
 
