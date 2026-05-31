@@ -2,8 +2,11 @@ from migate.remote.readiness import RemoteReadinessCheck, RemoteReadinessReport
 from migate.remote.leak_check import RemoteLeakCheck, RemoteLeakCheckReport
 from migate.remote.rollout_plan import build_remote_rollout_dry_run_plan
 from migate.remote.rollout_runner import (
+    RemoteRolloutCommandResult,
     RemoteRolloutPhaseResult,
     RemoteRolloutRunResult,
+    RemoteRolloutSubstepResult,
+    build_remote_rollout_service_apply_runner,
     render_remote_rollout_run_result,
     run_remote_rollout_plan,
 )
@@ -167,6 +170,35 @@ def test_run_remote_rollout_plan_executes_install_readiness_egress_service_smoke
     assert result.performed_side_effects is True
 
 
+def test_service_apply_runner_reports_ordered_substep_results_and_stops_on_first_failure():
+    plan = _plan()
+    calls = []
+
+    def runner(command: str) -> RemoteRolloutCommandResult:
+        calls.append(command)
+        if "proxy service save" in command:
+            return RemoteRolloutCommandResult(1, "proxy stdout", "proxy stderr")
+        return RemoteRolloutCommandResult(0, f"ok: {command}", "")
+
+    phase = build_remote_rollout_service_apply_runner(plan, runner=runner)()
+
+    assert phase.action == "service_apply"
+    assert phase.status == "failed"
+    assert phase.message == "service_apply failed at proxy_service_save"
+    assert calls == [
+        "ssh -p 22 root@166.88.232.2 -- 'migate xray service save --yes --allow-system-changes'",
+        "ssh -p 22 root@166.88.232.2 -- 'migate proxy service save --yes --allow-system-changes'",
+    ]
+    assert phase.commands_executed == calls
+    assert phase.performed_side_effects is True
+    assert [step.name for step in phase.command_results] == ["xray_service_save", "proxy_service_save"]
+    assert [step.command for step in phase.command_results] == calls
+    assert [step.returncode for step in phase.command_results] == [0, 1]
+    assert [step.stdout for step in phase.command_results] == [calls[0].join(["ok: ", ""]), "proxy stdout"]
+    assert [step.stderr for step in phase.command_results] == ["", "proxy stderr"]
+    assert [step.status for step in phase.command_results] == ["success", "failed"]
+
+
 def test_run_remote_rollout_plan_stops_before_egress_when_readiness_fails():
     calls = []
 
@@ -321,3 +353,39 @@ def test_render_remote_rollout_run_result_is_structured_and_redacted():
     assert "- leak_check: success - leak_check ok" in rendered
     assert "password" not in rendered.lower()
     assert "sshpass" not in rendered.lower()
+
+
+def test_render_remote_rollout_run_result_includes_service_apply_substep_diagnostics():
+    result = RemoteRolloutRunResult(
+        status="failed",
+        message="remote rollout stopped at service_apply",
+        target="root@166.88.232.2:22",
+        phases=[
+            RemoteRolloutPhaseResult(
+                action="service_apply",
+                status="failed",
+                message="service_apply failed at proxy_service_save",
+                commands_executed=["ssh proxy service save"],
+                performed_side_effects=True,
+                command_results=[
+                    RemoteRolloutSubstepResult(
+                        name="proxy_service_save",
+                        status="failed",
+                        command="ssh proxy service save",
+                        returncode=1,
+                        stdout="proxy stdout",
+                        stderr="proxy stderr",
+                    )
+                ],
+            )
+        ],
+        commands_executed=["ssh proxy service save"],
+        performed_side_effects=True,
+    )
+
+    rendered = render_remote_rollout_run_result(result)
+
+    assert "- service_apply: failed - service_apply failed at proxy_service_save" in rendered
+    assert "  - proxy_service_save: failed returncode=1" in rendered
+    assert "    stdout: proxy stdout" in rendered
+    assert "    stderr: proxy stderr" in rendered

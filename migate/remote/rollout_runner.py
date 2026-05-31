@@ -8,7 +8,7 @@ credentials or performs direct remote calls.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import subprocess
 from typing import Protocol
 
@@ -28,6 +28,17 @@ class RemoteRolloutCommandResult:
     stdout: str
     stderr: str
 
+
+@dataclass(frozen=True)
+class RemoteRolloutSubstepResult:
+    name: str
+    status: str
+    command: str
+    returncode: int | None
+    stdout: str
+    stderr: str
+
+
 @dataclass(frozen=True)
 class RemoteRolloutPhaseResult:
 
@@ -36,6 +47,7 @@ class RemoteRolloutPhaseResult:
     message: str
     commands_executed: list[str]
     performed_side_effects: bool
+    command_results: list[RemoteRolloutSubstepResult] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -96,6 +108,78 @@ def build_remote_rollout_command_phase_runner(
         )
 
     return run_phase
+
+
+def build_remote_rollout_service_apply_runner(
+    plan: RemoteRolloutPlan,
+    *,
+    runner: Callable[[str], RemoteRolloutCommandResult] | None = None,
+) -> Callable[[], RemoteRolloutPhaseResult]:
+    matching_steps = [step for step in plan.steps if step.action == "service_apply"]
+    if len(matching_steps) != 1:
+        raise ValueError("remote rollout plan must contain exactly one service_apply step")
+    step = matching_steps[0]
+    ssh_prefix = _service_apply_ssh_prefix(step.command_preview)
+    substeps = [
+        ("xray_service_save", "migate xray service save --yes --allow-system-changes"),
+        ("proxy_service_save", "migate proxy service save --yes --allow-system-changes"),
+        ("daemon_reload", "systemctl daemon-reload"),
+        ("restart_services", "systemctl restart migate-xray.service migate-proxy.service"),
+        ("verify_services_active", "systemctl is-active migate-xray.service migate-proxy.service"),
+    ]
+
+    def run_phase() -> RemoteRolloutPhaseResult:
+        run_command = runner or _default_command_runner
+        commands_executed: list[str] = []
+        command_results: list[RemoteRolloutSubstepResult] = []
+        for name, remote_command in substeps:
+            command = f"{ssh_prefix}'{remote_command}'"
+            commands_executed.append(command)
+            try:
+                command_result = run_command(command)
+            except FileNotFoundError:
+                command_result = RemoteRolloutCommandResult(
+                    returncode=None,
+                    stdout="",
+                    stderr=f"command not found: {command.split()[0] if command.split() else command}",
+                )
+            status = "success" if command_result.returncode == 0 else "failed"
+            command_results.append(
+                RemoteRolloutSubstepResult(
+                    name=name,
+                    status=status,
+                    command=command,
+                    returncode=command_result.returncode,
+                    stdout=command_result.stdout,
+                    stderr=command_result.stderr,
+                )
+            )
+            if status != "success":
+                return RemoteRolloutPhaseResult(
+                    action="service_apply",
+                    status="failed",
+                    message=f"service_apply failed at {name}",
+                    commands_executed=commands_executed,
+                    performed_side_effects=step.performs_side_effects,
+                    command_results=command_results,
+                )
+        return RemoteRolloutPhaseResult(
+            action="service_apply",
+            status="success",
+            message="service_apply ok",
+            commands_executed=commands_executed,
+            performed_side_effects=step.performs_side_effects,
+            command_results=command_results,
+        )
+
+    return run_phase
+
+
+def _service_apply_ssh_prefix(command_preview: str) -> str:
+    marker = " -- '"
+    if marker not in command_preview:
+        raise ValueError("service_apply command preview must be an ssh command with a quoted remote script")
+    return command_preview.split(marker, 1)[0] + " -- "
 
 
 def _phase_from_readiness(report: RemoteReadinessReport) -> RemoteRolloutPhaseResult:
@@ -224,4 +308,13 @@ def render_remote_rollout_run_result(result: RemoteRolloutRunResult) -> str:
         lines.append("phases:")
         for phase in result.phases:
             lines.append(f"- {phase.action}: {phase.status} - {phase.message}")
+            for command_result in phase.command_results:
+                lines.append(
+                    f"  - {command_result.name}: {command_result.status} "
+                    f"returncode={command_result.returncode}"
+                )
+                if command_result.stdout:
+                    lines.append(f"    stdout: {command_result.stdout}")
+                if command_result.stderr:
+                    lines.append(f"    stderr: {command_result.stderr}")
     return "\n".join(lines) + "\n"
