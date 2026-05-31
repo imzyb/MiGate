@@ -162,6 +162,30 @@ async def test_serve_socks5_bounded_records_connect_and_timeout_events():
 
 
 @pytest.mark.asyncio
+async def test_serve_socks5_bounded_zero_max_clients_keeps_serving_until_cancelled():
+    server_task = asyncio.create_task(serve_socks5_bounded("127.0.0.1", 0, max_clients=0, client_timeout=0.05))
+    await asyncio.sleep(0)
+    server = await asyncio.wait_for(serve_socks5_bounded.current_server(), timeout=1)
+    bound_host, bound_port = server.sockets[0].getsockname()[:2]
+
+    reader, writer = await asyncio.open_connection(bound_host, bound_port)
+    writer.write(b"\x05\x01\x02")
+    await writer.drain()
+    method_response = await reader.readexactly(2)
+    remaining = await reader.read()
+    writer.close()
+    await writer.wait_closed()
+
+    assert method_response == b"\x05\xff"
+    assert remaining == b""
+    assert server_task.done() is False
+
+    server_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await server_task
+
+
+@pytest.mark.asyncio
 async def test_serve_socks5_bounded_times_out_idle_client_and_stops():
     server_task = asyncio.create_task(serve_socks5_bounded("127.0.0.1", 0, max_clients=1, client_timeout=0.05))
     await asyncio.sleep(0)

@@ -25,7 +25,7 @@ def run_proxy_placeholder(
     *,
     doctor_loader: Callable[[MiGateConfig], ProxyRuntimeReport] | None = None,
     server_starter: Socks5ServerStarter | None = None,
-    max_clients: int = 1,
+    max_clients: int = 0,
     client_timeout: float = 5.0,
 ) -> ProxyRunResult:
     cfg = config or MiGateConfig()

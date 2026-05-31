@@ -177,9 +177,9 @@ async def serve_socks5_bounded(
     max_clients: int = 1,
     client_timeout: float = 5.0,
 ) -> Socks5ServeResult:
-    """Serve a bounded number of SOCKS5 clients and then stop.
+    """Serve SOCKS5 clients; max_clients=0 keeps serving until cancelled.
 
-    This opens a local listening socket, but never opens upstream sockets.
+    This opens a local listening socket and relays accepted CONNECT requests upstream.
     """
     global _current_server
     stats = {"accepted_connections": 0, "upstream_connections": 0, "timed_out_connections": 0}
@@ -191,7 +191,7 @@ async def serve_socks5_bounded(
         try:
             await _handle_socks5_client(reader, writer, stats, events, client_id=client_id, client_timeout=client_timeout)
         finally:
-            if stats["accepted_connections"] >= max_clients:
+            if max_clients > 0 and stats["accepted_connections"] >= max_clients:
                 all_clients_done.set()
 
     server = await asyncio.start_server(handler, bind_host, bind_port)

@@ -60,11 +60,10 @@ def test_proxy_run_starts_local_socks_listener_when_preflight_passes():
             performed_side_effects=False,
         ),
         server_starter=fake_server_starter,
-        max_clients=1,
         client_timeout=0.25,
     )
 
-    assert calls == [("127.0.0.1", 34501, 1, 0.25)]
+    assert calls == [("127.0.0.1", 34501, 0, 0.25)]
     assert result.status == "running"
     assert result.message == "SOCKS5 listener started; direct upstream relay enabled"
     assert result.listener_started is True

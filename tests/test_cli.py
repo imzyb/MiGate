@@ -2344,10 +2344,10 @@ def test_proxy_run_command_reports_listener_started_when_preflight_passes(monkey
         "run_proxy_placeholder",
         lambda *args, **kwargs: ProxyRunResult(
             status="running",
-            message="SOCKS5 listener started; upstream forwarding is not implemented yet",
+            message="SOCKS5 listener started; direct upstream relay enabled",
             checks=[ProxyRuntimeCheck("fail_policy", "ok", "fail_policy is block")],
             listener_started=True,
-            forwarding_started=False,
+            forwarding_started=True,
             performed_side_effects=True,
         ),
     )
@@ -2356,9 +2356,9 @@ def test_proxy_run_command_reports_listener_started_when_preflight_passes(monkey
 
     assert result.exit_code == 0
     assert "status: running" in result.output
-    assert "SOCKS5 listener started; upstream forwarding is not implemented yet" in result.output
+    assert "SOCKS5 listener started; direct upstream relay enabled" in result.output
     assert "listener_started: True" in result.output
-    assert "forwarding_started: False" in result.output
+    assert "forwarding_started: True" in result.output
     assert "performed_side_effects: True" in result.output
 
 
