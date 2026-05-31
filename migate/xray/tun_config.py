@@ -35,9 +35,8 @@ def build_xray_tun_inbound(config: MiGateConfig) -> XrayTunObject:
         "tag": "migate-tun-in",
         "protocol": "tun",
         "settings": {
-            "interfaceName": config.vpn.interface,
+            "name": config.vpn.interface,
             "mtu": 1500,
-            "stack": "system",
         },
         "sniffing": {"enabled": True, "destOverride": ["http", "tls"]},
     }
