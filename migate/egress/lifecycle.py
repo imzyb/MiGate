@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+import time
 from typing import Any
 
 from migate.config import MiGateConfig
@@ -51,6 +52,7 @@ def bring_up_egress(
     openvpn_runner: Callable[[list[str]], TunnelCommandResult] | None = None,
     routing_runner: Callable[[list[str]], Any] | None = None,
     xray_tun_start_runner: Callable[[str], XrayApplyResult] | None = None,
+    xray_tun_interface_ready: Callable[[str], bool] | None = None,
     config_exists: Callable[[str], bool] | None = None,
     ensure_directory: Callable[[Path], None] | None = None,
     allow_side_effects: bool = False,
@@ -96,6 +98,17 @@ def bring_up_egress(
             return EgressLifecycleResult(
                 status="failed",
                 message="egress up stopped before routing; xray-tun apply start failed",
+                phases=phases,
+                commands_executed=xray_tun_commands,
+                performed_side_effects=xray_tun_result.performed_side_effects,
+            )
+        wait_for_xray_tun_interface = xray_tun_interface_ready or _default_xray_tun_interface_ready
+        interface_ready = wait_for_xray_tun_interface(routing_plan.tun_interface)
+        phases.append(EgressLifecyclePhase(name="xray_tun_interface_ready", status="ready" if interface_ready else "failed", result={"interface": routing_plan.tun_interface}))
+        if not interface_ready:
+            return EgressLifecycleResult(
+                status="failed",
+                message=f"egress up stopped before routing; xray-tun interface {routing_plan.tun_interface} is not ready",
                 phases=phases,
                 commands_executed=xray_tun_commands,
                 performed_side_effects=xray_tun_result.performed_side_effects,
@@ -176,6 +189,16 @@ def _default_xray_tun_start_runner(config_path: str) -> XrayApplyResult:
 
 def _xray_apply_systemctl_commands(result: XrayApplyResult) -> list[str]:
     return [" ".join(item.command) for item in result.systemctl_results]
+
+
+def _default_xray_tun_interface_ready(name: str, *, timeout_seconds: float = 5.0, interval_seconds: float = 0.2) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        if Path("/sys/class/net", name).exists():
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(interval_seconds)
 
 
 def _default_xray_tun_stop_runner() -> SystemctlActionResult:

@@ -242,6 +242,7 @@ def test_bring_up_egress_xray_tun_runs_validation_gated_apply_before_policy_rout
         tunnel_plan,
         routing_plan,
         xray_tun_start_runner=xray_tun_start_runner,
+        xray_tun_interface_ready=lambda name: True,
         routing_runner=lambda argv: routing_calls.append(argv) or FakeCommandResult(0, stdout="route ok", stderr=""),
         allow_side_effects=True,
         config_exists=lambda path: path == "/etc/migate/xray/config.json",
@@ -251,8 +252,8 @@ def test_bring_up_egress_xray_tun_runs_validation_gated_apply_before_policy_rout
     assert apply_calls == ["/etc/migate/xray/config.json"]
     assert routing_calls == routing_plan.commands
     assert result.status == "up"
-    assert [phase.name for phase in result.phases] == ["xray_tun_apply_start", "policy_routing_apply"]
-    assert [phase.status for phase in result.phases] == ["success", "applied"]
+    assert [phase.name for phase in result.phases] == ["xray_tun_apply_start", "xray_tun_interface_ready", "policy_routing_apply"]
+    assert [phase.status for phase in result.phases] == ["success", "ready", "applied"]
     assert result.commands_executed == [
         "systemctl daemon-reload",
         f"systemctl start {ALLOWED_XRAY_TUN_SERVICE_NAME}",
@@ -289,6 +290,7 @@ def test_bring_up_egress_xray_tun_bootstraps_generated_runtime_artifacts_on_fres
         tunnel_plan,
         routing_plan,
         xray_tun_start_runner=xray_tun_start_runner,
+        xray_tun_interface_ready=lambda name: True,
         routing_runner=lambda argv: FakeCommandResult(0, stdout="route ok", stderr=""),
         allow_side_effects=True,
         config_exists=lambda path: False,
@@ -297,7 +299,7 @@ def test_bring_up_egress_xray_tun_bootstraps_generated_runtime_artifacts_on_fres
 
     assert apply_calls == ["/etc/migate/xray/config.json"]
     assert result.status == "up"
-    assert [phase.name for phase in result.phases] == ["xray_tun_apply_start", "policy_routing_apply"]
+    assert [phase.name for phase in result.phases] == ["xray_tun_apply_start", "xray_tun_interface_ready", "policy_routing_apply"]
 
 
 def test_bootstrap_xray_tun_start_runner_saves_config_and_service_before_starting(monkeypatch):
@@ -464,6 +466,48 @@ def test_bring_up_egress_xray_tun_stops_before_policy_routing_when_apply_fails()
     assert [phase.name for phase in result.phases] == ["xray_tun_apply_start"]
     assert result.commands_executed == ["systemctl daemon-reload", f"systemctl start {ALLOWED_XRAY_TUN_SERVICE_NAME}"]
     assert result.performed_side_effects is True
+
+
+def test_bring_up_egress_xray_tun_waits_for_interface_before_policy_routing():
+    tunnel_plan = TunnelStartPlan(
+        backend="xray-tun",
+        command=["systemctl", "start", ALLOWED_XRAY_TUN_SERVICE_NAME],
+        runtime_paths=["/etc/migate/xray/config.json"],
+        required_paths=["/etc/migate/xray/config.json"],
+    )
+    events: list[str] = []
+
+    def xray_tun_start_runner(config_path: str) -> XrayApplyResult:
+        events.append(f"start:{config_path}")
+        return XrayApplyResult(
+            status="success",
+            message="started",
+            config_path=config_path,
+            validation=XrayValidationResult("valid", 0, "ok", ""),
+            systemctl_results=[SystemctlActionResult("success", "start", ALLOWED_XRAY_TUN_SERVICE_NAME, ["systemctl", "start", ALLOWED_XRAY_TUN_SERVICE_NAME], 0, "", "", True)],
+            performed_side_effects=True,
+        )
+
+    result = bring_up_egress(
+        tunnel_plan,
+        _routing_plan(),
+        xray_tun_start_runner=xray_tun_start_runner,
+        xray_tun_interface_ready=lambda name: events.append(f"ready:{name}") or True,
+        routing_runner=lambda argv: events.append("route:" + " ".join(argv)) or FakeCommandResult(0),
+        allow_side_effects=True,
+        config_exists=lambda path: True,
+        ensure_directory=lambda path: None,
+    )
+
+    assert result.status == "up"
+    assert events == [
+        "start:/etc/migate/xray/config.json",
+        "ready:tun-migate",
+        "route:ip rule add fwmark 0x66 table 100",
+        "route:ip route add default dev tun-migate table 100",
+    ]
+    assert [phase.name for phase in result.phases] == ["xray_tun_apply_start", "xray_tun_interface_ready", "policy_routing_apply"]
+    assert [phase.status for phase in result.phases] == ["success", "ready", "applied"]
 
 
 def test_bring_down_egress_rejects_without_side_effect_gate(tmp_path: Path):
