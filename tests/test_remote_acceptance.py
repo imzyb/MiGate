@@ -235,6 +235,28 @@ def test_remote_acceptance_rejects_embedded_credentials_before_runner_call():
     assert "secret" not in rendered
 
 
+def test_remote_acceptance_rejects_embedded_credentials_but_preserves_backend_audit():
+    result = run_remote_acceptance(
+        host="root:secret@166.88.232.2",
+        port=22,
+        user="root",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=True,
+        backend="xray-tun",
+        doctor_runner=_ok_doctor,
+        rollout_smoke_runner=_ok_smoke,
+    )
+
+    rendered = render_remote_acceptance_result(result)
+
+    assert result.status == "rejected"
+    assert result.target == "[REDACTED]"
+    assert result.backend == "xray-tun"
+    assert "backend: xray-tun" in rendered
+    assert "secret" not in rendered
+
+
 def test_render_remote_acceptance_result_is_structured_and_redacted():
     result = run_remote_acceptance(
         host="166.88.232.2",
