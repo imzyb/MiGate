@@ -225,6 +225,10 @@ def test_remote_rollout_command_real_path_uses_phase_runners_with_double_gate(mo
             or RemoteReadinessReport("ok", "root@166.88.232.2:22", [], ["readiness command"], False),
             egress_up_runner=lambda: calls.append("egress_up")
             or RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+            service_apply_runner=lambda: calls.append("service_apply")
+            or RemoteRolloutPhaseResult("service_apply", "success", "service_apply ok", ["service apply command"], True),
+            socks5_smoke_runner=lambda: calls.append("socks5_smoke")
+            or RemoteRolloutPhaseResult("socks5_smoke", "success", "socks5_smoke ok", ["socks smoke command"], False),
             leak_check_runner=lambda: calls.append("leak_check")
             or RemoteLeakCheckReport(
                 "ok",
@@ -248,8 +252,10 @@ def test_remote_rollout_command_real_path_uses_phase_runners_with_double_gate(mo
     assert "- install: success - installed" in result.output
     assert "- readiness: success - readiness ok" in result.output
     assert "- egress_up: success - egress up" in result.output
+    assert "- service_apply: success - service_apply ok" in result.output
+    assert "- socks5_smoke: success - socks5_smoke ok" in result.output
     assert "- leak_check: success - leak_check ok" in result.output
-    assert calls == ["install", "readiness", "egress_up", "leak_check"]
+    assert calls == ["install", "readiness", "egress_up", "service_apply", "socks5_smoke", "leak_check"]
 
 
 def test_run_remote_rollout_cli_default_leak_check_uses_proxy_config_socks_port(monkeypatch):
@@ -280,6 +286,8 @@ def test_run_remote_rollout_cli_default_leak_check_uses_proxy_config_socks_port(
         install_runner=lambda: RemoteRolloutPhaseResult("install", "success", "installed", ["install command"], True),
         readiness_runner=lambda: RemoteReadinessReport("ok", "root@166.88.232.2:22", [], ["readiness command"], False),
         egress_up_runner=lambda: RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+        service_apply_runner=lambda: RemoteRolloutPhaseResult("service_apply", "success", "service_apply ok", ["service apply command"], True),
+        socks5_smoke_runner=lambda: RemoteRolloutPhaseResult("socks5_smoke", "success", "socks5_smoke ok", ["socks smoke command"], False),
     )
 
     assert result.status == "success"

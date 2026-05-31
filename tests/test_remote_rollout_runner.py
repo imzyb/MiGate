@@ -76,7 +76,7 @@ def test_run_remote_rollout_plan_rejects_real_execution_without_double_gate():
     assert calls == []
 
 
-def test_run_remote_rollout_plan_executes_install_readiness_egress_up_then_leak_check_with_injected_phases():
+def test_run_remote_rollout_plan_executes_install_readiness_egress_service_smoke_then_leak_check_with_injected_phases():
     calls = []
 
     def install_runner():
@@ -103,6 +103,26 @@ def test_run_remote_rollout_plan_executes_install_readiness_egress_up_then_leak_
             performed_side_effects=True,
         )
 
+    def service_apply_runner():
+        calls.append("service_apply")
+        return RemoteRolloutPhaseResult(
+            action="service_apply",
+            status="success",
+            message="service_apply ok",
+            commands_executed=["ssh service apply"],
+            performed_side_effects=True,
+        )
+
+    def socks5_smoke_runner():
+        calls.append("socks5_smoke")
+        return RemoteRolloutPhaseResult(
+            action="socks5_smoke",
+            status="success",
+            message="socks5_smoke ok",
+            commands_executed=["ssh socks5 smoke"],
+            performed_side_effects=False,
+        )
+
     def leak_check_runner():
         calls.append("leak_check")
         return RemoteLeakCheckReport(
@@ -127,17 +147,21 @@ def test_run_remote_rollout_plan_executes_install_readiness_egress_up_then_leak_
         install_runner=install_runner,
         readiness_runner=readiness_runner,
         egress_up_runner=egress_up_runner,
+        service_apply_runner=service_apply_runner,
+        socks5_smoke_runner=socks5_smoke_runner,
         leak_check_runner=leak_check_runner,
     )
 
     assert result.status == "success"
     assert result.message == "remote rollout completed through injected phase runners"
-    assert calls == ["install", "readiness", "egress_up", "leak_check"]
-    assert [phase.action for phase in result.phases] == ["install", "readiness", "egress_up", "leak_check"]
+    assert calls == ["install", "readiness", "egress_up", "service_apply", "socks5_smoke", "leak_check"]
+    assert [phase.action for phase in result.phases] == ["install", "readiness", "egress_up", "service_apply", "socks5_smoke", "leak_check"]
     assert result.commands_executed == [
         "migate remote install --no-dry-run",
         "ssh readiness",
         "migate remote egress up --no-dry-run",
+        "ssh service apply",
+        "ssh socks5 smoke",
         "ssh leak-check",
     ]
     assert result.performed_side_effects is True
@@ -168,6 +192,8 @@ def test_run_remote_rollout_plan_stops_before_egress_when_readiness_fails():
             performed_side_effects=False,
         ),
         egress_up_runner=lambda: calls.append("egress_up"),
+        service_apply_runner=lambda: calls.append("service_apply"),
+        socks5_smoke_runner=lambda: calls.append("socks5_smoke"),
         leak_check_runner=lambda: calls.append("leak_check"),
     )
 
@@ -204,6 +230,10 @@ def test_run_remote_rollout_plan_stops_after_egress_when_leak_check_fails():
             commands_executed=["egress command"],
             performed_side_effects=True,
         ),
+        service_apply_runner=lambda: calls.append("service_apply")
+        or RemoteRolloutPhaseResult("service_apply", "success", "service_apply ok", ["service apply command"], True),
+        socks5_smoke_runner=lambda: calls.append("socks5_smoke")
+        or RemoteRolloutPhaseResult("socks5_smoke", "success", "socks5_smoke ok", ["socks smoke command"], False),
         leak_check_runner=lambda: calls.append("leak_check")
         or RemoteLeakCheckReport(
             status="failed",
@@ -218,9 +248,9 @@ def test_run_remote_rollout_plan_stops_after_egress_when_leak_check_fails():
 
     assert result.status == "failed"
     assert result.message == "remote rollout stopped at leak_check"
-    assert calls == ["install", "readiness", "egress_up", "leak_check"]
-    assert [phase.action for phase in result.phases] == ["install", "readiness", "egress_up", "leak_check"]
-    assert result.commands_executed == ["install command", "ssh readiness", "egress command", "leak check command"]
+    assert calls == ["install", "readiness", "egress_up", "service_apply", "socks5_smoke", "leak_check"]
+    assert [phase.action for phase in result.phases] == ["install", "readiness", "egress_up", "service_apply", "socks5_smoke", "leak_check"]
+    assert result.commands_executed == ["install command", "ssh readiness", "egress command", "service apply command", "socks smoke command", "leak check command"]
     assert result.performed_side_effects is True
 
 
@@ -263,6 +293,8 @@ def test_render_remote_rollout_run_result_is_structured_and_redacted():
         install_runner=lambda: RemoteRolloutPhaseResult("install", "success", "installed", ["install command"], True),
         readiness_runner=_ok_readiness,
         egress_up_runner=lambda: RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+        service_apply_runner=lambda: RemoteRolloutPhaseResult("service_apply", "success", "service_apply ok", ["service apply command"], True),
+        socks5_smoke_runner=lambda: RemoteRolloutPhaseResult("socks5_smoke", "success", "socks5_smoke ok", ["socks smoke command"], False),
         leak_check_runner=lambda: RemoteLeakCheckReport(
             status="ok",
             target="root@166.88.232.2:22",
@@ -284,6 +316,8 @@ def test_render_remote_rollout_run_result_is_structured_and_redacted():
     assert "- install: success - installed" in rendered
     assert "- readiness: success - readiness ok" in rendered
     assert "- egress_up: success - egress up" in rendered
+    assert "- service_apply: success - service_apply ok" in rendered
+    assert "- socks5_smoke: success - socks5_smoke ok" in rendered
     assert "- leak_check: success - leak_check ok" in rendered
     assert "password" not in rendered.lower()
     assert "sshpass" not in rendered.lower()
