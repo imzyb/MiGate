@@ -206,7 +206,7 @@ async def serve_socks5_bounded(
 
     return Socks5ServeResult(
         status="stopped",
-        message=f"SOCKS5 listener handled {stats['accepted_connections']} client(s) without upstream forwarding",
+        message=f"SOCKS5 listener handled {stats['accepted_connections']} client(s) with direct upstream relay",
         bind_host=str(sockname[0]),
         bind_port=int(sockname[1]),
         listener_started=True,
@@ -223,7 +223,7 @@ async def serve_socks5_bounded(
 async def serve_socks5_once(bind_host: str, bind_port: int) -> Socks5ServeResult:
     """Serve exactly one SOCKS5 client and then stop.
 
-    This opens a local listening socket, but never opens upstream sockets.
+    This opens a local listening socket and relays accepted CONNECT requests upstream.
     """
     return await serve_socks5_bounded(bind_host, bind_port, max_clients=1)
 
