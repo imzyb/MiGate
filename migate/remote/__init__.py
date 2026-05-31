@@ -70,6 +70,12 @@ from migate.remote.rollout_runner import (
     render_remote_rollout_run_result,
     run_remote_rollout_plan,
 )
+from migate.remote.rollout_smoke import (
+    EXPECTED_REMOTE_ROLLOUT_SMOKE_PHASES,
+    RemoteRolloutSmokeResult,
+    render_remote_rollout_smoke_result,
+    run_remote_rollout_smoke,
+)
 
 __all__ = [
     "RemoteDoctorCheck",
@@ -95,7 +101,9 @@ __all__ = [
     "RemoteRolloutPlan",
     "RemoteRolloutPhaseResult",
     "RemoteRolloutRunResult",
+    "RemoteRolloutSmokeResult",
     "RemoteRolloutStep",
+    "EXPECTED_REMOTE_ROLLOUT_SMOKE_PHASES",
     "build_remote_egress_dry_run_plan",
     "build_remote_install_dry_run_plan",
     "build_remote_leak_check_command",
@@ -115,6 +123,7 @@ __all__ = [
     "render_remote_readiness_report",
     "render_remote_rollout_plan",
     "render_remote_rollout_run_result",
+    "render_remote_rollout_smoke_result",
     "run_remote_doctor",
     "run_remote_egress_plan",
     "run_remote_install_plan",
@@ -122,4 +131,5 @@ __all__ = [
     "run_remote_lifecycle",
     "run_remote_readiness",
     "run_remote_rollout_plan",
+    "run_remote_rollout_smoke",
 ]

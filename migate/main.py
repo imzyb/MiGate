@@ -35,6 +35,7 @@ from migate.remote.rollout_runner import (
     render_remote_rollout_run_result,
     run_remote_rollout_plan,
 )
+from migate.remote.rollout_smoke import RemoteRolloutSmokeResult, render_remote_rollout_smoke_result, run_remote_rollout_smoke
 from migate.proxy.socks5_listener import (
     build_socks5_listener_plan,
     render_socks5_listener_plan,
@@ -215,6 +216,38 @@ def run_remote_rollout_cli(
         egress_up_runner=egress_up_runner
         or (lambda: run_remote_egress_cli(action="up", host=host, port=port, user=user, dry_run=False, yes=True, allow_remote_changes=True)),
         leak_check_runner=leak_check_runner or (lambda: run_remote_leak_check_cli(host=host, port=port, user=user, socks_port=MiGateConfig().socks_port)),
+    )
+
+
+def run_remote_rollout_smoke_cli(
+    *,
+    host: str,
+    port: int,
+    user: str,
+    staging_dir: str,
+    dry_run: bool,
+    yes: bool,
+    allow_remote_changes: bool,
+    rollout_runner: Callable[[], RemoteRolloutRunResult] | None = None,
+) -> RemoteRolloutSmokeResult:
+    plan = build_remote_rollout_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir)
+    return run_remote_rollout_smoke(
+        plan,
+        dry_run=dry_run,
+        yes=yes,
+        allow_remote_changes=allow_remote_changes,
+        rollout_runner=rollout_runner
+        or (
+            lambda: run_remote_rollout_cli(
+                host=host,
+                port=port,
+                user=user,
+                staging_dir=staging_dir,
+                dry_run=False,
+                yes=True,
+                allow_remote_changes=True,
+            )
+        ),
     )
 
 
@@ -433,6 +466,30 @@ def remote_rollout(
     )
     typer.echo(render_remote_rollout_run_result(result), nl=False)
     if result.status != "success":
+        raise typer.Exit(code=1)
+
+
+@remote_app.command("rollout-smoke")
+def remote_rollout_smoke(
+    host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
+    port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
+    user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+    staging_dir: str = typer.Option("/tmp/migate-install", "--staging-dir", help="Remote staging directory preview; must stay under /tmp/ for this dry-run layer."),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge remote rollout smoke execution."),
+    allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote rollout smoke shell."),
+) -> None:
+    result = run_remote_rollout_smoke_cli(
+        host=host,
+        port=port,
+        user=user,
+        staging_dir=staging_dir,
+        dry_run=dry_run,
+        yes=yes,
+        allow_remote_changes=allow_remote_changes,
+    )
+    typer.echo(render_remote_rollout_smoke_result(result), nl=False)
+    if result.status not in {"success", "dry_run"}:
         raise typer.Exit(code=1)
 
 

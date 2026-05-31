@@ -16,6 +16,7 @@ from migate.main import (
     run_remote_install_cli,
     run_remote_lifecycle_cli,
     run_remote_rollout_cli,
+    run_remote_rollout_smoke_cli,
     run_xray_install_cli,
 )
 from migate.egress.lifecycle import EgressLifecyclePhase, EgressLifecycleResult
@@ -27,7 +28,8 @@ from migate.remote.egress_runner import RemoteEgressCommandResult
 from migate.remote.install_runner import RemoteInstallCommandResult
 from migate.remote.leak_check import RemoteLeakCheck, RemoteLeakCheckReport
 from migate.remote.readiness import RemoteReadinessCheck, RemoteReadinessReport
-from migate.remote.rollout_runner import RemoteRolloutPhaseResult
+from migate.remote.rollout_runner import RemoteRolloutPhaseResult, RemoteRolloutRunResult
+from migate.remote.rollout_smoke import RemoteRolloutSmokeResult
 
 
 runner = CliRunner()
@@ -243,6 +245,105 @@ def test_remote_rollout_command_real_path_rejects_without_allow_remote_changes()
 
 def test_remote_rollout_command_rejects_embedded_credentials():
     result = runner.invoke(app, ["remote", "rollout", "--host", "root:secret@203.0.113.10"])
+
+    assert result.exit_code == 1
+    assert "embedded credentials are not allowed" in result.output
+    assert "secret" not in result.output
+
+
+def test_run_remote_rollout_smoke_cli_rejects_real_execution_without_double_gate():
+    calls = []
+
+    result = run_remote_rollout_smoke_cli(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        staging_dir="/tmp/migate-install",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=False,
+        rollout_runner=lambda: calls.append("rollout"),
+    )
+
+    assert result.status == "rejected"
+    assert result.message == "remote rollout smoke requires yes=True and allow_remote_changes=True"
+    assert result.commands_executed == []
+    assert result.performed_side_effects is False
+    assert calls == []
+
+
+def test_remote_rollout_smoke_command_defaults_to_dry_run_without_remote_side_effects():
+    result = runner.invoke(app, ["remote", "rollout-smoke"])
+
+    assert result.exit_code == 0
+    assert "Remote rollout smoke result" in result.output
+    assert "status: dry_run" in result.output
+    assert "target: root@166.88.232.2:22" in result.output
+    assert "expected_phases: ['install', 'readiness', 'egress_up', 'leak_check']" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert "sshpass" not in result.output.lower()
+    assert "password" not in result.output.lower()
+
+
+def test_remote_rollout_smoke_command_real_path_uses_rollout_runner_with_double_gate(monkeypatch):
+    captured = {}
+    rollout = RemoteRolloutRunResult(
+        status="success",
+        message="remote rollout completed through injected phase runners",
+        target="root@166.88.232.2:22",
+        phases=[
+            RemoteRolloutPhaseResult("install", "success", "installed", ["install command"], True),
+            RemoteRolloutPhaseResult("readiness", "success", "readiness ok", ["readiness command"], False),
+            RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+            RemoteRolloutPhaseResult("leak_check", "success", "leak_check ok", ["leak check command"], False),
+        ],
+        commands_executed=["install command", "readiness command", "egress command", "leak check command"],
+        performed_side_effects=True,
+    )
+    smoke = RemoteRolloutSmokeResult(
+        status="success",
+        message="remote rollout smoke passed",
+        target="root@166.88.232.2:22",
+        expected_phases=["install", "readiness", "egress_up", "leak_check"],
+        rollout=rollout,
+        commands_executed=rollout.commands_executed,
+        performed_side_effects=True,
+    )
+
+    def fake_run_remote_rollout_smoke_cli(**kwargs):
+        captured.update(kwargs)
+        return smoke
+
+    monkeypatch.setattr(main_module, "run_remote_rollout_smoke_cli", fake_run_remote_rollout_smoke_cli)
+
+    result = runner.invoke(app, ["remote", "rollout-smoke", "--no-dry-run", "--yes", "--allow-remote-changes"])
+
+    assert result.exit_code == 0
+    assert captured["host"] == "166.88.232.2"
+    assert captured["port"] == 22
+    assert captured["user"] == "root"
+    assert captured["staging_dir"] == "/tmp/migate-install"
+    assert captured["dry_run"] is False
+    assert captured["yes"] is True
+    assert captured["allow_remote_changes"] is True
+    assert "rollout_runner" not in captured
+    assert "status: success" in result.output
+    assert "rollout_status: success" in result.output
+    assert "- leak_check: success - leak_check ok" in result.output
+    assert "performed_side_effects: True" in result.output
+
+
+def test_remote_rollout_smoke_command_real_path_rejects_without_allow_remote_changes():
+    result = runner.invoke(app, ["remote", "rollout-smoke", "--no-dry-run", "--yes"])
+
+    assert result.exit_code == 1
+    assert "remote rollout smoke requires yes=True and allow_remote_changes=True" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_remote_rollout_smoke_command_rejects_embedded_credentials():
+    result = runner.invoke(app, ["remote", "rollout-smoke", "--host", "root:secret@203.0.113.10"])
 
     assert result.exit_code == 1
     assert "embedded credentials are not allowed" in result.output

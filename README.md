@@ -38,6 +38,15 @@ migate remote rollout --no-dry-run --yes --allow-remote-changes
 
 This orchestration calls the already-gated remote install phase, then the read-only readiness probe, then the already-gated remote egress up phase, then the read-only public-IP leak check. It stops on the first failed phase and reports aggregated `commands_executed` plus `performed_side_effects`.
 
+Run the gated smoke wrapper when you want a structured verification report that the rollout reached all four expected phases:
+
+```bash
+migate remote rollout-smoke
+migate remote rollout-smoke --no-dry-run --yes --allow-remote-changes
+```
+
+`remote rollout-smoke` defaults to dry-run and calls no remote runner. The real path uses the same remote-change gates, delegates to the rollout runner, and fails unless the rollout completes exactly `install -> readiness -> egress_up -> leak_check`. It is a verification wrapper, not a separate SSH or credential-owning implementation.
+
 ### Remote install dry-run
 
 Preview the future remote installer on the dedicated test VPS without SSHing or making changes:
