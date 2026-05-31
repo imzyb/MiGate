@@ -545,6 +545,24 @@ def create_app(
             "performed_side_effects": False,
         }
 
+    @app.get("/api/systemd/units/preview")
+    def api_systemd_units_preview() -> dict[str, object]:
+        units = [build_xray_unit(migate_config), build_panel_unit(migate_config)]
+        return {
+            "status": "preview",
+            "target_dir": str(unit_dir),
+            "units": [
+                {
+                    "name": unit.name,
+                    "target_path": str(unit_dir / unit.name),
+                    "content": unit.content,
+                }
+                for unit in units
+            ],
+            "systemctl_commands_executed": [],
+            "performed_side_effects": False,
+        }
+
     @app.get("/api/status/summary")
     def status_summary() -> dict[str, object]:
         nodes = repo.list_nodes()
