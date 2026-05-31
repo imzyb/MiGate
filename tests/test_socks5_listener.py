@@ -16,14 +16,14 @@ def test_build_socks5_listener_plan_uses_safe_defaults_without_side_effects():
         bind_port=SOCKS5_LISTENER_BIND_PORT,
         protocol="socks5",
         connection_driver="Socks5Connection",
-        upstream_mode="fail_closed_until_forwarding_enabled",
+        upstream_mode="direct_tcp_relay",
         will_listen=True,
-        will_connect_upstream=False,
+        will_connect_upstream=True,
         performed_side_effects=False,
     )
 
 
-def test_render_socks5_listener_plan_mentions_no_real_listener_or_upstream():
+def test_render_socks5_listener_plan_mentions_direct_upstream_relay_without_side_effects():
     plan = build_socks5_listener_plan(MiGateConfig())
 
     text = render_socks5_listener_plan(plan)
@@ -31,8 +31,9 @@ def test_render_socks5_listener_plan_mentions_no_real_listener_or_upstream():
     assert "SOCKS5 listener plan" in text
     assert "bind_host: 127.0.0.1" in text
     assert "bind_port: 34501" in text
+    assert "upstream_mode: direct_tcp_relay" in text
     assert "will_listen: True" in text
-    assert "will_connect_upstream: False" in text
+    assert "will_connect_upstream: True" in text
     assert "performed_side_effects: False" in text
     assert "systemctl" not in text
     assert "connect_upstream(" not in text

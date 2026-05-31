@@ -2371,7 +2371,8 @@ def test_proxy_socks5_plan_command_prints_dry_run_listener_plan():
     assert "bind_port: 34501" in result.output
     assert "connection_driver: Socks5Connection" in result.output
     assert "will_listen: True" in result.output
-    assert "will_connect_upstream: False" in result.output
+    assert "upstream_mode: direct_tcp_relay" in result.output
+    assert "will_connect_upstream: True" in result.output
     assert "performed_side_effects: False" in result.output
 
 

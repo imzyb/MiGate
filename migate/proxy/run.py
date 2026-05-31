@@ -51,10 +51,10 @@ def run_proxy_placeholder(
     )
     return ProxyRunResult(
         status="running" if serve_result.listener_started else serve_result.status,
-        message="SOCKS5 listener started; upstream forwarding is not implemented yet" if serve_result.listener_started else serve_result.message,
+        message="SOCKS5 listener started; direct upstream relay enabled" if serve_result.listener_started else serve_result.message,
         checks=doctor.checks,
         listener_started=serve_result.listener_started,
-        forwarding_started=False,
+        forwarding_started=serve_result.listener_started,
         performed_side_effects=serve_result.performed_side_effects,
     )
 

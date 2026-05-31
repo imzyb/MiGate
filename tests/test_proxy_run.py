@@ -35,12 +35,12 @@ def test_proxy_run_starts_local_socks_listener_when_preflight_passes():
         calls.append((host, port, max_clients, client_timeout))
         return Socks5ServeResult(
             status="stopped",
-            message="SOCKS5 listener handled one client without upstream forwarding",
+            message="SOCKS5 listener handled one client with direct upstream relay",
             bind_host=host,
             bind_port=port,
             listener_started=True,
             accepted_connections=1,
-            upstream_connections=0,
+            upstream_connections=1,
             timed_out_connections=0,
             max_clients=max_clients,
             client_timeout=client_timeout,
@@ -66,9 +66,9 @@ def test_proxy_run_starts_local_socks_listener_when_preflight_passes():
 
     assert calls == [("127.0.0.1", 34501, 1, 0.25)]
     assert result.status == "running"
-    assert result.message == "SOCKS5 listener started; upstream forwarding is not implemented yet"
+    assert result.message == "SOCKS5 listener started; direct upstream relay enabled"
     assert result.listener_started is True
-    assert result.forwarding_started is False
+    assert result.forwarding_started is True
     assert result.performed_side_effects is True
 
 
