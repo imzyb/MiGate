@@ -932,6 +932,43 @@ def test_panel_status_summary_api_returns_webui_ready_readonly_json(tmp_path):
     assert calls == ["runtime", "egress", "status:migate-xray.service", "status:migate-panel.service"]
 
 
+def test_panel_systemd_status_api_returns_readonly_service_statuses(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def status_loader(service_name: str) -> SystemdResult:
+        calls.append(service_name)
+        if service_name == "migate-xray.service":
+            return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
+        return SystemdResult(status="failed", returncode=3, stdout="", stderr="inactive")
+
+    client = TestClient(create_app(node_repository=repo, systemd_status_loader=status_loader))
+
+    response = client.get("/api/systemd/status")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "services": {
+            "migate-xray.service": {
+                "status": "success",
+                "returncode": 0,
+                "stdout": "active (running)",
+                "stderr": "",
+            },
+            "migate-panel.service": {
+                "status": "failed",
+                "returncode": 3,
+                "stdout": "",
+                "stderr": "inactive",
+            },
+        },
+        "systemctl_commands_executed": [],
+        "performed_side_effects": False,
+    }
+    assert calls == ["migate-xray.service", "migate-panel.service"]
+
+
 def test_panel_nodes_api_returns_sanitized_webui_ready_json(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     repo.initialize()

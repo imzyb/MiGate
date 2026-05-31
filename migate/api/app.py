@@ -638,6 +638,26 @@ def create_app(
             "performed_side_effects": False,
         }
 
+    @app.get("/api/systemd/status")
+    def api_systemd_status() -> dict[str, object]:
+        services = {
+            "migate-xray.service": status_loader("migate-xray.service"),
+            "migate-panel.service": status_loader("migate-panel.service"),
+        }
+        return {
+            "services": {
+                name: {
+                    "status": result.status,
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                }
+                for name, result in services.items()
+            },
+            "systemctl_commands_executed": [],
+            "performed_side_effects": False,
+        }
+
     @app.get("/api/status/summary")
     def status_summary() -> dict[str, object]:
         nodes = repo.list_nodes()
