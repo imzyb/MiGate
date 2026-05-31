@@ -161,6 +161,32 @@ def test_run_xray_systemctl_maps_file_not_found_to_systemctl_not_found():
     assert result.performed_side_effects is False
 
 
+def test_run_xray_systemctl_maps_timeout_to_failed_result():
+    command = ["systemctl", "stop", ALLOWED_XRAY_TUN_SERVICE_NAME]
+
+    def runner(args):
+        raise subprocess.TimeoutExpired(cmd=args, timeout=15, output="partial out", stderr="partial err")
+
+    result = run_xray_systemctl_action(
+        "stop",
+        service=ALLOWED_XRAY_TUN_SERVICE_NAME,
+        yes=True,
+        allow_system_changes=True,
+        runner=runner,
+    )
+
+    assert result == SystemctlActionResult(
+        status="timeout",
+        action="stop",
+        service=ALLOWED_XRAY_TUN_SERVICE_NAME,
+        command=command,
+        returncode=None,
+        stdout="partial out",
+        stderr="systemctl stop timed out after 15s\npartial err",
+        performed_side_effects=True,
+    )
+
+
 def test_run_xray_systemctl_preserves_failure_stdout_stderr_and_returncode():
     def runner(args):
         return subprocess.CompletedProcess(args=args, returncode=5, stdout="partial", stderr="access denied")

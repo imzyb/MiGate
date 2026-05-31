@@ -12,6 +12,7 @@ ALLOWED_XRAY_TUN_SERVICE_NAME = "migate-xray-tun.service"
 ALLOWED_XRAY_SERVICE_NAMES = {ALLOWED_XRAY_SERVICE_NAME, ALLOWED_XRAY_TUN_SERVICE_NAME}
 ALLOWED_SYSTEMCTL_ACTIONS = {"status", "daemon-reload", "restart", "start", "stop"}
 SIDE_EFFECT_ACTIONS = {"daemon-reload", "restart", "start", "stop"}
+DEFAULT_SYSTEMCTL_TIMEOUT_SECONDS = 15
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,21 @@ def run_xray_systemctl_action(
             stderr="systemctl command not found",
             performed_side_effects=False,
         )
+    except subprocess.TimeoutExpired as exc:
+        stdout = _timeout_stream_to_text(exc.output)
+        stderr = _timeout_stream_to_text(exc.stderr)
+        timeout_message = f"systemctl {action} timed out after {exc.timeout:g}s"
+        combined_stderr = timeout_message if not stderr else f"{timeout_message}\n{stderr}"
+        return SystemctlActionResult(
+            status="timeout",
+            action=action,
+            service=service,
+            command=command,
+            returncode=None,
+            stdout=stdout,
+            stderr=combined_stderr,
+            performed_side_effects=action in SIDE_EFFECT_ACTIONS,
+        )
 
     return SystemctlActionResult(
         status="success" if completed.returncode == 0 else "failed",
@@ -110,5 +126,13 @@ def run_xray_systemctl_action(
     )
 
 
+def _timeout_stream_to_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value
+
+
 def _default_runner(args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, check=False, capture_output=True, text=True)
+    return subprocess.run(args, check=False, capture_output=True, text=True, timeout=DEFAULT_SYSTEMCTL_TIMEOUT_SECONDS)
