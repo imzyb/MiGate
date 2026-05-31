@@ -237,6 +237,52 @@ def test_socks5_smoke_runner_reports_loopback_greeting_diagnostics_without_side_
     ]
 
 
+def test_run_remote_rollout_plan_preserves_failed_socks5_smoke_substep_diagnostics_and_skips_leak_check():
+    calls = []
+    socks_phase = RemoteRolloutPhaseResult(
+        action="socks5_smoke",
+        status="failed",
+        message="socks5_smoke failed at loopback_greeting",
+        commands_executed=["ssh socks smoke"],
+        performed_side_effects=False,
+        command_results=[
+            RemoteRolloutSubstepResult(
+                name="loopback_greeting",
+                status="failed",
+                command="ssh socks smoke",
+                returncode=1,
+                stdout="",
+                stderr="connection refused",
+            )
+        ],
+    )
+
+    result = run_remote_rollout_plan(
+        _plan(),
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=True,
+        install_runner=lambda: calls.append("install")
+        or RemoteRolloutPhaseResult("install", "success", "installed", ["install command"], True),
+        readiness_runner=lambda: calls.append("readiness") or _ok_readiness(),
+        egress_up_runner=lambda: calls.append("egress_up")
+        or RemoteRolloutPhaseResult("egress_up", "success", "egress up", ["egress command"], True),
+        service_apply_runner=lambda: calls.append("service_apply")
+        or RemoteRolloutPhaseResult("service_apply", "success", "service_apply ok", ["service command"], True),
+        socks5_smoke_runner=lambda: calls.append("socks5_smoke") or socks_phase,
+        leak_check_runner=lambda: calls.append("leak_check"),
+    )
+
+    assert result.status == "failed"
+    assert result.message == "remote rollout stopped at socks5_smoke"
+    assert calls == ["install", "readiness", "egress_up", "service_apply", "socks5_smoke"]
+    assert result.phases[-1].command_results == socks_phase.command_results
+    assert result.commands_executed == ["install command", "ssh readiness", "egress command", "service command", "ssh socks smoke"]
+    rendered = render_remote_rollout_run_result(result)
+    assert "  - loopback_greeting: failed returncode=1" in rendered
+    assert "    stderr: connection refused" in rendered
+
+
 def test_run_remote_rollout_plan_stops_before_egress_when_readiness_fails():
     calls = []
 

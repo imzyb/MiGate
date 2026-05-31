@@ -35,6 +35,7 @@ from migate.remote.readiness import render_remote_readiness_report, run_remote_r
 from migate.remote.rollout_plan import build_remote_rollout_dry_run_plan, render_remote_rollout_plan
 from migate.remote.rollout_runner import (
     PhaseResultLike,
+    RemoteRolloutCommandResult,
     RemoteRolloutPhaseResult,
     RemoteRolloutRunResult,
     build_remote_rollout_command_phase_runner,
@@ -243,6 +244,7 @@ def run_remote_rollout_cli(
     egress_up_runner: Callable[[], PhaseResultLike] | None = None,
     service_apply_runner: Callable[[], PhaseResultLike] | None = None,
     socks5_smoke_runner: Callable[[], PhaseResultLike] | None = None,
+    socks5_smoke_command_runner: Callable[[str], RemoteRolloutCommandResult] | None = None,
     leak_check_runner: Callable[[], RemoteLeakCheckReport] | None = None,
 ) -> RemoteRolloutRunResult:
     plan = build_remote_rollout_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir, backend=backend)
@@ -257,7 +259,7 @@ def run_remote_rollout_cli(
         egress_up_runner=egress_up_runner
         or (lambda: run_remote_egress_cli(action="up", host=host, port=port, user=user, dry_run=False, yes=True, allow_remote_changes=True, backend=backend)),
         service_apply_runner=service_apply_runner or build_remote_rollout_service_apply_runner(plan),
-        socks5_smoke_runner=socks5_smoke_runner or build_remote_rollout_socks5_smoke_runner(plan),
+        socks5_smoke_runner=socks5_smoke_runner or build_remote_rollout_socks5_smoke_runner(plan, runner=socks5_smoke_command_runner),
         leak_check_runner=leak_check_runner or (lambda: run_remote_leak_check_cli(host=host, port=port, user=user, socks_port=MiGateConfig().proxy.socks_port)),
     )
 
