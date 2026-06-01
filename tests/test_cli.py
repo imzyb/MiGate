@@ -28,6 +28,7 @@ from migate.main import (
 from migate.egress.lifecycle import EgressLifecyclePhase, EgressLifecycleResult
 from migate.egress.status import EgressStatusCheck, EgressStatusReport
 from migate.proxy.service_cli import ProxyServiceSaveResult
+from migate.setup_service_start import SetupServiceStartCommandResult, SetupServiceStartResult
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
 from migate.xray.doctor import DoctorCheck, DoctorReport
 from migate.xray.apply_cli import XrayApplyResult
@@ -163,8 +164,8 @@ def test_setup_command_real_execution_renders_injected_setup_result_without_touc
     def fake_run_setup_cli(**kwargs):
         calls.append(kwargs)
         return SetupRunResult(
-            status="partial",
-            message="setup completed through save_proxy_service; remaining privileged phases are still planned",
+            status="success",
+            message="setup completed successfully",
             panel_bind="0.0.0.0:8787",
             panel_url="http://203.0.113.10:8787/mg-admin",
             admin_user="admin",
@@ -176,7 +177,7 @@ def test_setup_command_real_execution_renders_injected_setup_result_without_touc
                 SetupRunPhase("install_xray", "success", "xray installed", True),
                 SetupRunPhase("save_xray_service", "saved", "service unit saved; daemon-reload not run", True),
                 SetupRunPhase("save_proxy_service", "saved", "proxy service unit saved; daemon-reload not run", True),
-                SetupRunPhase("start_services", "planned", "enable and start MiGate services after validation", False),
+                SetupRunPhase("start_services", "success", "MiGate services enabled and started", True),
             ],
             commands_executed=[],
             performed_side_effects=True,
@@ -213,14 +214,14 @@ def test_setup_command_real_execution_renders_injected_setup_result_without_touc
     assert calls[0]["yes"] is True
     assert calls[0]["allow_system_changes"] is True
     assert "MiGate setup result" in result.output
-    assert "status: partial" in result.output
-    assert "message: setup completed through save_proxy_service; remaining privileged phases are still planned" in result.output
+    assert "status: success" in result.output
+    assert "message: setup completed successfully" in result.output
     assert f"setup_config_target: {target}" in result.output
     assert "save_panel_config: success" in result.output
     assert "install_xray: success" in result.output
     assert "save_xray_service: saved" in result.output
     assert "save_proxy_service: saved" in result.output
-    assert "start_services: planned" in result.output
+    assert "start_services: success" in result.output
     assert "super-secret-password" not in result.output
     assert "password_hash" not in result.output
     assert "performed_side_effects: True" in result.output
@@ -245,7 +246,7 @@ def test_build_setup_panel_config_stores_hash_not_plaintext_password():
 
 
 
-def test_run_setup_saves_panel_config_installs_xray_saves_service_units_then_leaves_start_planned(tmp_path):
+def test_run_setup_saves_panel_config_installs_xray_saves_service_units_and_starts_services(tmp_path):
     target = tmp_path / "panel.json"
     xray_service_target = tmp_path / "migate-xray.service"
     proxy_service_target = tmp_path / "migate-proxy.service"
@@ -265,6 +266,24 @@ def test_run_setup_saves_panel_config_installs_xray_saves_service_units_then_lea
         proxy_service_target.write_text("[Unit]\nDescription=MiGate proxy service\n", encoding="utf-8")
         return ProxyServiceSaveResult(status="saved", message="proxy service unit saved; daemon-reload not run", target=proxy_service_target, performed_side_effects=True, systemctl_commands_executed=[])
 
+    def setup_service_start_runner() -> SetupServiceStartResult:
+        calls.append("start_services")
+        return SetupServiceStartResult(
+            status="success",
+            message="MiGate services enabled and started",
+            steps=[
+                SetupServiceStartCommandResult("daemon_reload", "success", ["systemctl", "daemon-reload"], 0, "reload ok", "", True),
+                SetupServiceStartCommandResult("enable_xray_service", "success", ["systemctl", "enable", "--now", "migate-xray.service"], 0, "xray ok", "", True),
+                SetupServiceStartCommandResult("enable_proxy_service", "success", ["systemctl", "enable", "--now", "migate-proxy.service"], 0, "proxy ok", "", True),
+            ],
+            commands_executed=[
+                ["systemctl", "daemon-reload"],
+                ["systemctl", "enable", "--now", "migate-xray.service"],
+                ["systemctl", "enable", "--now", "migate-proxy.service"],
+            ],
+            performed_side_effects=True,
+        )
+
     result = run_setup(
         setup_config_target=target,
         panel_host="0.0.0.0",
@@ -278,11 +297,12 @@ def test_run_setup_saves_panel_config_installs_xray_saves_service_units_then_lea
         xray_install_runner=xray_install_runner,
         xray_service_save_runner=xray_service_save_runner,
         proxy_service_save_runner=proxy_service_save_runner,
+        setup_service_start_runner=setup_service_start_runner,
     )
 
-    assert calls == ["install_xray", "save_xray_service", "save_proxy_service"]
-    assert result.status == "partial"
-    assert result.message == "setup completed through save_proxy_service; remaining privileged phases are still planned"
+    assert calls == ["install_xray", "save_xray_service", "save_proxy_service", "start_services"]
+    assert result.status == "success"
+    assert result.message == "setup completed successfully"
     assert result.admin_password == "[REDACTED]"
     assert result.setup_config_target == str(target)
     assert [(phase.name, phase.status, phase.performed_side_effects) for phase in result.phases] == [
@@ -290,7 +310,12 @@ def test_run_setup_saves_panel_config_installs_xray_saves_service_units_then_lea
         ("install_xray", "success", True),
         ("save_xray_service", "saved", True),
         ("save_proxy_service", "saved", True),
-        ("start_services", "planned", False),
+        ("start_services", "success", True),
+    ]
+    assert result.commands_executed == [
+        "systemctl daemon-reload",
+        "systemctl enable --now migate-xray.service",
+        "systemctl enable --now migate-proxy.service",
     ]
     assert result.performed_side_effects is True
     assert "super-secret-password" not in json.dumps(result, default=lambda value: value.__dict__)
@@ -409,6 +434,72 @@ def test_run_setup_stops_when_proxy_service_save_fails(tmp_path):
         ("save_xray_service", "saved"),
         ("save_proxy_service", "rejected"),
     ]
+    assert result.performed_side_effects is True
+    assert target.exists()
+
+
+
+def test_run_setup_stops_when_service_start_fails(tmp_path):
+    target = tmp_path / "panel.json"
+    calls = []
+
+    def xray_install_runner() -> XrayInstallResult:
+        calls.append("install_xray")
+        return XrayInstallResult(status="success", message="xray installed", steps=[], performed_side_effects=True)
+
+    def xray_service_save_runner() -> XrayServiceSaveResult:
+        calls.append("save_xray_service")
+        return XrayServiceSaveResult(status="saved", message="service unit saved; daemon-reload not run", target=tmp_path / "migate-xray.service", performed_side_effects=True)
+
+    def proxy_service_save_runner() -> ProxyServiceSaveResult:
+        calls.append("save_proxy_service")
+        return ProxyServiceSaveResult(status="saved", message="proxy service unit saved; daemon-reload not run", target=tmp_path / "migate-proxy.service", performed_side_effects=True, systemctl_commands_executed=[])
+
+    def setup_service_start_runner() -> SetupServiceStartResult:
+        calls.append("start_services")
+        return SetupServiceStartResult(
+            status="failed",
+            message="service start failed at enable_proxy_service",
+            steps=[
+                SetupServiceStartCommandResult("daemon_reload", "success", ["systemctl", "daemon-reload"], 0, "reload ok", "", True),
+                SetupServiceStartCommandResult("enable_xray_service", "success", ["systemctl", "enable", "--now", "migate-xray.service"], 0, "xray ok", "", True),
+                SetupServiceStartCommandResult("enable_proxy_service", "failed", ["systemctl", "enable", "--now", "migate-proxy.service"], 1, "", "proxy failed", True),
+            ],
+            commands_executed=[
+                ["systemctl", "daemon-reload"],
+                ["systemctl", "enable", "--now", "migate-xray.service"],
+                ["systemctl", "enable", "--now", "migate-proxy.service"],
+            ],
+            performed_side_effects=True,
+        )
+
+    result = run_setup(
+        setup_config_target=target,
+        panel_host="0.0.0.0",
+        panel_port=8787,
+        admin_user="admin",
+        admin_password="super-secret-password",
+        base_path="/mg-admin",
+        public_host="203.0.113.10",
+        yes=True,
+        allow_system_changes=True,
+        xray_install_runner=xray_install_runner,
+        xray_service_save_runner=xray_service_save_runner,
+        proxy_service_save_runner=proxy_service_save_runner,
+        setup_service_start_runner=setup_service_start_runner,
+    )
+
+    assert calls == ["install_xray", "save_xray_service", "save_proxy_service", "start_services"]
+    assert result.status == "failed"
+    assert result.message == "setup stopped at start_services: service start failed at enable_proxy_service"
+    assert [(phase.name, phase.status) for phase in result.phases] == [
+        ("save_panel_config", "success"),
+        ("install_xray", "success"),
+        ("save_xray_service", "saved"),
+        ("save_proxy_service", "saved"),
+        ("start_services", "failed"),
+    ]
+    assert result.commands_executed[-1] == "systemctl enable --now migate-proxy.service"
     assert result.performed_side_effects is True
     assert target.exists()
 

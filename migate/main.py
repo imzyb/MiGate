@@ -19,6 +19,7 @@ from migate.egress.xray_tun_backend import build_xray_tun_start_plan, build_xray
 from migate.proxy.run import render_proxy_run_result, run_proxy
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, ProxyServiceSaveResult, preview_proxy_service_unit, save_proxy_service_unit
+from migate.setup_service_start import SetupServiceStartResult, run_setup_service_start
 from migate.remote.acceptance import RemoteAcceptanceResult, render_remote_acceptance_result, run_remote_acceptance
 from migate.remote.doctor import render_remote_doctor_report, run_remote_doctor
 from migate.remote.egress_plan import build_remote_egress_dry_run_plan, render_remote_egress_plan
@@ -424,6 +425,7 @@ def run_setup(
     xray_install_runner: Callable[[], XrayInstallResult] | None = None,
     xray_service_save_runner: Callable[[], XrayServiceSaveResult] | None = None,
     proxy_service_save_runner: Callable[[], ProxyServiceSaveResult] | None = None,
+    setup_service_start_runner: Callable[[], SetupServiceStartResult] | None = None,
 ) -> SetupRunResult:
     plan = build_setup_plan(
         panel_host=panel_host,
@@ -542,18 +544,36 @@ def run_setup(
             performed_side_effects=performed_side_effects,
         )
 
-    remaining_phases = [
-        SetupRunPhase(step.name, "planned", step.description, False)
-        for step in plan.steps
-        if step.name not in {"validate_setup", "save_panel_config", "install_xray", "save_xray_service", "save_proxy_service"}
-    ]
+    service_start_result = setup_service_start_runner() if setup_service_start_runner else run_setup_service_start(
+        yes=True,
+        allow_system_changes=True,
+    )
+    service_start_phase = SetupRunPhase(
+        name="start_services",
+        status=service_start_result.status,
+        message=service_start_result.message,
+        performed_side_effects=service_start_result.performed_side_effects,
+    )
+    performed_side_effects = performed_side_effects or service_start_result.performed_side_effects
+    service_commands = [" ".join(command) for command in service_start_result.commands_executed]
+    if service_start_result.status != "success":
+        return _setup_run_result_from_plan(
+            plan,
+            status="failed" if service_start_result.status != "rejected" else "rejected",
+            message=f"setup stopped at start_services: {service_start_result.message}",
+            setup_config_target=setup_config_target,
+            phases=[save_phase, install_phase, xray_service_phase, proxy_service_phase, service_start_phase],
+            commands_executed=[*save_result.commands_executed, *service_commands],
+            performed_side_effects=performed_side_effects,
+        )
+
     return _setup_run_result_from_plan(
         plan,
-        status="partial",
-        message="setup completed through save_proxy_service; remaining privileged phases are still planned",
+        status="success",
+        message="setup completed successfully",
         setup_config_target=setup_config_target,
-        phases=[save_phase, install_phase, xray_service_phase, proxy_service_phase, *remaining_phases],
-        commands_executed=save_result.commands_executed,
+        phases=[save_phase, install_phase, xray_service_phase, proxy_service_phase, service_start_phase],
+        commands_executed=[*save_result.commands_executed, *service_commands],
         performed_side_effects=performed_side_effects,
     )
 
