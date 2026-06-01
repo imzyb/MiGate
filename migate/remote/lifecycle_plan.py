@@ -44,20 +44,8 @@ def build_remote_lifecycle_dry_run_plan(*, host: str, port: int, user: str) -> R
         target=target,
         credential_hint="[REDACTED]",
         steps=[
-            RemoteLifecycleStep("preflight", f"ssh {user}@{host} -p {port} -- hostname && uname -a", performs_side_effects=False),
-            RemoteLifecycleStep("sync", "rsync project to test VPS staging directory", performs_side_effects=True),
-            RemoteLifecycleStep("install", "run MiGate installer on test VPS", performs_side_effects=True),
-            RemoteLifecycleStep("egress_up", "start OpenVPN egress and policy routing on test VPS", performs_side_effects=True),
-            RemoteLifecycleStep(
-                "leak_check",
-                "verify egress IP is not native VPS IP and fail closed on mismatch",
-                performs_side_effects=False,
-            ),
-            RemoteLifecycleStep(
-                "cleanup",
-                "stop egress and remove temporary MiGate artifacts from test VPS",
-                performs_side_effects=True,
-            ),
+            RemoteLifecycleStep("doctor", "run read-only remote doctor/preflight checks", performs_side_effects=False),
+            RemoteLifecycleStep("acceptance", "delegate to remote acceptance: doctor -> rollout_smoke", performs_side_effects=True),
         ],
         commands_executed=[],
         performed_side_effects=False,

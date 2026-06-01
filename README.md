@@ -145,10 +145,16 @@ Custom target preview:
 migate remote lifecycle --host 203.0.113.10 --port 62422 --user ubuntu
 ```
 
-Real remote execution is intentionally limited in this layer. The only non-dry-run lifecycle action currently allowed is the read-only doctor phase, and it requires both gates:
+Real remote execution uses the same remote-change gates and now runs the high-level operator chain: read-only `doctor` first, then delegated `acceptance`/`rollout-smoke` if doctor succeeds.
 
 ```bash
 migate remote lifecycle --no-dry-run --yes --allow-remote-changes
 ```
 
-This command still does not install, uninstall, start Xray, start OpenVPN, edit systemd, change routes, or modify firewall state. Those phases remain behind later explicit implementations.
+Backend-specific rollout can be selected at this wrapper boundary and is threaded into acceptance, for example:
+
+```bash
+migate remote lifecycle --backend xray-tun --no-dry-run --yes --allow-remote-changes
+```
+
+The lifecycle wrapper does not rebuild SSH command strings itself; acceptance and rollout-smoke own the install/readiness/egress/service-apply/SOCKS smoke/leak-check details and their nested diagnostics.

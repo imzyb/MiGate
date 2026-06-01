@@ -1156,8 +1156,9 @@ def test_remote_lifecycle_command_defaults_to_dry_run_without_ssh_or_side_effect
     assert "credential_hint: [REDACTED]" in result.output
     assert "commands_executed: []" in result.output
     assert "performed_side_effects: False" in result.output
-    assert "- preflight: planned read-only" in result.output
-    assert "- cleanup: planned side-effect" in result.output
+    assert "- doctor: planned read-only - run read-only remote doctor/preflight checks" in result.output
+    assert "- acceptance: planned side-effect - delegate to remote acceptance: doctor -> rollout_smoke" in result.output
+    assert "- cleanup:" not in result.output
     assert "sshpass" not in result.output.lower()
     assert "password" not in result.output.lower()
 
@@ -1167,7 +1168,8 @@ def test_remote_lifecycle_command_accepts_custom_target_without_credentials():
 
     assert result.exit_code == 0
     assert "target: ubuntu@203.0.113.10:62422" in result.output
-    assert "ssh ubuntu@203.0.113.10 -p 62422" in result.output
+    assert "- doctor: planned read-only - run read-only remote doctor/preflight checks" in result.output
+    assert "ssh ubuntu@203.0.113.10 -p 62422" not in result.output
     assert "performed_side_effects: False" in result.output
 
 
