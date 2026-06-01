@@ -60,7 +60,9 @@ def test_socks5_serve_result_to_dict_includes_summary_and_events():
                 status="accepted",
                 target_host="example.com",
                 target_port=443,
-                upstream_connected=False,
+                upstream_connected=True,
+                bytes_from_client=4,
+                bytes_from_upstream=4,
             )
         ],
         performed_side_effects=False,
@@ -84,7 +86,7 @@ def test_socks5_serve_result_to_dict_includes_summary_and_events():
             "accepted_events": 1,
             "rejected_events": 0,
             "timed_out_events": 0,
-            "upstream_connected_events": 0,
+            "upstream_connected_events": 1,
             "performed_side_effects": False,
         },
         "events": [
@@ -94,7 +96,9 @@ def test_socks5_serve_result_to_dict_includes_summary_and_events():
                 "status": "accepted",
                 "target_host": "example.com",
                 "target_port": 443,
-                "upstream_connected": False,
+                "upstream_connected": True,
+                "bytes_from_client": 4,
+                "bytes_from_upstream": 4,
             }
         ],
         "performed_side_effects": False,
@@ -176,6 +180,8 @@ def test_render_socks5_serve_jsonl_emits_summary_then_event_rows():
             "target_host": "example.com",
             "target_port": 443,
             "upstream_connected": False,
+            "bytes_from_client": 0,
+            "bytes_from_upstream": 0,
         },
         {
             "type": "event",
@@ -185,6 +191,8 @@ def test_render_socks5_serve_jsonl_emits_summary_then_event_rows():
             "target_host": None,
             "target_port": None,
             "upstream_connected": False,
+            "bytes_from_client": 0,
+            "bytes_from_upstream": 0,
         },
     ]
     assert render_socks5_serve_jsonl(result).endswith("\n")
@@ -690,5 +698,5 @@ def test_render_socks5_serve_result_is_structured_and_mentions_no_upstream_conne
     assert "rejected_events: 0" in text
     assert "timed_out_events: 0" in text
     assert "upstream_connected_events: 0" in text
-    assert "event[1]: client_id=1 phase=connect status=accepted target=example.com:443 upstream_connected=False" in text
+    assert "event[1]: client_id=1 phase=connect status=accepted target=example.com:443 upstream_connected=False bytes_from_client=0 bytes_from_upstream=0" in text
     assert "performed_side_effects: False" in text

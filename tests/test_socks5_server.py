@@ -69,6 +69,8 @@ async def test_serve_socks5_bounded_relays_bytes_to_connected_upstream():
     assert result.events[0].target_host == upstream_host
     assert result.events[0].target_port == upstream_port
     assert result.events[0].upstream_connected is True
+    assert result.events[0].bytes_from_client == 4
+    assert result.events[0].bytes_from_upstream == 4
 
 
 @pytest.mark.asyncio
