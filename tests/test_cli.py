@@ -1590,7 +1590,7 @@ def test_egress_down_command_requires_double_gate_before_orchestration(monkeypat
     assert calls == []
 
 
-def test_egress_doctor_command_renders_read_only_report(monkeypatch):
+def test_egress_doctor_command_exits_nonzero_when_report_fails_closed(monkeypatch):
     report = EgressStatusReport(
         status="failed",
         checks=[
@@ -1603,10 +1603,11 @@ def test_egress_doctor_command_renders_read_only_report(monkeypatch):
 
     result = runner.invoke(app, ["egress", "doctor"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "Egress doctor" in result.output
     assert "status: failed" in result.output
     assert "tun_interface: failed - tun-migate interface is missing" in result.output
+    assert "egress_guard: failed - tun-migate interface is missing; egress blocked" in result.output
     assert "performed_side_effects: False" in result.output
 
 

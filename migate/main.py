@@ -876,7 +876,10 @@ def egress_doctor(
     except ValueError as exc:
         _echo_unsupported_egress_backend(exc)
         raise typer.Exit(code=1) from exc
-    typer.echo(render_egress_status_report("Egress doctor", run_egress_doctor(config)))
+    report = run_egress_doctor(config)
+    typer.echo(render_egress_status_report("Egress doctor", report))
+    if report.status != "ok":
+        raise typer.Exit(code=1)
 
 
 @egress_app.command("status")
