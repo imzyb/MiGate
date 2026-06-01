@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from migate.remote.acceptance import RemoteAcceptanceResult, run_remote_acceptance
 from migate.remote.doctor import RemoteDoctorReport, run_remote_doctor
 from migate.remote.lifecycle_plan import build_remote_lifecycle_dry_run_plan, contains_embedded_credentials
 
@@ -60,7 +61,9 @@ def run_remote_lifecycle(
     dry_run: bool,
     yes: bool,
     allow_remote_changes: bool,
+    backend: str | None = None,
     doctor_runner: Callable[[], RemoteDoctorReport] | None = None,
+    acceptance_runner: Callable[[], RemoteAcceptanceResult] | None = None,
 ) -> RemoteLifecycleRunResult:
     if contains_embedded_credentials(host) or contains_embedded_credentials(user):
         return _rejected("embedded credentials are not allowed", "[REDACTED]")
@@ -82,13 +85,35 @@ def run_remote_lifecycle(
             performed_side_effects=doctor.performed_side_effects,
         )
 
+    acceptance = (acceptance_runner or (lambda: run_remote_acceptance(host=host, port=port, user=user, dry_run=False, yes=True, allow_remote_changes=True, backend=backend)))()
+    phases = [
+        RemoteLifecyclePhaseResult("doctor", "success", "remote doctor ok", doctor),
+        RemoteLifecyclePhaseResult(
+            "acceptance",
+            "success" if acceptance.status == "success" else "failed",
+            acceptance.message,
+            acceptance,
+        ),
+    ]
+    commands_executed = [*doctor.commands_executed, *acceptance.commands_executed]
+    performed_side_effects = doctor.performed_side_effects or acceptance.performed_side_effects
+    if acceptance.status != "success":
+        return RemoteLifecycleRunResult(
+            status="failed",
+            message="remote lifecycle stopped at acceptance",
+            target=target,
+            phases=phases,
+            commands_executed=commands_executed,
+            performed_side_effects=performed_side_effects,
+        )
+
     return RemoteLifecycleRunResult(
         status="success",
-        message="remote lifecycle preflight completed; install/xray/openvpn/systemd phases are not implemented",
+        message="remote lifecycle completed through acceptance",
         target=target,
-        phases=[RemoteLifecyclePhaseResult("doctor", "success", "remote doctor ok", doctor)],
-        commands_executed=doctor.commands_executed,
-        performed_side_effects=doctor.performed_side_effects,
+        phases=phases,
+        commands_executed=commands_executed,
+        performed_side_effects=performed_side_effects,
     )
 
 

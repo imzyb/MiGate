@@ -1,3 +1,4 @@
+from migate.remote.acceptance import RemoteAcceptanceResult
 from migate.remote.doctor import RemoteDoctorCheck, RemoteDoctorReport
 from migate.remote.lifecycle_runner import (
     RemoteLifecyclePhaseResult,
@@ -24,6 +25,32 @@ def _failed_doctor() -> RemoteDoctorReport:
         checks=[RemoteDoctorCheck("ssh_connectivity", "failed", "Permission denied (publickey).")],
         commands_executed=["ssh -p 22 root@166.88.232.2 ..."],
         performed_side_effects=False,
+    )
+
+
+def _ok_acceptance() -> RemoteAcceptanceResult:
+    return RemoteAcceptanceResult(
+        status="success",
+        message="remote acceptance passed",
+        target="root@166.88.232.2:22",
+        expected_phases=["doctor", "rollout_smoke"],
+        phases=[],
+        commands_executed=["acceptance command"],
+        performed_side_effects=True,
+        backend="xray-tun",
+    )
+
+
+def _failed_acceptance() -> RemoteAcceptanceResult:
+    return RemoteAcceptanceResult(
+        status="failed",
+        message="remote acceptance stopped at rollout_smoke",
+        target="root@166.88.232.2:22",
+        expected_phases=["doctor", "rollout_smoke"],
+        phases=[],
+        commands_executed=["acceptance command"],
+        performed_side_effects=True,
+        backend="xray-tun",
     )
 
 
@@ -73,7 +100,7 @@ def test_run_remote_lifecycle_rejects_real_execution_without_double_gate():
     assert calls == []
 
 
-def test_run_remote_lifecycle_first_real_layer_runs_only_doctor_with_double_gate():
+def test_run_remote_lifecycle_runs_doctor_then_acceptance_with_double_gate():
     calls = []
 
     result = run_remote_lifecycle(
@@ -84,17 +111,43 @@ def test_run_remote_lifecycle_first_real_layer_runs_only_doctor_with_double_gate
         yes=True,
         allow_remote_changes=True,
         doctor_runner=lambda: calls.append("doctor") or _ok_doctor(),
+        acceptance_runner=lambda: calls.append("acceptance") or _ok_acceptance(),
     )
 
     assert result == RemoteLifecycleRunResult(
         status="success",
-        message="remote lifecycle preflight completed; install/xray/openvpn/systemd phases are not implemented",
+        message="remote lifecycle completed through acceptance",
         target="root@166.88.232.2:22",
-        phases=[RemoteLifecyclePhaseResult("doctor", "success", "remote doctor ok", _ok_doctor())],
-        commands_executed=["ssh -p 22 root@166.88.232.2 ..."],
-        performed_side_effects=False,
+        phases=[
+            RemoteLifecyclePhaseResult("doctor", "success", "remote doctor ok", _ok_doctor()),
+            RemoteLifecyclePhaseResult("acceptance", "success", "remote acceptance passed", _ok_acceptance()),
+        ],
+        commands_executed=["ssh -p 22 root@166.88.232.2 ...", "acceptance command"],
+        performed_side_effects=True,
     )
-    assert calls == ["doctor"]
+    assert calls == ["doctor", "acceptance"]
+
+
+def test_run_remote_lifecycle_stops_when_acceptance_fails():
+    result = run_remote_lifecycle(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=True,
+        doctor_runner=_ok_doctor,
+        acceptance_runner=_failed_acceptance,
+    )
+
+    assert result.status == "failed"
+    assert result.message == "remote lifecycle stopped at acceptance"
+    assert result.phases == [
+        RemoteLifecyclePhaseResult("doctor", "success", "remote doctor ok", _ok_doctor()),
+        RemoteLifecyclePhaseResult("acceptance", "failed", "remote acceptance stopped at rollout_smoke", _failed_acceptance()),
+    ]
+    assert result.commands_executed == ["ssh -p 22 root@166.88.232.2 ...", "acceptance command"]
+    assert result.performed_side_effects is True
 
 
 def test_run_remote_lifecycle_stops_when_doctor_fails():
@@ -147,6 +200,7 @@ def test_render_remote_lifecycle_run_result_is_structured_and_redacted():
         yes=True,
         allow_remote_changes=True,
         doctor_runner=_ok_doctor,
+        acceptance_runner=_ok_acceptance,
     )
 
     rendered = render_remote_lifecycle_run_result(result)
@@ -155,8 +209,8 @@ def test_render_remote_lifecycle_run_result_is_structured_and_redacted():
     assert "status: success" in rendered
     assert "target: root@166.88.232.2:22" in rendered
     assert "- doctor: success - remote doctor ok" in rendered
-    assert "performed_side_effects: False" in rendered
-    assert "install" in rendered
-    assert "not implemented" in rendered
+    assert "- acceptance: success - remote acceptance passed" in rendered
+    assert "performed_side_effects: True" in rendered
+    assert "not implemented" not in rendered
     assert "password" not in rendered.lower()
     assert "sshpass" not in rendered.lower()
