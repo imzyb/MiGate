@@ -38,6 +38,25 @@ def test_build_xray_deploy_dry_run_plan_lists_safe_order_without_side_effects():
     )
 
 
+def test_build_xray_deploy_plan_rejects_real_preview_without_double_gate():
+    plan = build_xray_deploy_dry_run_plan(
+        MiGateConfig(),
+        system="Linux",
+        machine="x86_64",
+        dry_run=False,
+        yes=True,
+        allow_system_changes=False,
+    )
+
+    assert plan == XrayDeployPlan(
+        status="rejected",
+        message="real xray deploy requires yes=True and allow_system_changes=True",
+        steps=[],
+        commands_executed=[],
+        performed_side_effects=False,
+    )
+
+
 def test_render_xray_deploy_plan_marks_real_steps_as_planned_not_executed():
     plan = build_xray_deploy_dry_run_plan(MiGateConfig(), system="Linux", machine="x86_64", version="latest")
 

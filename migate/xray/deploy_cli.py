@@ -59,10 +59,10 @@ def build_xray_deploy_dry_run_plan(
     yes: bool = False,
     allow_system_changes: bool = False,
 ) -> XrayDeployPlan:
-    if not dry_run:
+    if not dry_run and (not yes or not allow_system_changes):
         return XrayDeployPlan(
             status="rejected",
-            message="real xray deploy is not implemented; run with --dry-run",
+            message="real xray deploy requires yes=True and allow_system_changes=True",
             steps=[],
             commands_executed=[],
             performed_side_effects=False,
