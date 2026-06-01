@@ -28,6 +28,7 @@ from migate.main import (
 from migate.egress.lifecycle import EgressLifecyclePhase, EgressLifecycleResult
 from migate.egress.status import EgressStatusCheck, EgressStatusReport
 from migate.proxy.service_cli import ProxyServiceSaveResult
+from migate.proxy.service_start import ProxyServiceStartCommandResult, ProxyServiceStartResult
 from migate.setup_service_start import SetupServiceStartCommandResult, SetupServiceStartResult
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
 from migate.xray.doctor import DoctorCheck, DoctorReport
@@ -3810,6 +3811,64 @@ def test_proxy_service_save_command_requires_double_gate():
     assert "proxy service save requires yes=True and allow_system_changes=True" in result.output
     assert "systemctl_commands_executed: []" in result.output
     assert "performed_side_effects: False" in result.output
+
+
+def test_proxy_service_start_command_requires_double_gate_without_touching_systemctl():
+    result = runner.invoke(app, ["proxy", "service", "start"])
+
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "proxy service start requires yes=True and allow_system_changes=True" in result.output
+    assert "preflight_status: skipped" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_proxy_service_start_command_renders_gated_start_result(monkeypatch):
+    def fake_start(*, yes: bool, allow_system_changes: bool):
+        assert yes is True
+        assert allow_system_changes is True
+        return ProxyServiceStartResult(
+            status="success",
+            message="MiGate proxy service enabled and started",
+            preflight_status="ok",
+            systemctl_results=[
+                ProxyServiceStartCommandResult(
+                    name="daemon_reload",
+                    status="success",
+                    command=["systemctl", "daemon-reload"],
+                    returncode=0,
+                    stdout="",
+                    stderr="",
+                    performed_side_effects=False,
+                ),
+                ProxyServiceStartCommandResult(
+                    name="enable_proxy_service",
+                    status="success",
+                    command=["systemctl", "enable", "--now", "migate-proxy.service"],
+                    returncode=0,
+                    stdout="",
+                    stderr="",
+                    performed_side_effects=True,
+                ),
+            ],
+            commands_executed=[
+                ["systemctl", "daemon-reload"],
+                ["systemctl", "enable", "--now", "migate-proxy.service"],
+            ],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(main_module, "run_proxy_service_start", fake_start)
+
+    result = runner.invoke(app, ["proxy", "service", "start", "--yes", "--allow-system-changes"])
+
+    assert result.exit_code == 0
+    assert "status: success" in result.output
+    assert "preflight_status: ok" in result.output
+    assert "- action: daemon_reload status: success returncode: 0" in result.output
+    assert "- action: enable_proxy_service status: success returncode: 0" in result.output
+    assert "performed_side_effects: True" in result.output
 
 
 def test_xray_doctor_command_reports_dependency_checks():

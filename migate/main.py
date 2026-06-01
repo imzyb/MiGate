@@ -19,6 +19,7 @@ from migate.egress.xray_tun_backend import build_xray_tun_start_plan, build_xray
 from migate.proxy.run import render_proxy_run_result, run_proxy
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, ProxyServiceSaveResult, preview_proxy_service_unit, save_proxy_service_unit
+from migate.proxy.service_start import ProxyServiceStartResult, run_proxy_service_start
 from migate.setup_service_start import SetupServiceStartResult, run_setup_service_start
 from migate.remote.acceptance import RemoteAcceptanceResult, render_remote_acceptance_result, run_remote_acceptance
 from migate.remote.doctor import render_remote_doctor_report, run_remote_doctor
@@ -1396,6 +1397,33 @@ def proxy_service_save(
     typer.echo(f"systemctl_commands_executed: {result.systemctl_commands_executed or []}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
     if result.status == "rejected":
+        raise typer.Exit(code=1)
+
+
+def render_proxy_service_start_result(result: ProxyServiceStartResult) -> str:
+    lines = [
+        f"status: {result.status}",
+        f"message: {result.message}",
+        f"preflight_status: {result.preflight_status}",
+        "systemctl_results:",
+    ]
+    lines.extend(
+        f"- action: {step.name} status: {step.status} returncode: {step.returncode}"
+        for step in result.systemctl_results
+    )
+    lines.append(f"commands_executed: {result.commands_executed}")
+    lines.append(f"performed_side_effects: {result.performed_side_effects}")
+    return "\n".join(lines)
+
+
+@proxy_service_app.command("start")
+def proxy_service_start(
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge that starting proxy service changes systemd state."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually start proxy service when combined with --yes."),
+) -> None:
+    result = run_proxy_service_start(yes=yes, allow_system_changes=allow_system_changes)
+    typer.echo(render_proxy_service_start_result(result))
+    if result.status != "success":
         raise typer.Exit(code=1)
 
 
