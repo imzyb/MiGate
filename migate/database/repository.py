@@ -89,6 +89,26 @@ class NodeRepository:
             rows = conn.execute("SELECT * FROM nodes ORDER BY id DESC").fetchall()
         return [self._row_to_node(row) for row in rows]
 
+    def get_node(self, node_id: int) -> NodeRecord | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
+        return self._row_to_node(row) if row is not None else None
+
+    def set_node_enabled(self, node_id: int, enabled: bool) -> NodeRecord | None:
+        with self._connect() as conn:
+            conn.execute("UPDATE nodes SET enabled = ? WHERE id = ?", (1 if enabled else 0, node_id))
+            row = conn.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
+        return self._row_to_node(row) if row is not None else None
+
+    def delete_node(self, node_id: int) -> NodeRecord | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
+            if row is None:
+                return None
+            node = self._row_to_node(row)
+            conn.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
+        return node
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row

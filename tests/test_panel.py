@@ -171,6 +171,35 @@ def test_panel_base_path_blocks_operation_posts_until_logged_in(tmp_path):
 
 
 
+def test_node_repository_can_toggle_and_delete_nodes(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    node = repo.create_node(
+        protocol="vless",
+        name="Repo Node",
+        host="repo.example.com",
+        port=443,
+        credential="repo-uuid",
+        share_link="vless://repo-uuid@repo.example.com:443#Repo",
+        subscription="repo-subscription",
+    )
+
+    disabled = repo.set_node_enabled(node.id, False)
+    assert disabled is not None
+    assert disabled.enabled is False
+    assert repo.get_node(node.id).enabled is False
+    enabled = repo.set_node_enabled(node.id, True)
+    assert enabled is not None
+    assert enabled.enabled is True
+    deleted = repo.delete_node(node.id)
+    assert deleted is not None
+    assert deleted.name == "Repo Node"
+    assert repo.get_node(node.id) is None
+    assert repo.delete_node(node.id) is None
+    assert repo.set_node_enabled(node.id, False) is None
+
+
+
 def test_node_repository_migrates_existing_nodes_with_empty_socks5_metadata(tmp_path):
     db_path = tmp_path / "migate.db"
     import sqlite3
@@ -305,6 +334,107 @@ def test_panel_export_api_returns_links_and_combined_subscription_after_login(tm
     ]
     assert payload["subscription"] == "dHJvamFuOi8vdHJvamFuLXBhc3N3b3JkQHRyb2phbi5leGFtcGxlLmNvbTo4NDQzI1Ryb2phbgp2bGVzczovL3ZsZXNzLXV1aWRAdmxlc3MuZXhhbXBsZS5jb206NDQzI1ZMRVNT"
     assert payload["performed_side_effects"] is False
+
+
+
+def test_panel_node_toggle_disable_excludes_node_from_export_and_xray_preview(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    first = repo.create_node(
+        protocol="vless",
+        name="First",
+        host="first.example.com",
+        port=443,
+        credential="first-uuid",
+        share_link="vless://first-uuid@first.example.com:443#First",
+        subscription="first-subscription",
+    )
+    second = repo.create_node(
+        protocol="trojan",
+        name="Second",
+        host="second.example.com",
+        port=8443,
+        credential="second-password",
+        share_link="trojan://second-password@second.example.com:8443#Second",
+        subscription="second-subscription",
+    )
+    client = TestClient(create_app(node_repository=repo, panel_config_path=config_path))
+
+    blocked = client.post(f"/mg-admin/nodes/{first.id}/disable", follow_redirects=False)
+    assert blocked.status_code == 303
+    assert blocked.headers["location"] == "/mg-admin/login"
+    assert {node.id: node.enabled for node in repo.list_nodes()} == {second.id: True, first.id: True}
+
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+    home_before = client.get("/mg-admin/")
+    assert f'action="/mg-admin/nodes/{first.id}/disable"' in home_before.text
+    assert f'action="/mg-admin/nodes/{second.id}/disable"' in home_before.text
+
+    response = client.post(f"/mg-admin/nodes/{first.id}/disable")
+
+    assert response.status_code == 200
+    assert "节点 First 已禁用" in response.text
+    states = {node.id: node.enabled for node in repo.list_nodes()}
+    assert states == {second.id: True, first.id: False}
+    exported = client.get("/api/nodes/export").json()
+    assert exported["links"] == ["trojan://second-password@second.example.com:8443#Second"]
+    preview = client.get("/api/xray/config/preview").json()["config"]
+    assert "first-uuid" not in str(preview)
+    assert "second-password" in str(preview)
+    inventory = client.get("/api/nodes").json()["nodes"]
+    assert {node["id"]: node["enabled"] for node in inventory} == {second.id: True, first.id: False}
+    home_after = client.get("/mg-admin/")
+    assert f'action="/mg-admin/nodes/{first.id}/enable"' in home_after.text
+
+
+
+def test_panel_node_delete_removes_node_from_web_api_and_export(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    keep = repo.create_node(
+        protocol="vless",
+        name="Keep",
+        host="keep.example.com",
+        port=443,
+        credential="keep-uuid",
+        share_link="vless://keep-uuid@keep.example.com:443#Keep",
+        subscription="keep-subscription",
+    )
+    doomed = repo.create_node(
+        protocol="trojan",
+        name="Doomed",
+        host="doomed.example.com",
+        port=8443,
+        credential="doomed-password",
+        share_link="trojan://doomed-password@doomed.example.com:8443#Doomed",
+        subscription="doomed-subscription",
+    )
+    client = TestClient(create_app(node_repository=repo, panel_config_path=config_path))
+
+    blocked = client.post(f"/mg-admin/nodes/{doomed.id}/delete", follow_redirects=False)
+    assert blocked.status_code == 303
+    assert [node.id for node in repo.list_nodes()] == [doomed.id, keep.id]
+
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+    home_before = client.get("/mg-admin/")
+    assert f'action="/mg-admin/nodes/{doomed.id}/delete"' in home_before.text
+
+    response = client.post(f"/mg-admin/nodes/{doomed.id}/delete")
+
+    assert response.status_code == 200
+    assert "节点 Doomed 已删除" in response.text
+    assert [node.id for node in repo.list_nodes()] == [keep.id]
+    home_after = client.get("/mg-admin/")
+    assert "Doomed" not in home_after.text
+    inventory = client.get("/api/nodes").json()["nodes"]
+    assert [node["id"] for node in inventory] == [keep.id]
+    exported = client.get("/api/nodes/export").json()
+    assert exported["links"] == ["vless://keep-uuid@keep.example.com:443#Keep"]
+    assert "doomed-password" not in str(exported)
 
 
 

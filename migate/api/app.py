@@ -177,7 +177,7 @@ def _page_shell(body: str) -> str:
 </html>"""
 
 
-def _nodes_html(nodes: list[NodeRecord]) -> str:
+def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
     if not nodes:
         return """
   <section class="card">
@@ -190,6 +190,9 @@ def _nodes_html(nodes: list[NodeRecord]) -> str:
     for node in nodes:
         address = f"{escape(node.host)}:{node.port}"
         socks5 = f"<div class=\"label\">SOCKS5 出口：{escape(node.socks5_host)}:{node.socks5_port}</div>" if node.socks5_host and node.socks5_port else "<div class=\"label\">SOCKS5 出口：默认 MiGate 本地出口</div>"
+        toggle_action = _panel_url(base_path, f"/nodes/{node.id}/disable" if node.enabled else f"/nodes/{node.id}/enable")
+        toggle_label = "禁用节点" if node.enabled else "启用节点"
+        delete_action = _panel_url(base_path, f"/nodes/{node.id}/delete")
         items.append(
             f"""
     <article class="node">
@@ -200,6 +203,14 @@ def _nodes_html(nodes: list[NodeRecord]) -> str:
       <pre>{escape(node.share_link)}</pre>
       <div class="label">订阅内容</div>
       <pre>{escape(node.subscription)}</pre>
+      <div class="actions">
+        <form method="post" action="{escape(toggle_action)}">
+          <button type="submit">{toggle_label}</button>
+        </form>
+        <form method="post" action="{escape(delete_action)}">
+          <button type="submit">删除节点</button>
+        </form>
+      </div>
     </article>
 """
         )
@@ -279,7 +290,7 @@ def _home_body(
     egress_dry_run_html: str = "",
 ) -> str:
     current_nodes = nodes or []
-    nodes_html = _nodes_html(current_nodes)
+    nodes_html = _nodes_html(current_nodes, base_path=base_path)
     preview_html = _xray_preview_html(current_nodes, base_path=base_path)
     html = f"""
   <section class="hero">
@@ -1389,6 +1400,36 @@ def create_app(
   </section>
 """
         return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, base_path=panel_base_path))
+
+    def _node_action_result(title: str, message: str) -> str:
+        result = f"""
+  <section class="card">
+    <h2>{escape(title)}</h2>
+    <p>{escape(message)}</p>
+  </section>
+"""
+        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, base_path=panel_base_path))
+
+    @app.post(_panel_url(panel_base_path, "/nodes/{node_id}/enable"), response_class=HTMLResponse)
+    def enable_node(node_id: int) -> str:
+        node = repo.set_node_enabled(node_id, True)
+        if node is None:
+            return _node_action_result("节点不存在", f"节点 #{node_id} 不存在。")
+        return _node_action_result("节点已启用", f"节点 {node.name} 已启用。")
+
+    @app.post(_panel_url(panel_base_path, "/nodes/{node_id}/disable"), response_class=HTMLResponse)
+    def disable_node(node_id: int) -> str:
+        node = repo.set_node_enabled(node_id, False)
+        if node is None:
+            return _node_action_result("节点不存在", f"节点 #{node_id} 不存在。")
+        return _node_action_result("节点已禁用", f"节点 {node.name} 已禁用。")
+
+    @app.post(_panel_url(panel_base_path, "/nodes/{node_id}/delete"), response_class=HTMLResponse)
+    def delete_node(node_id: int) -> str:
+        node = repo.delete_node(node_id)
+        if node is None:
+            return _node_action_result("节点不存在", f"节点 #{node_id} 不存在。")
+        return _node_action_result("节点已删除", f"节点 {node.name} 已删除。")
 
     @app.post(_panel_url(panel_base_path, "/xray/config/save"), response_class=HTMLResponse)
     def save_xray_config() -> str:
