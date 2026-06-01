@@ -475,6 +475,9 @@ def _remote_status_detail_html(
   <section class="card">
     <h2>远端状态详情</h2>
     <p>这里只展示 readiness、leak-check 与 rollout dry-run 的只读诊断；不会 SSH apply，不会写远端，也不会启动或停止远端服务。</p>
+    <form method="post" action="/remote/status/refresh">
+      <button type="submit">刷新远端状态</button>
+    </form>
     <div class="label">危险动作：禁用</div>
     <pre>{escape(preview)}</pre>
   </section>
@@ -1130,6 +1133,24 @@ def create_app(
                 systemd_html=_systemd_preview_html(migate_config),
             )
         )
+
+    def remote_status_detail() -> str:
+        return _remote_status_detail_html(
+            readiness=readiness_loader(host="166.88.232.2", port=22, user="root"),
+            leak_check=leak_check_loader(host="166.88.232.2", port=22, user="root", socks_port=34501),
+            rollout=remote_rollout_loader(
+                host="166.88.232.2",
+                port=22,
+                user="root",
+                staging_dir="/tmp/migate-install",
+                backend=None,
+            ),
+        )
+
+    @app.post("/remote/status/refresh", response_class=HTMLResponse)
+    def refresh_remote_status() -> str:
+        result = remote_status_detail().replace("远端状态详情", "远端状态详情已刷新", 1)
+        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result))
 
     @app.post("/nodes/create", response_class=HTMLResponse)
     def create_node(
