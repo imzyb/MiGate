@@ -2855,6 +2855,8 @@ def test_proxy_socks5_serve_command_json_includes_injected_real_result_events(mo
             "target_host": "example.com",
             "target_port": 443,
             "upstream_connected": False,
+            "bytes_from_client": 0,
+            "bytes_from_upstream": 0,
         }
     ]
     assert payload["performed_side_effects"] is True
@@ -2895,6 +2897,8 @@ def test_proxy_socks5_serve_command_jsonl_includes_injected_real_result_events(m
         "target_host": "example.com",
         "target_port": 443,
         "upstream_connected": False,
+        "bytes_from_client": 0,
+        "bytes_from_upstream": 0,
     }
 
 

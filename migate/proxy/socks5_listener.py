@@ -38,6 +38,8 @@ class Socks5ServeEvent:
     target_host: str | None
     target_port: int | None
     upstream_connected: bool
+    bytes_from_client: int = 0
+    bytes_from_upstream: int = 0
 
 
 @dataclass(frozen=True)
@@ -140,6 +142,8 @@ def socks5_serve_result_to_dict(result: Socks5ServeResult) -> dict[str, object]:
                 "target_host": event.target_host,
                 "target_port": event.target_port,
                 "upstream_connected": event.upstream_connected,
+                "bytes_from_client": event.bytes_from_client,
+                "bytes_from_upstream": event.bytes_from_upstream,
             }
             for event in result.events
         ],
@@ -183,6 +187,8 @@ def render_socks5_serve_jsonl(result: Socks5ServeResult) -> str:
             "target_host": event.target_host,
             "target_port": event.target_port,
             "upstream_connected": event.upstream_connected,
+            "bytes_from_client": event.bytes_from_client,
+            "bytes_from_upstream": event.bytes_from_upstream,
         }
         for event in result.events
     )
@@ -423,7 +429,8 @@ def render_socks5_serve_result(result: Socks5ServeResult) -> str:
         target = f"{event.target_host}:{event.target_port}" if event.target_host is not None else "none"
         lines.append(
             f"event[{index}]: client_id={event.client_id} phase={event.phase} status={event.status} "
-            f"target={target} upstream_connected={event.upstream_connected}"
+            f"target={target} upstream_connected={event.upstream_connected} "
+            f"bytes_from_client={event.bytes_from_client} bytes_from_upstream={event.bytes_from_upstream}"
         )
     lines.append(f"performed_side_effects: {result.performed_side_effects}")
     return "\n".join(lines)

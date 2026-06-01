@@ -36,18 +36,23 @@ async def _read_socks5_request(reader: asyncio.StreamReader) -> bytes:
     return header + rest
 
 
-async def _pipe_stream(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+async def _pipe_stream(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> int:
+    bytes_forwarded = 0
     try:
         while data := await reader.read(65536):
+            bytes_forwarded += len(data)
             writer.write(data)
             await writer.drain()
+    except asyncio.CancelledError:
+        return bytes_forwarded
     except (ConnectionResetError, BrokenPipeError):
-        return
+        return bytes_forwarded
     finally:
         try:
             writer.write_eof()
         except (AttributeError, OSError, RuntimeError):
             writer.close()
+    return bytes_forwarded
 
 
 async def _relay_until_closed(
@@ -55,15 +60,17 @@ async def _relay_until_closed(
     client_writer: asyncio.StreamWriter,
     upstream_reader: asyncio.StreamReader,
     upstream_writer: asyncio.StreamWriter,
-) -> None:
+) -> tuple[int, int]:
     client_to_upstream = asyncio.create_task(_pipe_stream(client_reader, upstream_writer))
     upstream_to_client = asyncio.create_task(_pipe_stream(upstream_reader, client_writer))
     done, pending = await asyncio.wait({client_to_upstream, upstream_to_client}, return_when=asyncio.FIRST_COMPLETED)
     for task in pending:
         task.cancel()
-    await asyncio.gather(*done, *pending, return_exceptions=True)
+    results = await asyncio.gather(client_to_upstream, upstream_to_client, return_exceptions=True)
     upstream_writer.close()
     await upstream_writer.wait_closed()
+    byte_counts = [result if isinstance(result, int) else 0 for result in results]
+    return byte_counts[0], byte_counts[1]
 
 
 async def _handle_socks5_client(
@@ -124,6 +131,7 @@ async def _handle_socks5_client(
                 if connect_event.response is not None:
                     writer.write(connect_event.response)
                     await asyncio.wait_for(writer.drain(), timeout=client_timeout)
+                bytes_from_client, bytes_from_upstream = await _relay_until_closed(reader, writer, upstream_reader, upstream_writer)
                 events.append(
                     Socks5ServeEvent(
                         client_id=client_id,
@@ -132,9 +140,10 @@ async def _handle_socks5_client(
                         target_host=target_host,
                         target_port=target_port,
                         upstream_connected=True,
+                        bytes_from_client=bytes_from_client,
+                        bytes_from_upstream=bytes_from_upstream,
                     )
                 )
-                await _relay_until_closed(reader, writer, upstream_reader, upstream_writer)
                 return
         if connect_event.response is not None:
             writer.write(connect_event.response)
