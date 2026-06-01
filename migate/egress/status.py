@@ -66,6 +66,7 @@ def _build_egress_status_checks(
     detector = tunnel_process_detector or (lambda backend, tun_interface: detect_tunnel_process(backend, tun_interface, runner=command_runner))
     tunnel_process = detector(config.egress.backend, config.vpn.interface)
     tunnel_ok = tunnel_process.status == "running"
+    tunnel_running: bool | None = tunnel_ok if tunnel_process.status in {"running", "stopped"} else None
     checks.append(
         EgressStatusCheck(
             "tunnel_process",
@@ -104,7 +105,7 @@ def _build_egress_status_checks(
             fail_policy=config.security.fail_policy,
             tun_interface=config.vpn.interface,
             tun_interface_exists=tun_ok,
-            tunnel_running=tunnel_ok,
+            tunnel_running=tunnel_running,
             native_public_ip=native_public_ip,
             egress_public_ip=egress_public_ip,
         )

@@ -59,6 +59,26 @@ def test_egress_guard_blocks_when_tunnel_is_not_running():
     assert decision.message == "tunnel backend is not running; egress blocked"
 
 
+def test_egress_guard_blocks_when_tunnel_state_is_unknown():
+    decision = evaluate_egress_guard(
+        EgressGuardState(
+            leak_guard_enabled=True,
+            fail_policy="block",
+            tun_interface="tun-migate",
+            tun_interface_exists=True,
+            tunnel_running=None,
+            openvpn_running=None,
+            native_public_ip="203.0.113.10",
+            egress_public_ip="198.51.100.20",
+        )
+    )
+
+    assert decision.allowed is False
+    assert decision.reason == "tunnel_state_unknown"
+    assert decision.blocked_by == ["tunnel"]
+    assert decision.message == "tunnel backend state is unknown; egress blocked"
+
+
 def test_egress_guard_blocks_when_egress_ip_matches_native_vps_ip():
     decision = evaluate_egress_guard(
         EgressGuardState(

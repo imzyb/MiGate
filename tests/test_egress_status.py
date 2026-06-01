@@ -108,6 +108,33 @@ def test_egress_doctor_uses_backend_neutral_tunnel_process_check():
     )
 
 
+def test_egress_doctor_treats_tunnel_probe_errors_as_unknown_guard_state():
+    def fake_tunnel_detector(backend: str, tun_interface: str) -> TunnelProcessStatus:
+        return TunnelProcessStatus(
+            backend=backend,
+            status="error",
+            message=f"{backend} tunnel probe failed for {tun_interface}",
+            command=["pgrep", "-f", f"{backend}.*{tun_interface}"],
+            returncode=2,
+            stdout="",
+            stderr="permission denied",
+            performed_side_effects=False,
+        )
+
+    report = run_egress_doctor(
+        MiGateConfig(),
+        interface_exists=lambda name: True,
+        tunnel_process_detector=fake_tunnel_detector,
+        native_public_ip="198.51.100.10",
+        egress_public_ip="203.0.113.20",
+    )
+
+    assert EgressStatusCheck("tunnel_process", "failed", "openvpn tunnel probe failed for tun-migate") in report.checks
+    assert EgressStatusCheck("egress_guard", "failed", "tunnel backend state is unknown; egress blocked") in report.checks
+    assert report.status == "failed"
+    assert report.performed_side_effects is False
+
+
 def test_egress_doctor_xray_tun_default_detector_uses_read_only_systemctl_status():
     calls: list[list[str]] = []
 

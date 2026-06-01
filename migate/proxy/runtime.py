@@ -272,6 +272,7 @@ def _build_proxy_runtime_checks(
 
     tunnel_process = tunnel_status(config.egress.backend, config.vpn.interface)
     tunnel_ok = tunnel_process.status == "running"
+    tunnel_running: bool | None = tunnel_ok if tunnel_process.status in {"running", "stopped"} else None
     checks.append(
         ProxyRuntimeCheck(
             "tunnel_process",
@@ -286,7 +287,7 @@ def _build_proxy_runtime_checks(
             fail_policy=config.security.fail_policy,
             tun_interface=config.vpn.interface,
             tun_interface_exists=tun_ok,
-            tunnel_running=tunnel_ok,
+            tunnel_running=tunnel_running,
             native_public_ip=native_public_ip,
             egress_public_ip=egress_public_ip,
         )

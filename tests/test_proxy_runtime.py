@@ -85,6 +85,34 @@ def test_proxy_doctor_reports_tunnel_process_and_egress_guard_decision_without_s
     assert report.performed_side_effects is False
 
 
+def test_proxy_doctor_treats_tunnel_probe_errors_as_unknown_guard_state():
+    def fake_tunnel_detector(backend: str, tun_interface: str) -> TunnelProcessStatus:
+        return TunnelProcessStatus(
+            backend=backend,
+            status="error",
+            message=f"{backend} tunnel probe failed for {tun_interface}",
+            command=["pgrep", "-f", f"{backend}.*{tun_interface}"],
+            returncode=2,
+            stdout="",
+            stderr="permission denied",
+            performed_side_effects=False,
+        )
+
+    report = run_proxy_doctor(
+        MiGateConfig(),
+        port_listening=lambda host, port: True,
+        interface_exists=lambda name: True,
+        tunnel_process_detector=fake_tunnel_detector,
+        native_public_ip="203.0.113.10",
+        egress_public_ip="198.51.100.20",
+    )
+
+    assert ProxyRuntimeCheck("tunnel_process", "failed", "openvpn tunnel probe failed for tun-migate") in report.checks
+    assert ProxyRuntimeCheck("egress_guard", "failed", "tunnel backend state is unknown; egress blocked") in report.checks
+    assert report.status == "failed"
+    assert report.performed_side_effects is False
+
+
 def test_proxy_doctor_allows_egress_guard_when_tunnel_process_is_running():
     config = MiGateConfig()
 

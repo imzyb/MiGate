@@ -55,7 +55,13 @@ def evaluate_egress_guard(state: EgressGuardState) -> EgressGuardDecision:
             f"{state.tun_interface} interface is missing; egress blocked",
             ["tun_interface"],
         )
-    tunnel_running = state.tunnel_running if state.tunnel_running is not None else bool(state.openvpn_running)
+    tunnel_running = state.tunnel_running if state.tunnel_running is not None else state.openvpn_running
+    if tunnel_running is None:
+        return _block(
+            "tunnel_state_unknown",
+            "tunnel backend state is unknown; egress blocked",
+            ["tunnel"],
+        )
     if not tunnel_running:
         return _block(
             "tunnel_not_running",
