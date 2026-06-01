@@ -1763,19 +1763,19 @@ def test_xray_install_command_accepts_explicit_dry_run_version_architecture():
 def test_xray_install_command_yes_requires_explicit_side_effects_flag_for_now():
     result = runner.invoke(app, ["xray", "install", "--yes", "--system", "Linux", "--machine", "x86_64"])
 
-    assert result.exit_code == 0
-    assert "真实安装 CLI 已就绪，但当前未启用系统修改" in result.output
-    assert "--allow-system-changes" in result.output
-    assert "allow_side_effects=False" in result.output
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "real installer requires yes=True and allow_system_changes=True" in result.output
+    assert "performed_side_effects: False" in result.output
 
 
 def test_xray_install_command_requires_allow_system_changes_even_with_yes():
     result = runner.invoke(app, ["xray", "install", "--yes", "--system", "Linux", "--machine", "x86_64"])
 
-    assert result.exit_code == 0
-    assert "真实安装 CLI 已就绪，但当前未启用系统修改" in result.output
-    assert "--allow-system-changes" in result.output
-    assert "allow_side_effects=False" in result.output
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "real installer requires yes=True and allow_system_changes=True" in result.output
+    assert "performed_side_effects: False" in result.output
 
 
 def test_run_xray_install_cli_executes_runner_only_with_double_gate():

@@ -1327,10 +1327,16 @@ def xray_install(
         _echo_dry_run_report(plan)
         return
     if not allow_system_changes:
-        typer.echo("真实安装 CLI 已就绪，但当前未启用系统修改。")
-        typer.echo("如果确认要修改系统，请同时传入 --yes --allow-system-changes。")
-        typer.echo("allow_side_effects=False")
-        return
+        result = run_xray_install_cli(
+            yes=yes,
+            allow_system_changes=allow_system_changes,
+            dry_run=False,
+            system=system,
+            machine=machine,
+            version=version,
+        )
+        _echo_install_result(result)
+        raise typer.Exit(code=1)
     doctor = run_xray_install_doctor()
     typer.echo(doctor.to_report())
     if doctor.status != "ok":
