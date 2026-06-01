@@ -2679,6 +2679,11 @@ def test_proxy_run_command_reports_listener_started_when_preflight_passes(monkey
             checks=[ProxyRuntimeCheck("fail_policy", "ok", "fail_policy is block")],
             listener_started=True,
             forwarding_started=True,
+            accepted_connections=2,
+            upstream_connections=1,
+            timed_out_connections=1,
+            max_clients=0,
+            client_timeout=0.25,
             performed_side_effects=True,
         ),
     )
@@ -2690,6 +2695,11 @@ def test_proxy_run_command_reports_listener_started_when_preflight_passes(monkey
     assert "SOCKS5 listener started; direct upstream relay enabled" in result.output
     assert "listener_started: True" in result.output
     assert "forwarding_started: True" in result.output
+    assert "accepted_connections: 2" in result.output
+    assert "upstream_connections: 1" in result.output
+    assert "timed_out_connections: 1" in result.output
+    assert "max_clients: 0" in result.output
+    assert "client_timeout: 0.25" in result.output
     assert "performed_side_effects: True" in result.output
 
 

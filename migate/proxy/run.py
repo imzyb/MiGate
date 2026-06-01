@@ -17,7 +17,12 @@ class ProxyRunResult:
     checks: list[ProxyRuntimeCheck]
     listener_started: bool
     forwarding_started: bool
-    performed_side_effects: bool
+    accepted_connections: int = 0
+    upstream_connections: int = 0
+    timed_out_connections: int = 0
+    max_clients: int | None = None
+    client_timeout: float | None = None
+    performed_side_effects: bool = False
 
 
 def run_proxy(
@@ -55,6 +60,11 @@ def run_proxy(
         checks=doctor.checks,
         listener_started=serve_result.listener_started,
         forwarding_started=serve_result.listener_started,
+        accepted_connections=serve_result.accepted_connections,
+        upstream_connections=serve_result.upstream_connections,
+        timed_out_connections=serve_result.timed_out_connections,
+        max_clients=serve_result.max_clients,
+        client_timeout=serve_result.client_timeout,
         performed_side_effects=serve_result.performed_side_effects,
     )
 
@@ -67,5 +77,12 @@ def render_proxy_run_result(result: ProxyRunResult) -> str:
     lines.extend(f"{check.name}: {check.status} - {check.message}" for check in result.checks)
     lines.append(f"listener_started: {result.listener_started}")
     lines.append(f"forwarding_started: {result.forwarding_started}")
+    lines.append(f"accepted_connections: {result.accepted_connections}")
+    lines.append(f"upstream_connections: {result.upstream_connections}")
+    lines.append(f"timed_out_connections: {result.timed_out_connections}")
+    if result.max_clients is not None:
+        lines.append(f"max_clients: {result.max_clients}")
+    if result.client_timeout is not None:
+        lines.append(f"client_timeout: {result.client_timeout}")
     lines.append(f"performed_side_effects: {result.performed_side_effects}")
     return "\n".join(lines)
