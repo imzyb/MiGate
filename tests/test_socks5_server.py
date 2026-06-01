@@ -52,6 +52,7 @@ async def test_serve_socks5_bounded_relays_bytes_to_connected_upstream():
     await writer.wait_closed()
 
     result = await asyncio.wait_for(server_task, timeout=1)
+    assert server_task.done() is True
     upstream_server.close()
     await upstream_server.wait_closed()
 
@@ -165,27 +166,51 @@ async def test_serve_socks5_bounded_records_connect_and_timeout_events():
 
 
 @pytest.mark.asyncio
-async def test_serve_socks5_bounded_zero_max_clients_keeps_serving_until_cancelled():
-    server_task = asyncio.create_task(serve_socks5_bounded("127.0.0.1", 0, max_clients=0, client_timeout=0.05))
+async def test_serve_socks5_bounded_zero_max_clients_relays_then_keeps_serving_until_cancelled():
+    upstream_payloads: list[bytes] = []
+
+    async def handle_upstream(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        payload = await reader.readexactly(4)
+        upstream_payloads.append(payload)
+        writer.write(b"pong")
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    upstream_server = await asyncio.start_server(handle_upstream, "127.0.0.1", 0)
+    upstream_host, upstream_port = upstream_server.sockets[0].getsockname()[:2]
+    server_task = asyncio.create_task(serve_socks5_bounded("127.0.0.1", 0, max_clients=0, client_timeout=0.2))
     await asyncio.sleep(0)
     server = await asyncio.wait_for(serve_socks5_bounded.current_server(), timeout=1)
     bound_host, bound_port = server.sockets[0].getsockname()[:2]
 
     reader, writer = await asyncio.open_connection(bound_host, bound_port)
-    writer.write(b"\x05\x01\x02")
+    writer.write(b"\x05\x01\x00")
     await writer.drain()
     method_response = await reader.readexactly(2)
+    writer.write(ipv4_connect_request(upstream_host, upstream_port))
+    await writer.drain()
+    connect_response = await reader.readexactly(10)
+    writer.write(b"ping")
+    await writer.drain()
+    relayed_response = await reader.readexactly(4)
     remaining = await reader.read()
     writer.close()
     await writer.wait_closed()
 
-    assert method_response == b"\x05\xff"
+    assert method_response == b"\x05\x00"
+    assert connect_response == SOCKS5_SUCCESS_REPLY
+    assert relayed_response == b"pong"
     assert remaining == b""
+    assert upstream_payloads == [b"ping"]
     assert server_task.done() is False
 
     server_task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await server_task
+
+    upstream_server.close()
+    await upstream_server.wait_closed()
 
 
 @pytest.mark.asyncio
