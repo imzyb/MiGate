@@ -474,6 +474,18 @@ def _systemd_services_status_json(services: dict[str, SystemdResult]) -> dict[st
     }
 
 
+def _safe_preview_actions_json() -> list[dict[str, str]]:
+    return [
+        {"name": "xray_install_plan", "method": "GET", "path": "/api/xray/install-plan"},
+        {"name": "xray_install_dry_run", "method": "GET", "path": "/api/xray/install/dry-run"},
+        {"name": "egress_up_dry_run", "method": "GET", "path": "/api/egress/up/dry-run"},
+        {"name": "egress_down_dry_run", "method": "GET", "path": "/api/egress/down/dry-run"},
+        {"name": "remote_rollout_dry_run", "method": "GET", "path": "/api/remote/rollout/dry-run"},
+        {"name": "systemd_units_preview", "method": "GET", "path": "/api/systemd/units/preview"},
+        {"name": "proxy_service_preview", "method": "GET", "path": "/api/proxy/service/preview"},
+    ]
+
+
 def _egress_status_report_json(report: EgressStatusReport) -> dict[str, object]:
     return {
         "status": report.status,
@@ -846,6 +858,57 @@ def create_app(
             "egress": _egress_status_report_json(egress),
             "proxy": _proxy_run_result_json(proxy),
             "services": _systemd_services_status_json(services),
+            "performed_side_effects": False,
+        }
+
+    @app.get("/api/dashboard")
+    def api_dashboard() -> dict[str, object]:
+        nodes = repo.list_nodes()
+        runtime = runtime_loader()
+        egress = egress_loader()
+        proxy = proxy_loader()
+        services = _load_migate_systemd_services(status_loader)
+        readiness = readiness_loader(host="166.88.232.2", port=22, user="root")
+        leak_check = leak_check_loader(host="166.88.232.2", port=22, user="root", socks_port=34501)
+        rollout = remote_rollout_loader(
+            host="166.88.232.2",
+            port=22,
+            user="root",
+            staging_dir="/tmp/migate-install",
+            backend=None,
+        )
+        healthy = (
+            runtime.status == "installed"
+            and all(check.status == "ok" for check in egress.checks)
+            and all(service.status == "success" for service in services.values())
+            and readiness.status == "ok"
+            and leak_check.status == "ok"
+        )
+        return {
+            "status": "ok" if healthy else "degraded",
+            "nodes": {
+                "total": len(nodes),
+                "enabled": sum(1 for node in nodes if node.enabled),
+            },
+            "cards": {
+                "xray": _xray_runtime_status_json(runtime, include_output=False),
+                "egress": _egress_status_report_json(egress),
+                "proxy": _proxy_run_result_json(proxy),
+                "systemd": {
+                    "services": _systemd_services_status_json(services),
+                    "systemctl_commands_executed": [],
+                    "performed_side_effects": False,
+                },
+                "remote": {
+                    "readiness": _remote_readiness_report_json(readiness),
+                    "leak_check": _remote_leak_check_report_json(leak_check),
+                    "rollout_dry_run": _remote_rollout_plan_json(rollout),
+                },
+            },
+            "actions": {
+                "safe_previews": _safe_preview_actions_json(),
+                "dangerous_actions_enabled": False,
+            },
             "performed_side_effects": False,
         }
 

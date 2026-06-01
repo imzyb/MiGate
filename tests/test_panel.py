@@ -875,6 +875,246 @@ def test_panel_xray_restart_runs_daemon_reload_then_restart_after_valid_config(t
     assert calls == ["daemon-reload", "restart:migate-xray.service"]
 
 
+def test_panel_dashboard_api_returns_webui_bootstrap_snapshot_without_side_effects(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="MiGate JP",
+        host="example.com",
+        port=443,
+        credential="00000000-0000-4000-8000-000000000001",
+        share_link="vless://00000000-0000-4000-8000-000000000001@example.com:443#MiGate%20JP",
+        subscription="dmxlc3M6Ly8=",
+    )
+    calls = []
+
+    def runtime_loader() -> XrayRuntimeStatus:
+        calls.append("runtime")
+        return XrayRuntimeStatus(
+            status="installed",
+            bin_path="/usr/local/bin/xray",
+            version="1.8.24",
+            message="xray is installed",
+            returncode=0,
+        )
+
+    def egress_status_loader() -> EgressStatusReport:
+        calls.append("egress")
+        return EgressStatusReport(
+            status="observed",
+            checks=[EgressStatusCheck("egress_guard", "ok", "egress safe")],
+            performed_side_effects=False,
+        )
+
+    def proxy_runtime_loader() -> ProxyRunResult:
+        calls.append("proxy")
+        return ProxyRunResult(
+            status="running",
+            message="SOCKS5 listener started; direct upstream relay enabled",
+            checks=[ProxyRuntimeCheck("egress_guard", "ok", "egress safe")],
+            listener_started=True,
+            forwarding_started=True,
+            accepted_connections=1,
+            upstream_connections=1,
+            timed_out_connections=0,
+            max_clients=0,
+            serve_mode="continuous",
+            client_timeout=5.0,
+            performed_side_effects=True,
+        )
+
+    def status_loader(service_name: str) -> SystemdResult:
+        calls.append(f"status:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
+
+    def readiness_loader(*, host: str, port: int, user: str) -> RemoteReadinessReport:
+        calls.append(f"readiness:{user}@{host}:{port}")
+        return RemoteReadinessReport(
+            status="ok",
+            target=f"{user}@{host}:{port}",
+            checks=[RemoteReadinessCheck("migate_cli", "ok", "/usr/local/bin/migate")],
+            commands_executed=["ssh readiness"],
+            performed_side_effects=False,
+        )
+
+    def leak_check_loader(*, host: str, port: int, user: str, socks_port: int = 34501) -> RemoteLeakCheckReport:
+        calls.append(f"leak:{user}@{host}:{port}:{socks_port}")
+        return RemoteLeakCheckReport(
+            status="ok",
+            target=f"{user}@{host}:{port}",
+            native_public_ip="198.51.100.10",
+            egress_public_ip="203.0.113.20",
+            checks=[
+                RemoteLeakCheck("native_ip", "ok", "198.51.100.10"),
+                RemoteLeakCheck("egress_ip", "ok", "203.0.113.20"),
+                RemoteLeakCheck("egress_guard", "ok", "egress guard passed"),
+            ],
+            commands_executed=["ssh leak-check"],
+            performed_side_effects=False,
+        )
+
+    def rollout_plan_loader(*, host: str, port: int, user: str, staging_dir: str, backend: str | None = None) -> RemoteRolloutPlan:
+        calls.append(f"rollout:{user}@{host}:{port}:{staging_dir}:{backend}")
+        return RemoteRolloutPlan(
+            status="dry_run",
+            message="remote rollout dry-run only; no SSH or system changes performed",
+            target=f"{user}@{host}:{port}",
+            credential_hint="[REDACTED]",
+            staging_dir=staging_dir,
+            steps=[
+                RemoteRolloutStep(
+                    action="readiness",
+                    description="run read-only post-install readiness probe",
+                    command_preview="migate remote readiness --host 166.88.232.2 --port 22 --user root",
+                    performs_side_effects=False,
+                )
+            ],
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_runtime_loader=runtime_loader,
+            egress_status_loader=egress_status_loader,
+            proxy_runtime_loader=proxy_runtime_loader,
+            systemd_status_loader=status_loader,
+            remote_readiness_loader=readiness_loader,
+            remote_leak_check_loader=leak_check_loader,
+            remote_rollout_plan_loader=rollout_plan_loader,
+        )
+    )
+
+    response = client.get("/api/dashboard")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["nodes"] == {"total": 1, "enabled": 1}
+    assert payload["cards"]["xray"]["status"] == "installed"
+    assert payload["cards"]["egress"]["status"] == "observed"
+    assert payload["cards"]["proxy"]["serve_mode"] == "continuous"
+    assert payload["cards"]["systemd"]["services"]["migate-proxy.service"]["status"] == "success"
+    assert payload["cards"]["remote"]["readiness"]["status"] == "ok"
+    assert payload["cards"]["remote"]["leak_check"]["status"] == "ok"
+    assert payload["cards"]["remote"]["rollout_dry_run"]["status"] == "dry_run"
+    assert payload["actions"] == {
+        "safe_previews": [
+            {"name": "xray_install_plan", "method": "GET", "path": "/api/xray/install-plan"},
+            {"name": "xray_install_dry_run", "method": "GET", "path": "/api/xray/install/dry-run"},
+            {"name": "egress_up_dry_run", "method": "GET", "path": "/api/egress/up/dry-run"},
+            {"name": "egress_down_dry_run", "method": "GET", "path": "/api/egress/down/dry-run"},
+            {"name": "remote_rollout_dry_run", "method": "GET", "path": "/api/remote/rollout/dry-run"},
+            {"name": "systemd_units_preview", "method": "GET", "path": "/api/systemd/units/preview"},
+            {"name": "proxy_service_preview", "method": "GET", "path": "/api/proxy/service/preview"},
+        ],
+        "dangerous_actions_enabled": False,
+    }
+    assert payload["performed_side_effects"] is False
+    assert calls == [
+        "runtime",
+        "egress",
+        "proxy",
+        "status:migate-xray.service",
+        "status:migate-panel.service",
+        "status:migate-proxy.service",
+        "readiness:root@166.88.232.2:22",
+        "leak:root@166.88.232.2:22:34501",
+        "rollout:root@166.88.232.2:22:/tmp/migate-install:None",
+    ]
+
+
+def test_panel_dashboard_api_marks_degraded_when_remote_leak_check_fails_closed(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+
+    def runtime_loader() -> XrayRuntimeStatus:
+        return XrayRuntimeStatus(
+            status="installed",
+            bin_path="/usr/local/bin/xray",
+            version="1.8.24",
+            message="xray is installed",
+            returncode=0,
+        )
+
+    def egress_status_loader() -> EgressStatusReport:
+        return EgressStatusReport(
+            status="observed",
+            checks=[EgressStatusCheck("egress_guard", "ok", "egress safe")],
+            performed_side_effects=False,
+        )
+
+    def proxy_runtime_loader() -> ProxyRunResult:
+        return ProxyRunResult(
+            status="running",
+            message="SOCKS5 listener started; direct upstream relay enabled",
+            checks=[ProxyRuntimeCheck("egress_guard", "ok", "egress safe")],
+            listener_started=True,
+            forwarding_started=True,
+            performed_side_effects=True,
+        )
+
+    def status_loader(service_name: str) -> SystemdResult:
+        return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
+
+    def readiness_loader(*, host: str, port: int, user: str) -> RemoteReadinessReport:
+        return RemoteReadinessReport(
+            status="ok",
+            target=f"{user}@{host}:{port}",
+            checks=[RemoteReadinessCheck("migate_cli", "ok", "/usr/local/bin/migate")],
+            commands_executed=["ssh readiness"],
+            performed_side_effects=False,
+        )
+
+    def leak_check_loader(*, host: str, port: int, user: str, socks_port: int = 34501) -> RemoteLeakCheckReport:
+        return RemoteLeakCheckReport(
+            status="failed",
+            target=f"{user}@{host}:{port}",
+            native_public_ip="198.51.100.10",
+            egress_public_ip="198.51.100.10",
+            checks=[RemoteLeakCheck("egress_guard", "failed", "blocked: native public IP leak detected")],
+            commands_executed=["ssh leak-check"],
+            performed_side_effects=False,
+        )
+
+    def rollout_plan_loader(*, host: str, port: int, user: str, staging_dir: str, backend: str | None = None) -> RemoteRolloutPlan:
+        return RemoteRolloutPlan(
+            status="dry_run",
+            message="remote rollout dry-run only; no SSH or system changes performed",
+            target=f"{user}@{host}:{port}",
+            credential_hint="[REDACTED]",
+            staging_dir=staging_dir,
+            steps=[],
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_runtime_loader=runtime_loader,
+            egress_status_loader=egress_status_loader,
+            proxy_runtime_loader=proxy_runtime_loader,
+            systemd_status_loader=status_loader,
+            remote_readiness_loader=readiness_loader,
+            remote_leak_check_loader=leak_check_loader,
+            remote_rollout_plan_loader=rollout_plan_loader,
+        )
+    )
+
+    response = client.get("/api/dashboard")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "degraded"
+    assert payload["cards"]["remote"]["leak_check"]["status"] == "failed"
+    assert payload["cards"]["remote"]["leak_check"]["performed_side_effects"] is False
+    assert payload["actions"]["dangerous_actions_enabled"] is False
+    assert payload["performed_side_effects"] is False
+
+
 def test_panel_status_summary_api_returns_webui_ready_readonly_json(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     repo.initialize()
