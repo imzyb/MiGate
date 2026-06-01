@@ -28,6 +28,21 @@ class EgressStatusReport:
     performed_side_effects: bool = False
 
 
+@dataclass(frozen=True)
+class UpstreamProxyProbeResult:
+    status: str
+    message: str
+    detail: str = ""
+
+    @property
+    def ready(self) -> bool | None:
+        if self.status == "listening":
+            return True
+        if self.status == "unavailable":
+            return False
+        return None
+
+
 def _default_interface_exists(name: str) -> bool:
     return Path("/sys/class/net", name).exists()
 
@@ -36,12 +51,30 @@ def _default_command_runner(argv: list[str]) -> CommandResult:
     return subprocess.run(argv, capture_output=True, text=True, check=False)
 
 
-def _default_upstream_proxy_connectable(host: str, port: int) -> bool | None:
+def _upstream_proxy_probe_result_from_value(host: str, port: int, value: bool | None | UpstreamProxyProbeResult) -> UpstreamProxyProbeResult:
+    if isinstance(value, UpstreamProxyProbeResult):
+        return value
+    endpoint = f"{host}:{port}"
+    if value is True:
+        return UpstreamProxyProbeResult("listening", f"xray-tun upstream SOCKS proxy {endpoint} is listening")
+    if value is False:
+        return UpstreamProxyProbeResult("unavailable", f"xray-tun upstream SOCKS proxy {endpoint} is not listening; egress blocked")
+    return UpstreamProxyProbeResult("unknown", f"xray-tun upstream SOCKS proxy {endpoint} state is unknown; egress blocked")
+
+
+def _default_upstream_proxy_connectable(host: str, port: int) -> UpstreamProxyProbeResult:
+    endpoint = f"{host}:{port}"
     try:
         with socket.create_connection((host, port), timeout=1.0):
-            return True
-    except OSError:
-        return False
+            return UpstreamProxyProbeResult("listening", f"xray-tun upstream SOCKS proxy {endpoint} is listening")
+    except (ConnectionRefusedError, TimeoutError, OSError):
+        return UpstreamProxyProbeResult("unavailable", f"xray-tun upstream SOCKS proxy {endpoint} is not listening; egress blocked")
+    except Exception as exc:
+        return UpstreamProxyProbeResult(
+            "unknown",
+            f"xray-tun upstream SOCKS proxy {endpoint} state is unknown; egress blocked",
+            detail=str(exc),
+        )
 
 
 def _build_egress_status_checks(
@@ -50,7 +83,7 @@ def _build_egress_status_checks(
     interface_exists: Callable[[str], bool],
     command_runner: Callable[[list[str]], CommandResult],
     tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
-    upstream_proxy_connectable: Callable[[str, int], bool | None] | None = None,
+    upstream_proxy_connectable: Callable[[str, int], bool | None | UpstreamProxyProbeResult] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> list[EgressStatusCheck]:
@@ -88,19 +121,18 @@ def _build_egress_status_checks(
     upstream_endpoint: str | None = None
     if config.egress.backend == "xray-tun":
         connectable = upstream_proxy_connectable or _default_upstream_proxy_connectable
-        upstream_ok = connectable(config.proxy.socks_host, config.proxy.socks_port)
         upstream_endpoint = f"{config.proxy.socks_host}:{config.proxy.socks_port}"
+        upstream_probe = _upstream_proxy_probe_result_from_value(
+            config.proxy.socks_host,
+            config.proxy.socks_port,
+            connectable(config.proxy.socks_host, config.proxy.socks_port),
+        )
+        upstream_ok = upstream_probe.ready
         checks.append(
             EgressStatusCheck(
                 "upstream_proxy",
-                "ok" if upstream_ok else "failed",
-                (
-                    f"xray-tun upstream SOCKS proxy {config.proxy.socks_host}:{config.proxy.socks_port} is listening"
-                    if upstream_ok is True
-                    else f"xray-tun upstream SOCKS proxy {config.proxy.socks_host}:{config.proxy.socks_port} state is unknown; egress blocked"
-                    if upstream_ok is None
-                    else f"xray-tun upstream SOCKS proxy {config.proxy.socks_host}:{config.proxy.socks_port} is not listening; egress blocked"
-                ),
+                "ok" if upstream_probe.status == "listening" else "failed",
+                upstream_probe.message,
             )
         )
 
@@ -134,7 +166,7 @@ def run_egress_doctor(
     interface_exists: Callable[[str], bool] | None = None,
     command_runner: Callable[[list[str]], CommandResult] | None = None,
     tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
-    upstream_proxy_connectable: Callable[[str, int], bool | None] | None = None,
+    upstream_proxy_connectable: Callable[[str, int], bool | None | UpstreamProxyProbeResult] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> EgressStatusReport:
@@ -161,7 +193,7 @@ def run_egress_status(
     interface_exists: Callable[[str], bool] | None = None,
     command_runner: Callable[[list[str]], CommandResult] | None = None,
     tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
-    upstream_proxy_connectable: Callable[[str, int], bool | None] | None = None,
+    upstream_proxy_connectable: Callable[[str, int], bool | None | UpstreamProxyProbeResult] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> EgressStatusReport:
