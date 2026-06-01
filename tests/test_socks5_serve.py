@@ -1,5 +1,6 @@
 import json
 
+import migate.proxy.socks5_listener as socks5_listener_module
 from migate.config import MiGateConfig
 from migate.proxy.socks5_listener import (
     Socks5ServeEvent,
@@ -20,11 +21,11 @@ from migate.proxy.socks5_listener import (
 )
 
 
-def test_socks5_serve_legacy_placeholder_aliases_point_to_runtime_entrypoints():
-    from migate.proxy.socks5_listener import run_socks5_serve_placeholder, start_socks5_placeholder_server
-
-    assert run_socks5_serve_placeholder is run_socks5_serve
-    assert start_socks5_placeholder_server is start_socks5_server
+def test_socks5_serve_no_longer_exports_placeholder_aliases():
+    assert socks5_listener_module.run_socks5_serve is run_socks5_serve
+    assert socks5_listener_module.start_socks5_server is start_socks5_server
+    assert not hasattr(socks5_listener_module, "run_socks5_serve_placeholder")
+    assert not hasattr(socks5_listener_module, "start_socks5_placeholder_server")
 
 
 def test_summarize_socks5_serve_events_counts_statuses_without_side_effects():

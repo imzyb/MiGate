@@ -71,11 +71,6 @@ def run_proxy(
         events=serve_result.events,
         performed_side_effects=serve_result.performed_side_effects,
     )
-
-
-run_proxy_placeholder = run_proxy
-
-
 def render_proxy_run_result(result: ProxyRunResult) -> str:
     lines = ["Proxy run", f"status: {result.status}", f"message: {result.message}"]
     lines.extend(f"{check.name}: {check.status} - {check.message}" for check in result.checks)

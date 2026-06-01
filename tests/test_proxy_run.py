@@ -1,13 +1,13 @@
 from migate.config import MiGateConfig
+import migate.proxy.run as proxy_run_module
 from migate.proxy.run import ProxyRunResult, render_proxy_run_result, run_proxy
 from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
 
 
-def test_run_proxy_legacy_placeholder_alias_points_to_runtime_entrypoint():
-    from migate.proxy.run import run_proxy_placeholder
-
-    assert run_proxy_placeholder is run_proxy
+def test_proxy_run_no_longer_exports_placeholder_alias():
+    assert proxy_run_module.run_proxy is run_proxy
+    assert not hasattr(proxy_run_module, "run_proxy_placeholder")
 
 
 def test_proxy_run_rejects_when_safety_preflight_fails():

@@ -271,13 +271,6 @@ async def _serve_socks5(bind_host: str, bind_port: int, max_clients: int, client
 
 def start_socks5_server(bind_host: str, bind_port: int, max_clients: int, client_timeout: float) -> Socks5ServeResult:
     return asyncio.run(_serve_socks5(bind_host, bind_port, max_clients, client_timeout))
-
-
-run_socks5_serve_placeholder = run_socks5_serve
-_serve_socks5_once = _serve_socks5
-start_socks5_placeholder_server = start_socks5_server
-
-
 def render_socks5_serve_output(result: Socks5ServeResult, *, output_format: str) -> str:
     if output_format == "text":
         return render_socks5_serve_result(result) + "\n"
