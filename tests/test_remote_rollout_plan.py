@@ -48,7 +48,7 @@ def test_remote_rollout_dry_run_orders_install_readiness_egress_service_smoke_th
             RemoteRolloutStep(
                 action="socks5_smoke",
                 description="run read-only remote SOCKS5 loopback smoke check after proxy service starts",
-                command_preview="ssh -p 22 root@166.88.232.2 -- 'python3 - <<\"PY\"\nimport socket\ns=socket.create_connection((\"127.0.0.1\", 1080), timeout=5)\ns.sendall(bytes([5,1,0]))\nassert s.recv(2) == bytes([5,0])\ns.close()\nPY'",
+                command_preview="ssh -p 22 root@166.88.232.2 -- 'python3 - <<\"PY\"\nimport socket\ns=socket.create_connection((\"127.0.0.1\", 34501), timeout=5)\ns.sendall(bytes([5,1,0]))\nassert s.recv(2) == bytes([5,0])\ns.close()\nPY'",
                 performs_side_effects=False,
             ),
             RemoteRolloutStep(

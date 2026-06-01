@@ -246,7 +246,7 @@ def test_socks5_smoke_runner_reports_loopback_greeting_diagnostics_without_side_
     expected_command = (
         "ssh -p 22 root@166.88.232.2 -- 'python3 - <<\"PY\"\n"
         "import socket\n"
-        "s=socket.create_connection((\"127.0.0.1\", 1080), timeout=5)\n"
+        "s=socket.create_connection((\"127.0.0.1\", 34501), timeout=5)\n"
         "s.sendall(bytes([5,1,0]))\n"
         "assert s.recv(2) == bytes([5,0])\n"
         "s.close()\n"

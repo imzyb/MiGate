@@ -68,7 +68,7 @@ def build_remote_rollout_dry_run_plan(*, host: str, port: int, user: str, stagin
     socks5_smoke_remote_script = (
         'python3 - <<"PY"\n'
         "import socket\n"
-        's=socket.create_connection(("127.0.0.1", 1080), timeout=5)\n'
+        's=socket.create_connection(("127.0.0.1", 34501), timeout=5)\n'
         "s.sendall(bytes([5,1,0]))\n"
         "assert s.recv(2) == bytes([5,0])\n"
         "s.close()\n"
