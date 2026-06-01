@@ -915,6 +915,8 @@ def test_panel_status_summary_api_returns_webui_ready_readonly_json(tmp_path):
         calls.append(f"status:{service_name}")
         if service_name == "migate-xray.service":
             return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
+        if service_name == "migate-proxy.service":
+            return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
         return SystemdResult(status="failed", returncode=3, stdout="", stderr="inactive")
 
     def proxy_runtime_loader() -> ProxyRunResult:
@@ -994,10 +996,78 @@ def test_panel_status_summary_api_returns_webui_ready_readonly_json(tmp_path):
                 "stdout": "",
                 "stderr": "inactive",
             },
+            "migate-proxy.service": {
+                "status": "success",
+                "returncode": 0,
+                "stdout": "active (running)",
+                "stderr": "",
+            },
         },
         "performed_side_effects": False,
     }
-    assert calls == ["runtime", "egress", "proxy", "status:migate-xray.service", "status:migate-panel.service"]
+    assert calls == [
+        "runtime",
+        "egress",
+        "proxy",
+        "status:migate-xray.service",
+        "status:migate-panel.service",
+        "status:migate-proxy.service",
+    ]
+
+
+def test_panel_status_summary_marks_degraded_when_proxy_service_is_failed(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def runtime_loader() -> XrayRuntimeStatus:
+        return XrayRuntimeStatus(
+            status="installed",
+            bin_path="/usr/local/bin/xray",
+            version="1.8.24",
+            message="xray is installed",
+            returncode=0,
+        )
+
+    def egress_status_loader() -> EgressStatusReport:
+        return EgressStatusReport(
+            status="observed",
+            checks=[EgressStatusCheck("egress_guard", "ok", "egress safe")],
+            performed_side_effects=False,
+        )
+
+    def proxy_runtime_loader() -> ProxyRunResult:
+        return ProxyRunResult(
+            status="running",
+            message="SOCKS5 listener started; direct upstream relay enabled",
+            checks=[ProxyRuntimeCheck("egress_guard", "ok", "egress safe")],
+            listener_started=True,
+            forwarding_started=True,
+            performed_side_effects=True,
+        )
+
+    def status_loader(service_name: str) -> SystemdResult:
+        calls.append(service_name)
+        if service_name == "migate-proxy.service":
+            return SystemdResult(status="failed", returncode=3, stdout="", stderr="inactive")
+        return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_runtime_loader=runtime_loader,
+            egress_status_loader=egress_status_loader,
+            proxy_runtime_loader=proxy_runtime_loader,
+            systemd_status_loader=status_loader,
+        )
+    )
+
+    response = client.get("/api/status/summary")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "degraded"
+    assert payload["services"]["migate-proxy.service"]["status"] == "failed"
+    assert calls == ["migate-xray.service", "migate-panel.service", "migate-proxy.service"]
 
 
 def test_panel_proxy_runtime_api_returns_readonly_runtime_snapshot(tmp_path):
@@ -1079,7 +1149,9 @@ def test_panel_systemd_status_api_returns_readonly_service_statuses(tmp_path):
         calls.append(service_name)
         if service_name == "migate-xray.service":
             return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
-        return SystemdResult(status="failed", returncode=3, stdout="", stderr="inactive")
+        if service_name == "migate-panel.service":
+            return SystemdResult(status="failed", returncode=3, stdout="", stderr="inactive")
+        return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
 
     client = TestClient(create_app(node_repository=repo, systemd_status_loader=status_loader))
 
@@ -1101,11 +1173,17 @@ def test_panel_systemd_status_api_returns_readonly_service_statuses(tmp_path):
                 "stdout": "",
                 "stderr": "inactive",
             },
+            "migate-proxy.service": {
+                "status": "success",
+                "returncode": 0,
+                "stdout": "active (running)",
+                "stderr": "",
+            },
         },
         "systemctl_commands_executed": [],
         "performed_side_effects": False,
     }
-    assert calls == ["migate-xray.service", "migate-panel.service"]
+    assert calls == ["migate-xray.service", "migate-panel.service", "migate-proxy.service"]
 
 
 def test_panel_nodes_api_returns_sanitized_webui_ready_json(tmp_path):

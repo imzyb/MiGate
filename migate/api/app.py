@@ -39,6 +39,11 @@ DEFAULT_OPENVPN_CONFIG_PATH = DEFAULT_RUNTIME_DIR / "active.ovpn"
 DEFAULT_OPENVPN_PID_PATH = DEFAULT_RUNTIME_DIR / "openvpn.pid"
 DEFAULT_OPENVPN_STATUS_PATH = DEFAULT_RUNTIME_DIR / "openvpn.status"
 DEFAULT_OPENVPN_LOG_PATH = DEFAULT_RUNTIME_DIR / "openvpn.log"
+MIGATE_SYSTEMD_SERVICES = ("migate-xray.service", "migate-panel.service", "migate-proxy.service")
+
+
+def _load_migate_systemd_services(status_loader: Callable[[str], SystemdResult]) -> dict[str, SystemdResult]:
+    return {service_name: status_loader(service_name) for service_name in MIGATE_SYSTEMD_SERVICES}
 
 
 def _page_shell(body: str) -> str:
@@ -723,10 +728,7 @@ def create_app(
 
     @app.get("/api/systemd/status")
     def api_systemd_status() -> dict[str, object]:
-        services = {
-            "migate-xray.service": status_loader("migate-xray.service"),
-            "migate-panel.service": status_loader("migate-panel.service"),
-        }
+        services = _load_migate_systemd_services(status_loader)
         return {
             "services": _systemd_services_status_json(services),
             "systemctl_commands_executed": [],
@@ -739,10 +741,7 @@ def create_app(
         runtime = runtime_loader()
         egress = egress_loader()
         proxy = proxy_loader()
-        services = {
-            "migate-xray.service": status_loader("migate-xray.service"),
-            "migate-panel.service": status_loader("migate-panel.service"),
-        }
+        services = _load_migate_systemd_services(status_loader)
         healthy = (
             runtime.status == "installed"
             and all(check.status == "ok" for check in egress.checks)
