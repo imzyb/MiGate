@@ -28,7 +28,7 @@ Preview the full remote promotion flow without SSHing or changing the test VPS:
 migate remote rollout
 ```
 
-The dry-run rollout orders the currently available building blocks as `remote install -> remote readiness -> remote egress up -> remote leak-check`. It renders planned read-only vs planned side-effect phases, keeps `commands_executed: []`, and reports `performed_side_effects: False`.
+The dry-run rollout orders the currently available building blocks as `remote install -> remote readiness -> remote egress up -> service_apply -> socks5_smoke -> remote leak-check`. It renders planned read-only vs planned side-effect phases, keeps `commands_executed: []`, and reports `performed_side_effects: False`. When `--backend xray-tun` is selected, the service-apply preview targets `migate xray tun-service save` and `migate-xray-tun.service` instead of the default Xray inbound service.
 
 The gated rollout runner shell is available only with all remote-change gates:
 
@@ -36,16 +36,16 @@ The gated rollout runner shell is available only with all remote-change gates:
 migate remote rollout --no-dry-run --yes --allow-remote-changes
 ```
 
-This orchestration calls the already-gated remote install phase, then the read-only readiness probe, then the already-gated remote egress up phase, then the read-only public-IP leak check. It stops on the first failed phase and reports aggregated `commands_executed` plus `performed_side_effects`.
+This orchestration calls the already-gated remote install phase, then the read-only readiness probe, then the already-gated remote egress up phase, then service-apply, a read-only SOCKS5 loopback smoke, and finally the read-only public-IP leak check. It stops on the first failed phase and reports aggregated `commands_executed` plus `performed_side_effects`.
 
-Run the gated smoke wrapper when you want a structured verification report that the rollout reached all four expected phases:
+Run the gated smoke wrapper when you want a structured verification report that the rollout reached all six expected phases:
 
 ```bash
 migate remote rollout-smoke
 migate remote rollout-smoke --no-dry-run --yes --allow-remote-changes
 ```
 
-`remote rollout-smoke` defaults to dry-run and calls no remote runner. The real path uses the same remote-change gates, delegates to the rollout runner, and fails unless the rollout completes exactly `install -> readiness -> egress_up -> leak_check`. It is a verification wrapper, not a separate SSH or credential-owning implementation.
+`remote rollout-smoke` defaults to dry-run and calls no remote runner. The real path uses the same remote-change gates, delegates to the rollout runner, and fails unless the rollout completes exactly `install -> readiness -> egress_up -> service_apply -> socks5_smoke -> leak_check`. It is a verification wrapper, not a separate SSH or credential-owning implementation.
 
 Use the top-level acceptance workflow as the operator-facing test-VPS verification entrypoint:
 

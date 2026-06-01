@@ -83,7 +83,7 @@ def test_remote_rollout_dry_run_accepts_custom_target_and_staging_dir():
     assert plan.steps[5].command_preview == "migate remote leak-check --host 203.0.113.10 --port 62422 --user ubuntu"
 
 
-def test_remote_rollout_plan_threads_backend_override_into_remote_egress_phase_only():
+def test_remote_rollout_plan_threads_backend_override_into_remote_egress_and_service_apply_phases():
     plan = build_remote_rollout_dry_run_plan(
         host="166.88.232.2",
         port=22,
@@ -97,6 +97,7 @@ def test_remote_rollout_plan_threads_backend_override_into_remote_egress_phase_o
     assert plan.steps[1].command_preview == "migate remote readiness --host 166.88.232.2 --port 22 --user root"
     assert plan.steps[2].command_preview == "migate remote egress up --host 166.88.232.2 --port 22 --user root --backend xray-tun --no-dry-run --yes --allow-remote-changes"
     assert plan.steps[3].action == "service_apply"
+    assert plan.steps[3].command_preview == "ssh -p 22 root@166.88.232.2 -- 'migate xray tun-service save --yes --allow-system-changes && migate proxy service save --yes --allow-system-changes && systemctl daemon-reload && systemctl restart migate-xray-tun.service migate-proxy.service && systemctl is-active migate-xray-tun.service migate-proxy.service'"
     assert plan.steps[4].action == "socks5_smoke"
     assert plan.steps[5].command_preview == "migate remote leak-check --host 166.88.232.2 --port 22 --user root"
 

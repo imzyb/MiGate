@@ -200,6 +200,39 @@ def test_service_apply_runner_reports_ordered_substep_results_and_stops_on_first
     assert [step.status for step in phase.command_results] == ["success", "failed"]
 
 
+def test_service_apply_runner_uses_xray_tun_service_substeps_for_xray_tun_backend():
+    plan = build_remote_rollout_dry_run_plan(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        staging_dir="/tmp/migate-install",
+        backend="xray-tun",
+    )
+    calls = []
+
+    def runner(command: str) -> RemoteRolloutCommandResult:
+        calls.append(command)
+        return RemoteRolloutCommandResult(0, f"ok: {command}", "")
+
+    phase = build_remote_rollout_service_apply_runner(plan, runner=runner)()
+
+    assert phase.status == "success"
+    assert calls == [
+        "ssh -p 22 root@166.88.232.2 -- 'migate xray tun-service save --yes --allow-system-changes'",
+        "ssh -p 22 root@166.88.232.2 -- 'migate proxy service save --yes --allow-system-changes'",
+        "ssh -p 22 root@166.88.232.2 -- 'systemctl daemon-reload'",
+        "ssh -p 22 root@166.88.232.2 -- 'systemctl restart migate-xray-tun.service migate-proxy.service'",
+        "ssh -p 22 root@166.88.232.2 -- 'systemctl is-active migate-xray-tun.service migate-proxy.service'",
+    ]
+    assert [step.name for step in phase.command_results] == [
+        "xray_tun_service_save",
+        "proxy_service_save",
+        "daemon_reload",
+        "restart_services",
+        "verify_services_active",
+    ]
+
+
 def test_socks5_smoke_runner_reports_loopback_greeting_diagnostics_without_side_effects():
     plan = _plan()
     calls = []

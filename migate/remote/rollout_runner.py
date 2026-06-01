@@ -120,12 +120,18 @@ def build_remote_rollout_service_apply_runner(
         raise ValueError("remote rollout plan must contain exactly one service_apply step")
     step = matching_steps[0]
     ssh_prefix = _service_apply_ssh_prefix(step.command_preview)
+    if "migate xray tun-service save" in step.command_preview:
+        xray_service_save_step = ("xray_tun_service_save", "migate xray tun-service save --yes --allow-system-changes")
+        xray_service_name = "migate-xray-tun.service"
+    else:
+        xray_service_save_step = ("xray_service_save", "migate xray service save --yes --allow-system-changes")
+        xray_service_name = "migate-xray.service"
     substeps = [
-        ("xray_service_save", "migate xray service save --yes --allow-system-changes"),
+        xray_service_save_step,
         ("proxy_service_save", "migate proxy service save --yes --allow-system-changes"),
         ("daemon_reload", "systemctl daemon-reload"),
-        ("restart_services", "systemctl restart migate-xray.service migate-proxy.service"),
-        ("verify_services_active", "systemctl is-active migate-xray.service migate-proxy.service"),
+        ("restart_services", f"systemctl restart {xray_service_name} migate-proxy.service"),
+        ("verify_services_active", f"systemctl is-active {xray_service_name} migate-proxy.service"),
     ]
 
     def run_phase() -> RemoteRolloutPhaseResult:

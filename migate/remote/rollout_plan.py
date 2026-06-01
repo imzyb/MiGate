@@ -52,12 +52,18 @@ def build_remote_rollout_dry_run_plan(*, host: str, port: int, user: str, stagin
 
     backend_arg = f" --backend {backend}" if backend else ""
     ssh_target = f"{user}@{host}"
+    if backend == "xray-tun":
+        xray_service_save_command = "migate xray tun-service save --yes --allow-system-changes"
+        xray_service_name = "migate-xray-tun.service"
+    else:
+        xray_service_save_command = "migate xray service save --yes --allow-system-changes"
+        xray_service_name = "migate-xray.service"
     service_apply_remote_script = (
-        "migate xray service save --yes --allow-system-changes && "
+        f"{xray_service_save_command} && "
         "migate proxy service save --yes --allow-system-changes && "
         "systemctl daemon-reload && "
-        "systemctl restart migate-xray.service migate-proxy.service && "
-        "systemctl is-active migate-xray.service migate-proxy.service"
+        f"systemctl restart {xray_service_name} migate-proxy.service && "
+        f"systemctl is-active {xray_service_name} migate-proxy.service"
     )
     socks5_smoke_remote_script = (
         'python3 - <<"PY"\n'
