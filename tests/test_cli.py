@@ -1583,7 +1583,7 @@ def test_egress_down_command_requires_double_gate_before_orchestration(monkeypat
 
     result = runner.invoke(app, ["egress", "down", "--pid-file", str(pid_file), "--no-dry-run", "--yes"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "status: rejected" in result.output
     assert "egress down requires yes=True and allow_system_changes=True" in result.output
     assert "performed_side_effects: False" in result.output
@@ -1941,7 +1941,7 @@ def test_xray_config_preview_command_prints_json_without_saving():
 def test_xray_config_save_command_requires_double_gate():
     result = runner.invoke(app, ["xray", "config", "save"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "status: rejected" in result.output
     assert "config save requires yes=True and allow_system_changes=True" in result.output
     assert "performed_side_effects: False" in result.output
@@ -1968,7 +1968,8 @@ def test_xray_config_save_command_shows_backup_and_rollback_fields(monkeypatch, 
 
     result = runner.invoke(app, ["xray", "config", "save", "--yes", "--allow-system-changes", "--target", str(target)])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
+    assert "status: invalid" in result.output
     assert f"target: {target}" in result.output
     assert f"backup_path: {target.with_name('config.json.bak')}" in result.output
     assert "rollback_performed: True" in result.output
@@ -1987,7 +1988,7 @@ def test_xray_tun_config_preview_command_prints_json_without_saving():
 def test_xray_tun_config_save_command_requires_double_gate():
     result = runner.invoke(app, ["xray", "tun-config", "save"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "status: rejected" in result.output
     assert "xray tun config save requires yes=True and allow_system_changes=True" in result.output
     assert "systemctl_commands_executed: []" in result.output
@@ -2144,7 +2145,7 @@ def test_xray_systemctl_restart_command_requires_double_gate(monkeypatch):
 
     result = runner.invoke(app, ["xray", "systemctl", "restart"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "status: rejected" in result.output
     assert "systemctl restart requires" in result.output
     assert "performed_side_effects: False" in result.output
@@ -2259,7 +2260,7 @@ def test_xray_apply_restart_command_requires_double_gate(monkeypatch):
 
     result = runner.invoke(app, ["xray", "apply", "restart"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "status: rejected" in result.output
     assert "validation_status: skipped" in result.output
     assert "systemctl_results: []" in result.output
@@ -2323,7 +2324,7 @@ def test_xray_apply_tun_start_command_requires_double_gate(monkeypatch):
 
     result = runner.invoke(app, ["xray", "apply", "tun-start"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "status: rejected" in result.output
     assert "validation_status: skipped" in result.output
     assert "systemctl_results: []" in result.output

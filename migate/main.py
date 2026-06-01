@@ -1009,7 +1009,7 @@ def egress_up(
         typer.echo("message: egress up requires yes=True and allow_system_changes=True")
         typer.echo("commands_executed: []")
         typer.echo("performed_side_effects: False")
-        return
+        raise typer.Exit(code=1)
     try:
         tunnel_plan = _select_tunnel_start_plan(config)
     except ValueError as exc:
@@ -1047,7 +1047,7 @@ def egress_down(
         typer.echo("message: egress down requires yes=True and allow_system_changes=True")
         typer.echo("commands_executed: []")
         typer.echo("performed_side_effects: False")
-        return
+        raise typer.Exit(code=1)
     try:
         tunnel_stop_plan = _select_tunnel_stop_plan(config, pid_path)
     except ValueError as exc:
@@ -1089,6 +1089,8 @@ def xray_config_save(
         typer.echo(f"backup_path: {result.backup_path}")
     typer.echo(f"rollback_performed: {result.rollback_performed}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+    if result.status != "saved":
+        raise typer.Exit(code=1)
 
 
 @xray_tun_config_app.command("preview")
@@ -1118,6 +1120,8 @@ def xray_tun_config_save(
     typer.echo(f"rollback_performed: {result.rollback_performed}")
     typer.echo(f"systemctl_commands_executed: {result.systemctl_commands_executed or []}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+    if result.status != "saved":
+        raise typer.Exit(code=1)
 
 
 @xray_tun_service_app.command("preview")
@@ -1175,6 +1179,8 @@ def _echo_systemctl_result(result: SystemctlActionResult) -> None:
     typer.echo(f"stdout: {result.stdout}")
     typer.echo(f"stderr: {result.stderr}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+    if result.status in {"rejected", "failed", "systemctl_not_found"}:
+        raise typer.Exit(code=1)
 
 
 _XRAY_SYSTEMCTL_SERVICE_HELP = (
@@ -1249,6 +1255,8 @@ def _echo_apply_result(result: XrayApplyResult) -> None:
             typer.echo(f"  stdout: {item.stdout}")
             typer.echo(f"  stderr: {item.stderr}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+    if result.status != "success":
+        raise typer.Exit(code=1)
 
 
 @xray_apply_app.command("restart")
