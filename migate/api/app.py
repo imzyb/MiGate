@@ -16,6 +16,8 @@ from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusReport, run_egress_status
 from migate.proxy.run import ProxyRunResult, run_proxy
 from migate.proxy.service_cli import preview_proxy_service_unit
+from migate.remote.leak_check import RemoteLeakCheckReport, run_remote_leak_check
+from migate.remote.readiness import RemoteReadinessReport, run_remote_readiness
 from migate.remote.rollout_plan import RemoteRolloutPlan, build_remote_rollout_dry_run_plan
 from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
 from migate.routing.policy_plan import build_policy_routing_plan
@@ -528,6 +530,34 @@ def _egress_lifecycle_result_json(result: EgressLifecycleResult) -> dict[str, ob
     }
 
 
+def _remote_readiness_report_json(report: RemoteReadinessReport) -> dict[str, object]:
+    return {
+        "status": report.status,
+        "target": report.target,
+        "checks": [
+            {"name": check.name, "status": check.status, "message": check.message}
+            for check in report.checks
+        ],
+        "commands_executed": report.commands_executed,
+        "performed_side_effects": report.performed_side_effects,
+    }
+
+
+def _remote_leak_check_report_json(report: RemoteLeakCheckReport) -> dict[str, object]:
+    return {
+        "status": report.status,
+        "target": report.target,
+        "native_public_ip": report.native_public_ip,
+        "egress_public_ip": report.egress_public_ip,
+        "checks": [
+            {"name": check.name, "status": check.status, "message": check.message}
+            for check in report.checks
+        ],
+        "commands_executed": report.commands_executed,
+        "performed_side_effects": report.performed_side_effects,
+    }
+
+
 def _remote_rollout_plan_json(plan: RemoteRolloutPlan) -> dict[str, object]:
     return {
         "status": plan.status,
@@ -628,6 +658,8 @@ def create_app(
     proxy_runtime_loader: Callable[[], ProxyRunResult] | None = None,
     egress_up_dry_run_loader: Callable[[], EgressLifecycleResult] | None = None,
     egress_down_dry_run_loader: Callable[[], EgressLifecycleResult] | None = None,
+    remote_readiness_loader: Callable[..., RemoteReadinessReport] | None = None,
+    remote_leak_check_loader: Callable[..., RemoteLeakCheckReport] | None = None,
     remote_rollout_plan_loader: Callable[..., RemoteRolloutPlan] | None = None,
 ) -> FastAPI:
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
@@ -651,6 +683,8 @@ def create_app(
     proxy_loader = proxy_runtime_loader or (lambda: run_proxy(migate_config))
     egress_up_loader = egress_up_dry_run_loader or (lambda: _default_egress_up_dry_run(migate_config))
     egress_down_loader = egress_down_dry_run_loader or (lambda: _default_egress_down_dry_run(migate_config))
+    readiness_loader = remote_readiness_loader or run_remote_readiness
+    leak_check_loader = remote_leak_check_loader or run_remote_leak_check
     remote_rollout_loader = remote_rollout_plan_loader or build_remote_rollout_dry_run_plan
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
@@ -712,6 +746,25 @@ def create_app(
     @app.get("/api/proxy/runtime")
     def api_proxy_runtime() -> dict[str, object]:
         return _proxy_run_result_json(proxy_loader())
+
+    @app.get("/api/remote/readiness")
+    def api_remote_readiness(
+        host: str = "166.88.232.2",
+        port: int = 22,
+        user: str = "root",
+    ) -> dict[str, object]:
+        return _remote_readiness_report_json(readiness_loader(host=host, port=port, user=user))
+
+    @app.get("/api/remote/leak-check")
+    def api_remote_leak_check(
+        host: str = "166.88.232.2",
+        port: int = 22,
+        user: str = "root",
+        socks_port: int = 34501,
+    ) -> dict[str, object]:
+        return _remote_leak_check_report_json(
+            leak_check_loader(host=host, port=port, user=user, socks_port=socks_port)
+        )
 
     @app.get("/api/remote/rollout/dry-run")
     def api_remote_rollout_dry_run(

@@ -8,6 +8,8 @@ from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusCheck, EgressStatusReport
 from migate.proxy.run import ProxyRunResult
 from migate.proxy.runtime import ProxyRuntimeCheck
+from migate.remote.leak_check import RemoteLeakCheck, RemoteLeakCheckReport
+from migate.remote.readiness import RemoteReadinessCheck, RemoteReadinessReport
 from migate.remote.rollout_plan import RemoteRolloutPlan, RemoteRolloutStep
 from migate.systemd.manager import SystemdResult
 from migate.xray.install_executor import XrayInstallDryRunResult, XrayInstallDryRunStep
@@ -1185,6 +1187,123 @@ def test_panel_systemd_status_api_returns_readonly_service_statuses(tmp_path):
         "performed_side_effects": False,
     }
     assert calls == ["migate-xray.service", "migate-panel.service", "migate-proxy.service"]
+
+
+def test_panel_remote_readiness_api_returns_readonly_status_without_side_effects(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def readiness_loader(*, host: str, port: int, user: str) -> RemoteReadinessReport:
+        calls.append({"host": host, "port": port, "user": user})
+        return RemoteReadinessReport(
+            status="ok",
+            target=f"{user}@{host}:{port}",
+            checks=[
+                RemoteReadinessCheck("migate_cli", "ok", "/usr/local/bin/migate"),
+                RemoteReadinessCheck("proxy_service_preview", "ok", "performed_side_effects: False"),
+            ],
+            commands_executed=["ssh readiness"],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(create_app(node_repository=repo, remote_readiness_loader=readiness_loader))
+
+    response = client.get("/api/remote/readiness", params={"host": "203.0.113.10", "port": 62422, "user": "ubuntu"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "status": "ok",
+        "target": "ubuntu@203.0.113.10:62422",
+        "checks": [
+            {"name": "migate_cli", "status": "ok", "message": "/usr/local/bin/migate"},
+            {"name": "proxy_service_preview", "status": "ok", "message": "performed_side_effects: False"},
+        ],
+        "commands_executed": ["ssh readiness"],
+        "performed_side_effects": False,
+    }
+    assert calls == [{"host": "203.0.113.10", "port": 62422, "user": "ubuntu"}]
+
+
+def test_panel_remote_leak_check_api_returns_fail_closed_status_without_side_effects(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def leak_check_loader(*, host: str, port: int, user: str, socks_port: int = 34501) -> RemoteLeakCheckReport:
+        calls.append({"host": host, "port": port, "user": user, "socks_port": socks_port})
+        return RemoteLeakCheckReport(
+            status="failed",
+            target=f"{user}@{host}:{port}",
+            native_public_ip="198.51.100.10",
+            egress_public_ip="198.51.100.10",
+            checks=[
+                RemoteLeakCheck("native_ip", "ok", "198.51.100.10"),
+                RemoteLeakCheck("egress_ip", "ok", "198.51.100.10"),
+                RemoteLeakCheck("egress_guard", "failed", "blocked: native public IP leak detected"),
+            ],
+            commands_executed=["ssh leak-check"],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(create_app(node_repository=repo, remote_leak_check_loader=leak_check_loader))
+
+    response = client.get(
+        "/api/remote/leak-check",
+        params={"host": "203.0.113.10", "port": 62422, "user": "ubuntu", "socks_port": 34501},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "status": "failed",
+        "target": "ubuntu@203.0.113.10:62422",
+        "native_public_ip": "198.51.100.10",
+        "egress_public_ip": "198.51.100.10",
+        "checks": [
+            {"name": "native_ip", "status": "ok", "message": "198.51.100.10"},
+            {"name": "egress_ip", "status": "ok", "message": "198.51.100.10"},
+            {"name": "egress_guard", "status": "failed", "message": "blocked: native public IP leak detected"},
+        ],
+        "commands_executed": ["ssh leak-check"],
+        "performed_side_effects": False,
+    }
+    assert calls == [{"host": "203.0.113.10", "port": 62422, "user": "ubuntu", "socks_port": 34501}]
+
+
+def test_panel_remote_status_apis_reject_embedded_credentials_without_secret_leak(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    client = TestClient(create_app(node_repository=repo))
+
+    readiness_response = client.get(
+        "/api/remote/readiness",
+        params={"host": "root:secret@166.88.232.2", "port": 22, "user": "root"},
+    )
+    leak_response = client.get(
+        "/api/remote/leak-check",
+        params={"host": "root:secret@166.88.232.2", "port": 22, "user": "root"},
+    )
+
+    assert readiness_response.status_code == 200
+    assert readiness_response.json() == {
+        "status": "failed",
+        "target": "[REDACTED]",
+        "checks": [{"name": "target", "status": "failed", "message": "embedded credentials are not allowed"}],
+        "commands_executed": [],
+        "performed_side_effects": False,
+    }
+    assert "secret" not in readiness_response.text
+
+    assert leak_response.status_code == 200
+    assert leak_response.json() == {
+        "status": "failed",
+        "target": "[REDACTED]",
+        "native_public_ip": None,
+        "egress_public_ip": None,
+        "checks": [{"name": "target", "status": "failed", "message": "embedded credentials are not allowed"}],
+        "commands_executed": [],
+        "performed_side_effects": False,
+    }
+    assert "secret" not in leak_response.text
 
 
 def test_panel_remote_rollout_dry_run_api_returns_readonly_plan_without_ssh(tmp_path):
