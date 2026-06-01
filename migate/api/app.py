@@ -9,7 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from migate.database.repository import NodeRecord, NodeRepository
 from migate.config import MiGateConfig
@@ -245,6 +245,23 @@ def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
 """
 
 
+def _rewrite_panel_actions(html: str, *, base_path: str) -> str:
+    normalized_base = _normalize_panel_base_path(base_path)
+    if normalized_base == "/":
+        return html
+    protected_prefixes = (
+        "/nodes/",
+        "/xray/",
+        "/systemd/",
+        "/remote/",
+        "/egress/",
+    )
+    rewritten = html
+    for prefix in protected_prefixes:
+        rewritten = rewritten.replace(f'action="{prefix}', f'action="{normalized_base}{prefix}')
+    return rewritten
+
+
 def _home_body(
     *,
     nodes: list[NodeRecord] | None = None,
@@ -262,7 +279,7 @@ def _home_body(
     current_nodes = nodes or []
     nodes_html = _nodes_html(current_nodes)
     preview_html = _xray_preview_html(current_nodes, base_path=base_path)
-    return f"""
+    html = f"""
   <section class="hero">
     <div>
       <h1>MiGate</h1>
@@ -310,6 +327,7 @@ def _home_body(
   {preview_html}
   {systemd_html}
 """
+    return _rewrite_panel_actions(html, base_path=base_path)
 
 
 def _credential_for_protocol(protocol: str, credential: str) -> str:
@@ -996,6 +1014,21 @@ def create_app(
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
+    @app.middleware("http")
+    async def protect_panel_routes(request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/api/") and not _is_authenticated(request, loaded_panel_auth_config):
+            return JSONResponse({"detail": "authentication required", "performed_side_effects": False}, status_code=401)
+        if (
+            request.method == "POST"
+            and _panel_auth_enabled(loaded_panel_auth_config)
+            and path not in {_panel_url(panel_base_path, "/login"), _panel_url(panel_base_path, "/logout")}
+            and (path.startswith(_panel_url(panel_base_path, "/")) if panel_base_path != "/" else path.startswith("/"))
+            and not _is_authenticated(request, loaded_panel_auth_config)
+        ):
+            return RedirectResponse(_panel_url(panel_base_path, "/login"), status_code=303)
+        return await call_next(request)
+
     def require_panel_auth(request: Request) -> RedirectResponse | None:
         if _is_authenticated(request, loaded_panel_auth_config):
             return None
@@ -1283,7 +1316,7 @@ def create_app(
             ),
         )
 
-    @app.post("/remote/status/refresh", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/remote/status/refresh"), response_class=HTMLResponse)
     def refresh_remote_status() -> str:
         result = remote_status_detail().replace("远端状态详情", "远端状态详情已刷新", 1)
         return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, base_path=panel_base_path))
@@ -1326,7 +1359,7 @@ def create_app(
 """
         return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, base_path=panel_base_path))
 
-    @app.post("/xray/config/save", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/xray/config/save"), response_class=HTMLResponse)
     def save_xray_config() -> str:
         nodes = repo.list_nodes()
         written = write_xray_config(_xray_config_for_nodes(nodes), config_path)
@@ -1339,7 +1372,7 @@ def create_app(
 """
         return _page_shell(_home_body(nodes=nodes, result_html=result))
 
-    @app.post("/xray/config/validate", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/xray/config/validate"), response_class=HTMLResponse)
     def validate_saved_xray_config() -> str:
         result_value = validator(config_path)
         output = _result_output(result_value)
@@ -1353,7 +1386,7 @@ def create_app(
 """
         return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, systemd_html=_systemd_preview_html(migate_config)))
 
-    @app.post("/xray/restart", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/xray/restart"), response_class=HTMLResponse)
     def restart_xray_after_validation() -> str:
         validation = validator(config_path)
         if validation.status != "valid":
@@ -1397,7 +1430,7 @@ def create_app(
             )
         )
 
-    @app.post("/systemd/units/save", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/systemd/units/save"), response_class=HTMLResponse)
     def save_systemd_units() -> str:
         written_xray = write_unit_file(build_xray_unit(migate_config), unit_dir)
         written_panel = write_unit_file(build_panel_unit(migate_config), unit_dir)
@@ -1418,7 +1451,7 @@ def create_app(
             )
         )
 
-    @app.post("/systemd/status/refresh", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/systemd/status/refresh"), response_class=HTMLResponse)
     def refresh_systemd_status() -> str:
         return _page_shell(
             _home_body(
@@ -1430,7 +1463,7 @@ def create_app(
             )
         )
 
-    @app.post("/egress/status/refresh", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/egress/status/refresh"), response_class=HTMLResponse)
     def refresh_egress_status() -> str:
         return _page_shell(
             _home_body(
@@ -1456,7 +1489,7 @@ def create_app(
     def api_egress_down_dry_run() -> dict[str, object]:
         return _egress_lifecycle_result_json(egress_down_loader())
 
-    @app.post("/egress/up/dry-run", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/egress/up/dry-run"), response_class=HTMLResponse)
     def dry_run_egress_up() -> str:
         return _page_shell(
             _home_body(
@@ -1470,7 +1503,7 @@ def create_app(
             )
         )
 
-    @app.post("/egress/down/dry-run", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/egress/down/dry-run"), response_class=HTMLResponse)
     def dry_run_egress_down() -> str:
         return _page_shell(
             _home_body(
@@ -1484,7 +1517,7 @@ def create_app(
             )
         )
 
-    @app.post("/xray/runtime/refresh", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/xray/runtime/refresh"), response_class=HTMLResponse)
     def refresh_xray_runtime() -> str:
         return _page_shell(
             _home_body(
@@ -1496,7 +1529,7 @@ def create_app(
             )
         )
 
-    @app.post("/xray/install-plan/refresh", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/xray/install-plan/refresh"), response_class=HTMLResponse)
     def refresh_xray_install_plan() -> str:
         return _page_shell(
             _home_body(
@@ -1508,7 +1541,7 @@ def create_app(
             )
         )
 
-    @app.post("/xray/install/dry-run", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/xray/install/dry-run"), response_class=HTMLResponse)
     def dry_run_xray_install() -> str:
         return _page_shell(
             _home_body(

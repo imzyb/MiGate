@@ -84,6 +84,93 @@ def test_panel_base_path_routes_login_home_logout_and_node_creation(tmp_path):
 
 
 
+def test_panel_config_auth_blocks_sensitive_json_apis_until_logged_in(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="Secret Node",
+        host="secret.example.com",
+        port=443,
+        credential="secret-uuid",
+        share_link="vless://secret-uuid@secret.example.com:443#Secret",
+        subscription="secret-subscription",
+    )
+    client = TestClient(create_app(node_repository=repo, panel_config_path=config_path))
+
+    for path in ["/api/nodes", "/api/dashboard", "/api/xray/config/preview", "/api/status/summary"]:
+        response = client.get(path)
+        assert response.status_code == 401, path
+        assert "secret.example.com" not in response.text
+        assert "vless://" not in response.text
+        assert "secret-subscription" not in response.text
+
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+    allowed = client.get("/api/nodes")
+    assert allowed.status_code == 200
+    assert allowed.json()["counts"] == {"total": 1, "enabled": 1}
+
+
+
+def test_panel_base_path_home_uses_prefixed_actions_for_all_forms(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    repo = NodeRepository(tmp_path / "migate.db")
+    client = TestClient(create_app(node_repository=repo, panel_config_path=config_path))
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+    client.post(
+        "/mg-admin/nodes/create",
+        data={"protocol": "vless", "host": "node.example.com", "port": "443", "name": "Node", "credential": "node-uuid"},
+    )
+
+    home = client.get("/mg-admin/")
+
+    assert home.status_code == 200
+    assert 'action="/mg-admin/nodes/create"' in home.text
+    assert 'action="/mg-admin/logout"' in home.text
+    assert 'action="/mg-admin/xray/config/save"' in home.text
+    assert 'action="/mg-admin/xray/config/validate"' in home.text
+    assert 'action="/mg-admin/xray/runtime/refresh"' in home.text
+    assert 'action="/mg-admin/xray/install-plan/refresh"' in home.text
+    assert 'action="/mg-admin/xray/install/dry-run"' in home.text
+    assert 'action="/mg-admin/systemd/status/refresh"' in home.text
+    assert 'action="/mg-admin/remote/status/refresh"' in home.text
+    assert 'action="/mg-admin/egress/status/refresh"' in home.text
+    assert 'action="/nodes/create"' not in home.text
+    assert 'action="/xray/' not in home.text
+    assert 'action="/systemd/' not in home.text
+    assert 'action="/remote/' not in home.text
+    assert 'action="/egress/' not in home.text
+
+
+
+def test_panel_base_path_blocks_operation_posts_until_logged_in(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    calls = []
+
+    def forbidden_runtime_loader():
+        calls.append("runtime")
+        return XrayRuntimeStatus(status="installed", bin_path="/usr/bin/xray", version="1.0", message="ok", returncode=0, stdout="", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=NodeRepository(tmp_path / "migate.db"),
+            panel_config_path=config_path,
+            xray_runtime_loader=forbidden_runtime_loader,
+        )
+    )
+
+    response = client.post("/mg-admin/xray/runtime/refresh", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/mg-admin/login"
+    assert calls == []
+
+
+
 def test_panel_auth_redirects_home_to_login_without_leaking_node_links(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     repo.initialize()
