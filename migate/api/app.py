@@ -264,6 +264,11 @@ def _xray_config_for_nodes(nodes: list[NodeRecord]) -> dict[str, object]:
 
 def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
     enabled_nodes = [node for node in nodes if node.enabled]
+    apply_form = f"""
+    <form method="post" action="{escape(_panel_url(base_path, '/xray/apply'))}">
+      <button type="submit">应用当前节点配置</button>
+    </form>
+"""
     restart_form = f"""
     <form method="post" action="{escape(_panel_url(base_path, '/xray/restart'))}">
       <button type="submit">校验并重启 Xray</button>
@@ -274,10 +279,11 @@ def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
   <section class="card">
     <h2>Xray 配置预览</h2>
     <p>暂无启用节点。创建节点后这里会显示即将写入 Xray 的配置。</p>
+    {apply_form}
     {restart_form}
   </section>
 """
-    preview = json.dumps(_xray_config_for_nodes(enabled_nodes), ensure_ascii=False, indent=2)
+    preview = json.dumps(_xray_config_for_nodes(enabled_nodes), indent=2, ensure_ascii=False)
     return f"""
   <section class="card">
     <h2>Xray 配置预览</h2>
@@ -288,6 +294,7 @@ def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
     <form method="post" action="{escape(_panel_url(base_path, '/xray/config/validate'))}">
       <button type="submit">校验 Xray 配置</button>
     </form>
+    {apply_form}
     {restart_form}
     <pre>{escape(preview)}</pre>
   </section>
@@ -1530,6 +1537,46 @@ def create_app(
   </section>
 """
         return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, systemd_html=_systemd_preview_html(migate_config)))
+
+    @app.post(_panel_url(panel_base_path, "/xray/apply"), response_class=HTMLResponse)
+    def apply_current_nodes_to_xray() -> str:
+        nodes = repo.list_nodes()
+        written = write_xray_config(_xray_config_for_nodes(nodes), config_path)
+        validation = validator(config_path)
+        if validation.status != "valid":
+            result = f"""
+  <section class="card">
+    <h2>当前节点配置未应用</h2>
+    <p>已生成并保存 Xray 配置：{escape(str(written))}</p>
+    <p>配置校验失败，未执行服务重载或重启。</p>
+    <p>校验状态：{escape(validation.status)}</p>
+    <pre>{escape(_result_output(validation))}</pre>
+  </section>
+"""
+            return _page_shell(_home_body(nodes=nodes, result_html=result, base_path=panel_base_path))
+        reload_result = daemon_reloader()
+        restart_result = restarter("migate-xray.service")
+        result = f"""
+  <section class="card">
+    <h2>当前节点配置已应用</h2>
+    <p>生成并保存 Xray 配置：{escape(str(written))}</p>
+    <div class="label">配置校验</div>
+    <pre>{escape(_result_output(validation))}</pre>
+    <div class="label">服务重载：{escape(reload_result.status)}</div>
+    <pre>{escape(_result_output(reload_result))}</pre>
+    <div class="label">Xray 重启：{escape(restart_result.status)}</div>
+    <pre>{escape(_result_output(restart_result))}</pre>
+  </section>
+"""
+        return _page_shell(
+            _home_body(
+                nodes=repo.list_nodes(),
+                result_html=result,
+                base_path=panel_base_path,
+                service_status_html=_service_status_html(status_loader),
+                systemd_html=_systemd_preview_html(migate_config),
+            )
+        )
 
     @app.post(_panel_url(panel_base_path, "/xray/restart"), response_class=HTMLResponse)
     def restart_xray_after_validation() -> str:

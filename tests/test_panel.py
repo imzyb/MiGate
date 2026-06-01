@@ -132,6 +132,7 @@ def test_panel_base_path_home_uses_prefixed_actions_for_all_forms(tmp_path):
     assert 'action="/mg-admin/logout"' in home.text
     assert 'action="/mg-admin/xray/config/save"' in home.text
     assert 'action="/mg-admin/xray/config/validate"' in home.text
+    assert 'action="/mg-admin/xray/apply"' in home.text
     assert 'action="/mg-admin/xray/runtime/refresh"' in home.text
     assert 'action="/mg-admin/xray/install-plan/refresh"' in home.text
     assert 'action="/mg-admin/xray/install/dry-run"' in home.text
@@ -1867,6 +1868,111 @@ def test_panel_xray_restart_runs_daemon_reload_then_restart_after_valid_config(t
     assert "daemon ok" in decoded
     assert "restart ok" in decoded
     assert calls == ["daemon-reload", "restart:migate-xray.service"]
+
+
+def test_panel_apply_current_nodes_saves_config_but_skips_systemd_when_validation_fails(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="trojan",
+        name="Invalid Apply Node",
+        host="invalid-apply.example.com",
+        port=8443,
+        credential="invalid-password",
+        share_link="trojan://invalid-password@invalid-apply.example.com:8443#Invalid",
+        subscription="invalid-subscription",
+    )
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+    calls = []
+
+    def validator(path):
+        calls.append(f"validate:{path}")
+        assert config_path.exists()
+        return XrayValidationResult(status="invalid", returncode=1, stdout="", stderr="invalid generated config")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="success", returncode=0, stdout="daemon ok", stderr="")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_config_path=config_path,
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+        )
+    )
+
+    response = client.post("/xray/apply")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "当前节点配置未应用" in decoded
+    assert "已生成并保存 Xray 配置" in decoded
+    assert "配置校验失败" in decoded
+    assert "invalid generated config" in decoded
+    assert config_path.exists()
+    assert calls == [f"validate:{config_path}"]
+
+
+def test_panel_apply_current_nodes_saves_config_validates_then_restarts_xray(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="Apply Node",
+        host="apply.example.com",
+        port=443,
+        credential="apply-uuid",
+        share_link="vless://apply-uuid@apply.example.com:443#Apply",
+        subscription="apply-subscription",
+    )
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+    calls = []
+
+    def validator(path):
+        calls.append(f"validate:{path}")
+        assert path == config_path
+        assert config_path.exists()
+        assert "node-1-vless" in config_path.read_text(encoding="utf-8")
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="success", returncode=0, stdout="daemon ok", stderr="")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_config_path=config_path,
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+        )
+    )
+
+    response = client.post("/xray/apply")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "当前节点配置已应用" in decoded
+    assert "生成并保存 Xray 配置" in decoded
+    assert str(config_path) in decoded
+    assert "config ok" in decoded
+    assert "daemon ok" in decoded
+    assert "restart ok" in decoded
+    written_config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert written_config["inbounds"][0]["tag"] == "node-1-vless"
+    assert calls == [f"validate:{config_path}", "daemon-reload", "restart:migate-xray.service"]
 
 
 def test_panel_dashboard_api_returns_webui_bootstrap_snapshot_without_side_effects(tmp_path):
