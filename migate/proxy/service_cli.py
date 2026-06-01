@@ -29,8 +29,8 @@ Wants=network-online.target
 Type=simple
 # max_clients=0 keeps the proxy listener in continuous mode until systemd stops it
 ExecStart={migate_bin_path} proxy run --max-clients 0
-Restart=on-failure
-RestartSec=3
+# Preflight failures are terminal until the operator fixes VPN/TUN/listener prerequisites.
+Restart=no
 User=root
 LimitNOFILE=1048576
 

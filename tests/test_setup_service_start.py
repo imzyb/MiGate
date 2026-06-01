@@ -13,7 +13,7 @@ class FakeCompletedProcess:
         self.stderr = stderr
 
 
-def test_run_setup_service_start_runs_daemon_reload_then_enables_services():
+def test_run_setup_service_start_runs_daemon_reload_then_enables_and_verifies_xray_only():
     calls = []
 
     def runner(command):
@@ -23,27 +23,21 @@ def test_run_setup_service_start_runs_daemon_reload_then_enables_services():
     result = run_setup_service_start(yes=True, allow_system_changes=True, runner=runner)
 
     assert result.status == "success"
-    assert result.message == "MiGate services enabled and started"
+    assert result.message == "MiGate Xray service enabled and started; proxy service left installed but stopped until VPN/TUN prerequisites are ready"
     assert calls == [
         ["systemctl", "daemon-reload"],
         ["systemctl", "enable", "--now", "migate-xray.service"],
-        ["systemctl", "enable", "--now", "migate-proxy.service"],
         ["systemctl", "is-active", "migate-xray.service"],
-        ["systemctl", "is-active", "migate-proxy.service"],
         ["systemctl", "is-active", "migate-xray.service"],
-        ["systemctl", "is-active", "migate-proxy.service"],
     ]
     assert result.commands_executed == calls
     assert [step.name for step in result.steps] == [
         "daemon_reload",
         "enable_xray_service",
-        "enable_proxy_service",
         "check_xray_active",
-        "check_proxy_active",
         "verify_xray_stable",
-        "verify_proxy_stable",
     ]
-    assert [step.status for step in result.steps] == ["success", "success", "success", "success", "success", "success", "success"]
+    assert [step.status for step in result.steps] == ["success", "success", "success", "success"]
     assert result.performed_side_effects is True
 
 
@@ -63,7 +57,6 @@ def test_run_setup_service_start_checks_services_are_active_after_enable_now():
     assert calls == [
         ["systemctl", "daemon-reload"],
         ["systemctl", "enable", "--now", "migate-xray.service"],
-        ["systemctl", "enable", "--now", "migate-proxy.service"],
         ["systemctl", "is-active", "migate-xray.service"],
     ]
     assert result.steps[-1].name == "check_xray_active"
@@ -73,20 +66,16 @@ def test_run_setup_service_start_checks_services_are_active_after_enable_now():
     assert result.performed_side_effects is True
 
 
-def test_run_setup_service_start_verifies_services_stay_active_after_initial_success(monkeypatch):
+def test_run_setup_service_start_verifies_xray_stays_active_after_initial_success(monkeypatch):
     calls = []
     xray_active_checks = 0
-    proxy_active_checks = 0
 
     def runner(command):
-        nonlocal xray_active_checks, proxy_active_checks
+        nonlocal xray_active_checks
         calls.append(command)
         if command == ["systemctl", "is-active", "migate-xray.service"]:
             xray_active_checks += 1
-            return FakeCompletedProcess(command, returncode=0, stdout="active\n", stderr="")
-        if command == ["systemctl", "is-active", "migate-proxy.service"]:
-            proxy_active_checks += 1
-            if proxy_active_checks == 2:
+            if xray_active_checks == 2:
                 return FakeCompletedProcess(command, returncode=3, stdout="activating\n", stderr="")
             return FakeCompletedProcess(command, returncode=0, stdout="active\n", stderr="")
         return FakeCompletedProcess(command, returncode=0, stdout="ok", stderr="")
@@ -98,14 +87,10 @@ def test_run_setup_service_start_verifies_services_stay_active_after_initial_suc
 
     assert sleeps == [pytest.approx(1.0)]
     assert result.status == "failed"
-    assert result.message == "service start failed at verify_proxy_stable"
-    assert calls[-2:] == [
-        ["systemctl", "is-active", "migate-xray.service"],
-        ["systemctl", "is-active", "migate-proxy.service"],
-    ]
+    assert result.message == "service start failed at verify_xray_stable"
+    assert calls[-1] == ["systemctl", "is-active", "migate-xray.service"]
     assert xray_active_checks == 2
-    assert proxy_active_checks == 2
-    assert result.steps[-1].name == "verify_proxy_stable"
+    assert result.steps[-1].name == "verify_xray_stable"
     assert result.steps[-1].status == "failed"
     assert result.steps[-1].stdout == "activating\n"
     assert result.steps[-1].performed_side_effects is False

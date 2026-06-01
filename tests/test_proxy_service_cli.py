@@ -9,7 +9,9 @@ def test_preview_proxy_service_unit_renders_safe_systemd_unit_without_side_effec
     assert "After=network-online.target migate-xray.service" in unit
     assert "ExecStart=/usr/local/bin/migate proxy run --max-clients 0" in unit
     assert "# max_clients=0 keeps the proxy listener in continuous mode until systemd stops it" in unit
-    assert "Restart=on-failure" in unit
+    assert "Restart=no" in unit
+    assert "Restart=on-failure" not in unit
+    assert "RestartSec" not in unit
     assert "WantedBy=multi-user.target" in unit
     assert "systemctl" not in unit
     assert unit.endswith("\n")

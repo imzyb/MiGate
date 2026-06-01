@@ -52,12 +52,9 @@ def run_setup_service_start(
     commands = [
         ("daemon_reload", ["systemctl", "daemon-reload"], True),
         ("enable_xray_service", ["systemctl", "enable", "--now", MIGATE_XRAY_SERVICE_NAME], True),
-        ("enable_proxy_service", ["systemctl", "enable", "--now", MIGATE_PROXY_SERVICE_NAME], True),
         ("check_xray_active", ["systemctl", "is-active", MIGATE_XRAY_SERVICE_NAME], False),
-        ("check_proxy_active", ["systemctl", "is-active", MIGATE_PROXY_SERVICE_NAME], False),
         ("stability_wait", [], False),
         ("verify_xray_stable", ["systemctl", "is-active", MIGATE_XRAY_SERVICE_NAME], False),
-        ("verify_proxy_stable", ["systemctl", "is-active", MIGATE_PROXY_SERVICE_NAME], False),
     ]
     run = runner or _default_runner
     steps: list[SetupServiceStartCommandResult] = []
@@ -116,7 +113,7 @@ def run_setup_service_start(
 
     return SetupServiceStartResult(
         status="success",
-        message="MiGate services enabled and started",
+        message="MiGate Xray service enabled and started; proxy service left installed but stopped until VPN/TUN prerequisites are ready",
         steps=steps,
         commands_executed=commands_executed,
         performed_side_effects=performed_side_effects,
