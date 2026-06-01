@@ -14,7 +14,7 @@ from migate.egress.openvpn_backend import build_openvpn_tunnel_start_plan, build
 from migate.egress.status import render_egress_status_report, run_egress_doctor, run_egress_status
 from migate.egress.tunnel_backend import TunnelStartPlan, TunnelStopPlan
 from migate.egress.xray_tun_backend import build_xray_tun_start_plan, build_xray_tun_stop_plan
-from migate.proxy.run import render_proxy_run_result, run_proxy_placeholder
+from migate.proxy.run import render_proxy_run_result, run_proxy
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
 from migate.remote.acceptance import RemoteAcceptanceResult, render_remote_acceptance_result, run_remote_acceptance
@@ -51,7 +51,7 @@ from migate.proxy.socks5_listener import (
     render_socks5_serve_output,
     render_socks5_serve_output_write_json,
     render_socks5_serve_output_write_result,
-    run_socks5_serve_placeholder,
+    run_socks5_serve,
     write_socks5_serve_output,
 )
 from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
@@ -805,7 +805,7 @@ def proxy_run(
     except ValueError as exc:
         _echo_unsupported_egress_backend(exc)
         raise typer.Exit(code=1) from exc
-    result = run_proxy_placeholder(config)
+    result = run_proxy(config)
     typer.echo(render_proxy_run_result(result))
     if result.status == "rejected":
         raise typer.Exit(code=1)
@@ -848,7 +848,7 @@ def proxy_socks5_serve(
         typer.echo(f"unsupported write result format: {write_result_format}")
         typer.echo("supported write result formats: text, json")
         raise typer.Exit(code=1)
-    result = run_socks5_serve_placeholder(
+    result = run_socks5_serve(
         MiGateConfig(),
         dry_run=dry_run,
         yes=yes,

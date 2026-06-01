@@ -2592,7 +2592,7 @@ def test_proxy_run_command_accepts_backend_xray_tun_override_and_renders_preflig
 
     captured = {}
 
-    def fake_run_proxy_placeholder(config, *args, **kwargs):
+    def fake_run_proxy(config, *args, **kwargs):
         captured["backend"] = config.egress.backend
         return ProxyRunResult(
             status="rejected",
@@ -2610,7 +2610,7 @@ def test_proxy_run_command_accepts_backend_xray_tun_override_and_renders_preflig
             performed_side_effects=False,
         )
 
-    monkeypatch.setattr(main_module, "run_proxy_placeholder", fake_run_proxy_placeholder)
+    monkeypatch.setattr(main_module, "run_proxy", fake_run_proxy)
 
     result = runner.invoke(app, ["proxy", "run", "--backend", "xray-tun"])
 
@@ -2627,7 +2627,7 @@ def test_proxy_run_command_accepts_backend_xray_tun_override_and_renders_preflig
 
 def test_proxy_run_command_rejects_unknown_backend_without_running_preflight(monkeypatch):
     calls = []
-    monkeypatch.setattr(main_module, "run_proxy_placeholder", lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(main_module, "run_proxy", lambda *args, **kwargs: calls.append((args, kwargs)))
 
     result = runner.invoke(app, ["proxy", "run", "--backend", "wireguard"])
 
@@ -2645,7 +2645,7 @@ def test_proxy_run_command_rejects_when_preflight_fails(monkeypatch):
 
     monkeypatch.setattr(
         main_module,
-        "run_proxy_placeholder",
+        "run_proxy",
         lambda *args, **kwargs: ProxyRunResult(
             status="rejected",
             message="proxy run preflight failed; listener not started",
@@ -2672,7 +2672,7 @@ def test_proxy_run_command_reports_listener_started_when_preflight_passes(monkey
 
     monkeypatch.setattr(
         main_module,
-        "run_proxy_placeholder",
+        "run_proxy",
         lambda *args, **kwargs: ProxyRunResult(
             status="running",
             message="SOCKS5 listener started; direct upstream relay enabled",
@@ -2819,7 +2819,7 @@ def test_proxy_socks5_serve_command_delegates_output_rendering_to_formatter(monk
 
 
 def test_proxy_socks5_serve_command_json_includes_injected_real_result_events(monkeypatch):
-    def fake_run_socks5_serve_placeholder(*_args, **_kwargs):
+    def fake_run_socks5_serve(*_args, **_kwargs):
         return Socks5ServeResult(
             status="stopped",
             message="handled one client",
@@ -2835,7 +2835,7 @@ def test_proxy_socks5_serve_command_json_includes_injected_real_result_events(mo
             performed_side_effects=True,
         )
 
-    monkeypatch.setattr(main_module, "run_socks5_serve_placeholder", fake_run_socks5_serve_placeholder)
+    monkeypatch.setattr(main_module, "run_socks5_serve", fake_run_socks5_serve)
 
     result = runner.invoke(app, ["proxy", "socks5", "serve", "--no-dry-run", "--yes", "--allow-network-listen", "--format", "json"])
 
@@ -2863,7 +2863,7 @@ def test_proxy_socks5_serve_command_json_includes_injected_real_result_events(mo
 
 
 def test_proxy_socks5_serve_command_jsonl_includes_injected_real_result_events(monkeypatch):
-    def fake_run_socks5_serve_placeholder(*_args, **_kwargs):
+    def fake_run_socks5_serve(*_args, **_kwargs):
         return Socks5ServeResult(
             status="stopped",
             message="handled one client",
@@ -2879,7 +2879,7 @@ def test_proxy_socks5_serve_command_jsonl_includes_injected_real_result_events(m
             performed_side_effects=True,
         )
 
-    monkeypatch.setattr(main_module, "run_socks5_serve_placeholder", fake_run_socks5_serve_placeholder)
+    monkeypatch.setattr(main_module, "run_socks5_serve", fake_run_socks5_serve)
 
     result = runner.invoke(app, ["proxy", "socks5", "serve", "--no-dry-run", "--yes", "--allow-network-listen", "--format", "jsonl"])
 
@@ -3056,7 +3056,7 @@ def test_proxy_socks5_serve_command_rejects_unknown_write_result_format(tmp_path
 def test_proxy_socks5_serve_command_writes_injected_real_result_events_to_output_file(tmp_path, monkeypatch):
     target = tmp_path / "serve.jsonl"
 
-    def fake_run_socks5_serve_placeholder(*_args, **_kwargs):
+    def fake_run_socks5_serve(*_args, **_kwargs):
         return Socks5ServeResult(
             status="stopped",
             message="handled one client",
@@ -3072,7 +3072,7 @@ def test_proxy_socks5_serve_command_writes_injected_real_result_events_to_output
             performed_side_effects=True,
         )
 
-    monkeypatch.setattr(main_module, "run_socks5_serve_placeholder", fake_run_socks5_serve_placeholder)
+    monkeypatch.setattr(main_module, "run_socks5_serve", fake_run_socks5_serve)
 
     result = runner.invoke(
         app,

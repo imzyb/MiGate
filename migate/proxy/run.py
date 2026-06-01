@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from migate.config import MiGateConfig
 from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport, run_proxy_doctor
-from migate.proxy.socks5_listener import Socks5ServerStarter, run_socks5_serve_placeholder
+from migate.proxy.socks5_listener import Socks5ServerStarter, run_socks5_serve
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,7 @@ class ProxyRunResult:
     performed_side_effects: bool
 
 
-def run_proxy_placeholder(
+def run_proxy(
     config: MiGateConfig | None = None,
     *,
     doctor_loader: Callable[[MiGateConfig], ProxyRuntimeReport] | None = None,
@@ -40,7 +40,7 @@ def run_proxy_placeholder(
             performed_side_effects=False,
         )
 
-    serve_result = run_socks5_serve_placeholder(
+    serve_result = run_socks5_serve(
         cfg,
         dry_run=False,
         yes=True,
@@ -57,6 +57,9 @@ def run_proxy_placeholder(
         forwarding_started=serve_result.listener_started,
         performed_side_effects=serve_result.performed_side_effects,
     )
+
+
+run_proxy_placeholder = run_proxy
 
 
 def render_proxy_run_result(result: ProxyRunResult) -> str:

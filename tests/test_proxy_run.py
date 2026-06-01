@@ -1,7 +1,13 @@
 from migate.config import MiGateConfig
-from migate.proxy.run import ProxyRunResult, render_proxy_run_result, run_proxy_placeholder
+from migate.proxy.run import ProxyRunResult, render_proxy_run_result, run_proxy
 from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport
 from migate.proxy.socks5_listener import Socks5ServeResult
+
+
+def test_run_proxy_legacy_placeholder_alias_points_to_runtime_entrypoint():
+    from migate.proxy.run import run_proxy_placeholder
+
+    assert run_proxy_placeholder is run_proxy
 
 
 def test_proxy_run_rejects_when_safety_preflight_fails():
@@ -16,7 +22,7 @@ def test_proxy_run_rejects_when_safety_preflight_fails():
             performed_side_effects=False,
         )
 
-    result = run_proxy_placeholder(
+    result = run_proxy(
         MiGateConfig(),
         doctor_loader=doctor_loader,
         server_starter=lambda *_args, **_kwargs: server_calls.append("started"),
@@ -39,7 +45,7 @@ def test_proxy_run_rejects_xray_tun_upstream_guard_failures_without_starting_lis
     config.egress.backend = "xray-tun"
     server_calls = []
 
-    result = run_proxy_placeholder(
+    result = run_proxy(
         config,
         doctor_loader=lambda loaded_config: ProxyRuntimeReport(
             status="failed",
@@ -94,7 +100,7 @@ def test_proxy_run_starts_local_socks_listener_when_preflight_passes():
             performed_side_effects=True,
         )
 
-    result = run_proxy_placeholder(
+    result = run_proxy(
         MiGateConfig(),
         doctor_loader=lambda config: ProxyRuntimeReport(
             status="ok",

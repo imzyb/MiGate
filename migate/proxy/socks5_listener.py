@@ -211,7 +211,7 @@ def render_socks5_listener_plan(plan: Socks5ListenerPlan) -> str:
     )
 
 
-def run_socks5_serve_placeholder(
+def run_socks5_serve(
     config: MiGateConfig,
     *,
     dry_run: bool = True,
@@ -253,18 +253,23 @@ def run_socks5_serve_placeholder(
             events=[],
             performed_side_effects=False,
         )
-    starter = server_starter or start_socks5_placeholder_server
+    starter = server_starter or start_socks5_server
     return starter(bind_host, bind_port, max_clients, client_timeout)
 
 
-async def _serve_socks5_once(bind_host: str, bind_port: int, max_clients: int, client_timeout: float) -> Socks5ServeResult:
+async def _serve_socks5(bind_host: str, bind_port: int, max_clients: int, client_timeout: float) -> Socks5ServeResult:
     from migate.proxy.socks5_server import serve_socks5_bounded
 
     return await serve_socks5_bounded(bind_host, bind_port, max_clients=max_clients, client_timeout=client_timeout)
 
 
-def start_socks5_placeholder_server(bind_host: str, bind_port: int, max_clients: int, client_timeout: float) -> Socks5ServeResult:
-    return asyncio.run(_serve_socks5_once(bind_host, bind_port, max_clients, client_timeout))
+def start_socks5_server(bind_host: str, bind_port: int, max_clients: int, client_timeout: float) -> Socks5ServeResult:
+    return asyncio.run(_serve_socks5(bind_host, bind_port, max_clients, client_timeout))
+
+
+run_socks5_serve_placeholder = run_socks5_serve
+_serve_socks5_once = _serve_socks5
+start_socks5_placeholder_server = start_socks5_server
 
 
 def render_socks5_serve_output(result: Socks5ServeResult, *, output_format: str) -> str:

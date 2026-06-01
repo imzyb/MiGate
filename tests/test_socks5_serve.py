@@ -15,9 +15,16 @@ from migate.proxy.socks5_listener import (
     render_socks5_serve_result,
     write_socks5_serve_output,
     socks5_serve_result_to_dict,
-    run_socks5_serve_placeholder,
-    start_socks5_placeholder_server,
+    run_socks5_serve,
+    start_socks5_server,
 )
+
+
+def test_socks5_serve_legacy_placeholder_aliases_point_to_runtime_entrypoints():
+    from migate.proxy.socks5_listener import run_socks5_serve_placeholder, start_socks5_placeholder_server
+
+    assert run_socks5_serve_placeholder is run_socks5_serve
+    assert start_socks5_placeholder_server is start_socks5_server
 
 
 def test_summarize_socks5_serve_events_counts_statuses_without_side_effects():
@@ -549,10 +556,10 @@ def test_render_socks5_serve_output_write_result_as_json():
 
 
 
-def test_run_socks5_serve_placeholder_defaults_to_dry_run_without_listening():
+def test_run_socks5_serve_defaults_to_dry_run_without_listening():
     calls = []
 
-    result = run_socks5_serve_placeholder(MiGateConfig(), server_starter=lambda *_args, **_kwargs: calls.append("called"))
+    result = run_socks5_serve(MiGateConfig(), server_starter=lambda *_args, **_kwargs: calls.append("called"))
 
     assert result == Socks5ServeResult(
         status="dry_run",
@@ -571,10 +578,10 @@ def test_run_socks5_serve_placeholder_defaults_to_dry_run_without_listening():
     assert calls == []
 
 
-def test_run_socks5_serve_placeholder_rejects_real_listen_without_double_gate():
+def test_run_socks5_serve_rejects_real_listen_without_double_gate():
     calls = []
 
-    result = run_socks5_serve_placeholder(
+    result = run_socks5_serve(
         MiGateConfig(),
         dry_run=False,
         yes=True,
@@ -589,14 +596,14 @@ def test_run_socks5_serve_placeholder_rejects_real_listen_without_double_gate():
     assert calls == []
 
 
-def test_run_socks5_serve_placeholder_calls_injected_server_starter_only_when_double_gated():
+def test_run_socks5_serve_calls_injected_server_starter_only_when_double_gated():
     calls = []
 
     def fake_server_starter(host: str, port: int, max_clients: int, client_timeout: float):
         calls.append((host, port, max_clients, client_timeout))
         return Socks5ServeResult(
-            status="listening_placeholder",
-            message="SOCKS5 listener placeholder handled zero clients",
+            status="listening",
+            message="SOCKS5 listener handled zero clients",
             bind_host=host,
             bind_port=port,
             listener_started=True,
@@ -609,7 +616,7 @@ def test_run_socks5_serve_placeholder_calls_injected_server_starter_only_when_do
             performed_side_effects=True,
         )
 
-    result = run_socks5_serve_placeholder(
+    result = run_socks5_serve(
         MiGateConfig(),
         dry_run=False,
         yes=True,
@@ -617,14 +624,14 @@ def test_run_socks5_serve_placeholder_calls_injected_server_starter_only_when_do
         server_starter=fake_server_starter,
     )
 
-    assert result.status == "listening_placeholder"
+    assert result.status == "listening"
     assert result.listener_started is True
     assert result.upstream_connections == 0
     assert result.performed_side_effects is True
     assert calls == [("127.0.0.1", 34501, 1, 5.0)]
 
 
-def test_start_socks5_placeholder_server_delegates_to_asyncio_server(monkeypatch):
+def test_start_socks5_server_delegates_to_asyncio_server(monkeypatch):
     calls = []
 
     async def fake_serve_once(host: str, port: int, max_clients: int, client_timeout: float):
@@ -646,9 +653,9 @@ def test_start_socks5_placeholder_server_delegates_to_asyncio_server(monkeypatch
 
     import migate.proxy.socks5_listener as listener_module
 
-    monkeypatch.setattr(listener_module, "_serve_socks5_once", fake_serve_once)
+    monkeypatch.setattr(listener_module, "_serve_socks5", fake_serve_once)
 
-    result = start_socks5_placeholder_server("127.0.0.1", 0, 1, 5.0)
+    result = start_socks5_server("127.0.0.1", 0, 1, 5.0)
 
     assert result.status == "stopped"
     assert result.listener_started is True
