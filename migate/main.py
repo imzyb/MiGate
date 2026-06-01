@@ -18,7 +18,7 @@ from migate.egress.tunnel_backend import TunnelStartPlan, TunnelStopPlan
 from migate.egress.xray_tun_backend import build_xray_tun_start_plan, build_xray_tun_stop_plan
 from migate.proxy.run import render_proxy_run_result, run_proxy
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
-from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, preview_proxy_service_unit, save_proxy_service_unit
+from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, ProxyServiceSaveResult, preview_proxy_service_unit, save_proxy_service_unit
 from migate.remote.acceptance import RemoteAcceptanceResult, render_remote_acceptance_result, run_remote_acceptance
 from migate.remote.doctor import render_remote_doctor_report, run_remote_doctor
 from migate.remote.egress_plan import build_remote_egress_dry_run_plan, render_remote_egress_plan
@@ -423,6 +423,7 @@ def run_setup(
     allow_system_changes: bool,
     xray_install_runner: Callable[[], XrayInstallResult] | None = None,
     xray_service_save_runner: Callable[[], XrayServiceSaveResult] | None = None,
+    proxy_service_save_runner: Callable[[], ProxyServiceSaveResult] | None = None,
 ) -> SetupRunResult:
     plan = build_setup_plan(
         panel_host=panel_host,
@@ -518,17 +519,40 @@ def run_setup(
             performed_side_effects=performed_side_effects,
         )
 
+    proxy_service_result = proxy_service_save_runner() if proxy_service_save_runner else save_proxy_service_unit(
+        DEFAULT_PROXY_SERVICE_PATH,
+        yes=True,
+        allow_system_changes=True,
+    )
+    proxy_service_phase = SetupRunPhase(
+        name="save_proxy_service",
+        status=proxy_service_result.status,
+        message=proxy_service_result.message,
+        performed_side_effects=proxy_service_result.performed_side_effects,
+    )
+    performed_side_effects = performed_side_effects or proxy_service_result.performed_side_effects
+    if proxy_service_result.status != "saved":
+        return _setup_run_result_from_plan(
+            plan,
+            status="failed" if proxy_service_result.status != "rejected" else "rejected",
+            message=f"setup stopped at save_proxy_service: {proxy_service_result.message}",
+            setup_config_target=setup_config_target,
+            phases=[save_phase, install_phase, xray_service_phase, proxy_service_phase],
+            commands_executed=save_result.commands_executed,
+            performed_side_effects=performed_side_effects,
+        )
+
     remaining_phases = [
         SetupRunPhase(step.name, "planned", step.description, False)
         for step in plan.steps
-        if step.name not in {"validate_setup", "save_panel_config", "install_xray", "save_xray_service"}
+        if step.name not in {"validate_setup", "save_panel_config", "install_xray", "save_xray_service", "save_proxy_service"}
     ]
     return _setup_run_result_from_plan(
         plan,
         status="partial",
-        message="setup completed through save_xray_service; remaining privileged phases are still planned",
+        message="setup completed through save_proxy_service; remaining privileged phases are still planned",
         setup_config_target=setup_config_target,
-        phases=[save_phase, install_phase, xray_service_phase, *remaining_phases],
+        phases=[save_phase, install_phase, xray_service_phase, proxy_service_phase, *remaining_phases],
         commands_executed=save_result.commands_executed,
         performed_side_effects=performed_side_effects,
     )
