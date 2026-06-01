@@ -18,6 +18,115 @@ from migate.xray.runtime import XrayRuntimeStatus
 from migate.xray.validator import XrayValidationResult
 
 
+def test_panel_auth_redirects_home_to_login_without_leaking_node_links(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="Secret Node",
+        host="secret.example.com",
+        port=443,
+        credential="secret-uuid",
+        share_link="vless://secret-uuid@secret.example.com:443#Secret",
+        subscription="secret-subscription",
+    )
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            panel_auth_config={
+                "admin_user": "admin",
+                "password_hash": "sha256:5c76fcf4400da3b4804d70b91af20703d483f2c5860cc2f8d59592a1da8d2121",
+                "base_path": "/mg-admin",
+            },
+        )
+    )
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+    assert "vless://" not in response.text
+    assert "secret-subscription" not in response.text
+
+
+
+def test_panel_auth_login_allows_home_and_logout_clears_session(tmp_path):
+    client = TestClient(
+        create_app(
+            node_repository=NodeRepository(tmp_path / "migate.db"),
+            panel_auth_config={
+                "admin_user": "admin",
+                "password_hash": "sha256:5c76fcf4400da3b4804d70b91af20703d483f2c5860cc2f8d59592a1da8d2121",
+                "base_path": "/mg-admin",
+            },
+        )
+    )
+
+    login_page = client.get("/login")
+    assert login_page.status_code == 200
+    assert "MiGate 登录" in login_page.text
+
+    failed = client.post("/login", data={"username": "admin", "password": "wrong"})
+    assert failed.status_code == 401
+    assert "登录失败" in failed.text
+
+    logged_in = client.post("/login", data={"username": "admin", "password": "super-secret-password"}, follow_redirects=False)
+    assert logged_in.status_code == 303
+    assert logged_in.headers["location"] == "/"
+    assert "migate_session" in logged_in.headers.get("set-cookie", "")
+
+    home = client.get("/")
+    assert home.status_code == 200
+    assert "创建节点" in home.text
+    assert "退出登录" in home.text
+
+    logout = client.post("/logout", follow_redirects=False)
+    assert logout.status_code == 303
+    assert logout.headers["location"] == "/login"
+    assert "migate_session" in logout.headers.get("set-cookie", "")
+
+    blocked = client.get("/", follow_redirects=False)
+    assert blocked.status_code == 303
+    assert blocked.headers["location"] == "/login"
+
+
+
+def test_panel_auth_blocks_node_creation_until_logged_in(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            panel_auth_config={
+                "admin_user": "admin",
+                "password_hash": "sha256:5c76fcf4400da3b4804d70b91af20703d483f2c5860cc2f8d59592a1da8d2121",
+                "base_path": "/mg-admin",
+            },
+        )
+    )
+
+    blocked = client.post(
+        "/nodes/create",
+        data={"protocol": "vless", "host": "secret.example.com", "port": "443", "name": "Secret", "credential": "secret-uuid"},
+        follow_redirects=False,
+    )
+
+    assert blocked.status_code == 303
+    assert blocked.headers["location"] == "/login"
+    assert repo.list_nodes() == []
+    assert "vless://" not in blocked.text
+
+    client.post("/login", data={"username": "admin", "password": "super-secret-password"})
+    created = client.post(
+        "/nodes/create",
+        data={"protocol": "vless", "host": "secret.example.com", "port": "443", "name": "Secret", "credential": "secret-uuid"},
+    )
+
+    assert created.status_code == 200
+    assert "vless://secret-uuid@secret.example.com:443" in created.text
+    assert len(repo.list_nodes()) == 1
+
+
+
 def test_panel_home_contains_beginner_node_form_and_status_cards():
     client = TestClient(create_app())
 

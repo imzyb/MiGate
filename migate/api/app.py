@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Sized
 from html import escape
@@ -7,8 +8,8 @@ import platform
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from migate.database.repository import NodeRecord, NodeRepository
 from migate.config import MiGateConfig
@@ -47,6 +48,56 @@ MIGATE_SYSTEMD_SERVICES = ("migate-xray.service", "migate-panel.service", "migat
 
 def _load_migate_systemd_services(status_loader: Callable[[str], SystemdResult]) -> dict[str, SystemdResult]:
     return {service_name: status_loader(service_name) for service_name in MIGATE_SYSTEMD_SERVICES}
+
+
+def _hash_panel_password(password: str) -> str:
+    return "sha256:" + hashlib.sha256(password.encode()).hexdigest()
+
+
+def _panel_auth_enabled(panel_auth_config: dict[str, object] | None) -> bool:
+    return panel_auth_config is not None
+
+
+def _session_token_for_auth_config(panel_auth_config: dict[str, object]) -> str:
+    admin_user = str(panel_auth_config.get("admin_user", ""))
+    password_hash = str(panel_auth_config.get("password_hash", ""))
+    return hashlib.sha256(f"{admin_user}:{password_hash}".encode()).hexdigest()
+
+
+def _is_authenticated(request: Request, panel_auth_config: dict[str, object] | None) -> bool:
+    if not _panel_auth_enabled(panel_auth_config):
+        return True
+    return request.cookies.get("migate_session") == _session_token_for_auth_config(panel_auth_config or {})
+
+
+def _login_html(message: str = "") -> str:
+    message_html = f"<p class=\"warn\">{escape(message)}</p>" if message else ""
+    return _page_shell(
+        f"""
+  <section class="card">
+    <h1>MiGate 登录</h1>
+    <p>请输入 setup 配置中的管理员账号和密码。</p>
+    {message_html}
+    <form method="post" action="/login">
+      <label>用户名
+        <input name="username" required>
+      </label>
+      <label>密码
+        <input name="password" type="password" required>
+      </label>
+      <button type="submit">登录</button>
+    </form>
+  </section>
+"""
+    )
+
+
+def _logout_html() -> str:
+    return """
+  <form method="post" action="/logout">
+    <button type="submit">退出登录</button>
+  </form>
+"""
 
 
 def _page_shell(body: str) -> str:
@@ -161,6 +212,7 @@ def _home_body(
     *,
     nodes: list[NodeRecord] | None = None,
     result_html: str = "",
+    auth_html: str = "",
     systemd_html: str = "",
     service_status_html: str = "",
     xray_runtime_html: str = "",
@@ -178,6 +230,7 @@ def _home_body(
       <h1>MiGate</h1>
       <p>一体化 Xray + VPNGate + OpenVPN 智能出站网关。面板面向小白用户：选择协议、填写域名和端口，即可生成节点链接和订阅内容。</p>
     </div>
+    {auth_html}
   </section>
 
 
@@ -869,6 +922,7 @@ def create_app(
     remote_readiness_loader: Callable[..., RemoteReadinessReport] | None = None,
     remote_leak_check_loader: Callable[..., RemoteLeakCheckReport] | None = None,
     remote_rollout_plan_loader: Callable[..., RemoteRolloutPlan] | None = None,
+    panel_auth_config: dict[str, object] | None = None,
 ) -> FastAPI:
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
     config_path = Path(xray_config_path) if xray_config_path is not None else DEFAULT_XRAY_CONFIG_PATH
@@ -896,6 +950,33 @@ def create_app(
     remote_rollout_loader = remote_rollout_plan_loader or build_remote_rollout_dry_run_plan
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
+
+    def require_panel_auth(request: Request) -> RedirectResponse | None:
+        if _is_authenticated(request, panel_auth_config):
+            return None
+        return RedirectResponse("/login", status_code=303)
+
+    @app.get("/login", response_class=HTMLResponse)
+    def login_page() -> str:
+        return _login_html()
+
+    @app.post("/login", response_class=HTMLResponse)
+    def login(username: str = Form(...), password: str = Form(...)):
+        if not _panel_auth_enabled(panel_auth_config):
+            return RedirectResponse("/", status_code=303)
+        expected_user = str((panel_auth_config or {}).get("admin_user", ""))
+        expected_hash = str((panel_auth_config or {}).get("password_hash", ""))
+        if username != expected_user or _hash_panel_password(password) != expected_hash:
+            return HTMLResponse(_login_html("登录失败"), status_code=401)
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie("migate_session", _session_token_for_auth_config(panel_auth_config or {}), httponly=True, samesite="lax")
+        return response
+
+    @app.post("/logout")
+    def logout() -> RedirectResponse:
+        response = RedirectResponse("/login", status_code=303)
+        response.delete_cookie("migate_session")
+        return response
 
     @app.get("/api/nodes")
     def api_nodes() -> dict[str, object]:
@@ -1116,7 +1197,10 @@ def create_app(
         return dashboard_snapshot()
 
     @app.get("/", response_class=HTMLResponse)
-    def home() -> str:
+    def home(request: Request):
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return auth_redirect
         parts = collect_dashboard_parts()
         nodes, runtime, egress, _proxy, services, _readiness, _leak_check, _rollout = parts
         snapshot = dashboard_snapshot_from_parts(parts)
@@ -1124,6 +1208,7 @@ def create_app(
             _home_body(
                 nodes=nodes,
                 result_html=_dashboard_html(snapshot),
+                auth_html=_logout_html() if _panel_auth_enabled(panel_auth_config) else "",
                 xray_runtime_html=_xray_runtime_status_html(runtime),
                 xray_install_plan_html=_xray_install_plan_html(plan_loader),
                 egress_status_html=_egress_status_report_html(egress),
@@ -1154,12 +1239,16 @@ def create_app(
 
     @app.post("/nodes/create", response_class=HTMLResponse)
     def create_node(
+        request: Request,
         protocol: str = Form(...),
         host: str = Form(...),
         port: int = Form(...),
         name: str = Form("MiGate Node"),
         credential: str = Form(""),
-    ) -> str:
+    ):
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return auth_redirect
         cleaned_name = name.strip() or "MiGate Node"
         cleaned_host = host.strip()
         cleaned_credential = _credential_for_protocol(protocol, credential.strip())
