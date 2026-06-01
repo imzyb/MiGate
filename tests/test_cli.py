@@ -2445,7 +2445,7 @@ def test_xray_deploy_command_exits_nonzero_when_real_orchestrator_rejects(monkey
     assert "performed_side_effects: False" in result.output
 
 
-def test_proxy_doctor_command_reports_runtime_preflight(monkeypatch):
+def test_proxy_doctor_command_exits_nonzero_when_runtime_preflight_fails_closed(monkeypatch):
     from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport
 
     monkeypatch.setattr(
@@ -2453,17 +2453,21 @@ def test_proxy_doctor_command_reports_runtime_preflight(monkeypatch):
         "run_proxy_doctor",
         lambda *args, **kwargs: ProxyRuntimeReport(
             status="failed",
-            checks=[ProxyRuntimeCheck("tun_interface", "failed", "tun-migate interface is missing")],
+            checks=[
+                ProxyRuntimeCheck("tun_interface", "failed", "tun-migate interface is missing"),
+                ProxyRuntimeCheck("egress_guard", "failed", "tun-migate interface is missing; egress blocked"),
+            ],
             performed_side_effects=False,
         ),
     )
 
     result = runner.invoke(app, ["proxy", "doctor"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "Proxy doctor" in result.output
     assert "status: failed" in result.output
     assert "tun_interface: failed - tun-migate interface is missing" in result.output
+    assert "egress_guard: failed - tun-migate interface is missing; egress blocked" in result.output
     assert "performed_side_effects: False" in result.output
 
 
