@@ -121,4 +121,13 @@ def render_remote_rollout_smoke_result(result: RemoteRolloutSmokeResult) -> str:
         )
         for phase in result.rollout.phases:
             lines.append(f"- {phase.action}: {phase.status} - {phase.message}")
+            for command_result in phase.command_results:
+                lines.append(
+                    f"  - {command_result.name}: {command_result.status} "
+                    f"returncode={command_result.returncode}"
+                )
+                if command_result.stdout:
+                    lines.append(f"    stdout: {command_result.stdout}")
+                if command_result.stderr:
+                    lines.append(f"    stderr: {command_result.stderr}")
     return "\n".join(lines) + "\n"
