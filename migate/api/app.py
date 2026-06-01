@@ -14,6 +14,7 @@ from migate.database.repository import NodeRecord, NodeRepository
 from migate.config import MiGateConfig
 from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusReport, run_egress_status
+from migate.proxy.run import ProxyRunResult, run_proxy
 from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
 from migate.routing.policy_plan import build_policy_routing_plan
 from migate.systemd.manager import SystemdResult, daemon_reload, restart_service, service_status
@@ -479,6 +480,30 @@ def _egress_status_report_json(report: EgressStatusReport) -> dict[str, object]:
     }
 
 
+def _proxy_run_result_json(result: ProxyRunResult) -> dict[str, object]:
+    return {
+        "status": result.status,
+        "message": result.message,
+        "listener_started": result.listener_started,
+        "forwarding_started": result.forwarding_started,
+        "accepted_connections": result.accepted_connections,
+        "upstream_connections": result.upstream_connections,
+        "timed_out_connections": result.timed_out_connections,
+        "max_clients": result.max_clients,
+        "serve_mode": result.serve_mode,
+        "client_timeout": result.client_timeout,
+        "checks": [
+            {
+                "name": check.name,
+                "status": check.status,
+                "message": check.message,
+            }
+            for check in result.checks
+        ],
+        "performed_side_effects": result.performed_side_effects,
+    }
+
+
 def _egress_lifecycle_result_json(result: EgressLifecycleResult) -> dict[str, object]:
     return {
         "status": result.status,
@@ -572,6 +597,7 @@ def create_app(
     xray_install_plan_loader: Callable[[], XrayInstallPlan] | None = None,
     xray_install_dry_run_loader: Callable[[], XrayInstallDryRunResult] | None = None,
     egress_status_loader: Callable[[], EgressStatusReport] | None = None,
+    proxy_runtime_loader: Callable[[], ProxyRunResult] | None = None,
     egress_up_dry_run_loader: Callable[[], EgressLifecycleResult] | None = None,
     egress_down_dry_run_loader: Callable[[], EgressLifecycleResult] | None = None,
 ) -> FastAPI:
@@ -593,6 +619,7 @@ def create_app(
     )
     dry_run_loader = xray_install_dry_run_loader or (lambda: dry_run_xray_install_plan(plan_loader()))
     egress_loader = egress_status_loader or (lambda: run_egress_status(migate_config))
+    proxy_loader = proxy_runtime_loader or (lambda: run_proxy(migate_config))
     egress_up_loader = egress_up_dry_run_loader or (lambda: _default_egress_up_dry_run(migate_config))
     egress_down_loader = egress_down_dry_run_loader or (lambda: _default_egress_down_dry_run(migate_config))
     repo.initialize()
@@ -652,6 +679,10 @@ def create_app(
     def api_xray_install_dry_run() -> dict[str, object]:
         return _xray_install_dry_run_json(dry_run_loader())
 
+    @app.get("/api/proxy/runtime")
+    def api_proxy_runtime() -> dict[str, object]:
+        return _proxy_run_result_json(proxy_loader())
+
     @app.get("/api/systemd/units/preview")
     def api_systemd_units_preview() -> dict[str, object]:
         units = [build_xray_unit(migate_config), build_panel_unit(migate_config)]
@@ -687,6 +718,7 @@ def create_app(
         nodes = repo.list_nodes()
         runtime = runtime_loader()
         egress = egress_loader()
+        proxy = proxy_loader()
         services = {
             "migate-xray.service": status_loader("migate-xray.service"),
             "migate-panel.service": status_loader("migate-panel.service"),
@@ -704,6 +736,7 @@ def create_app(
             },
             "xray": _xray_runtime_status_json(runtime, include_output=False),
             "egress": _egress_status_report_json(egress),
+            "proxy": _proxy_run_result_json(proxy),
             "services": _systemd_services_status_json(services),
             "performed_side_effects": False,
         }
