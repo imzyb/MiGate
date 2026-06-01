@@ -768,7 +768,10 @@ def remote_leak_check(
 
 @proxy_app.command("doctor")
 def proxy_doctor() -> None:
-    typer.echo(render_proxy_runtime_report("Proxy doctor", run_proxy_doctor(MiGateConfig())))
+    report = run_proxy_doctor(MiGateConfig())
+    typer.echo(render_proxy_runtime_report("Proxy doctor", report))
+    if report.status != "ok":
+        raise typer.Exit(code=1)
 
 
 @proxy_app.command("status")
