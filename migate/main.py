@@ -867,6 +867,8 @@ def proxy_service_save(
     typer.echo(f"target: {result.target}")
     typer.echo(f"systemctl_commands_executed: {result.systemctl_commands_executed or []}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+    if result.status == "rejected":
+        raise typer.Exit(code=1)
 
 
 @egress_app.command("doctor")
@@ -1137,6 +1139,8 @@ def xray_tun_service_save(
     typer.echo(f"target: {result.target}")
     typer.echo(f"systemctl_commands_executed: {result.systemctl_commands_executed or []}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+    if result.status == "rejected":
+        raise typer.Exit(code=1)
 
 
 @xray_service_app.command("preview")
@@ -1158,6 +1162,8 @@ def xray_service_save(
     typer.echo(f"target: {result.target}")
     typer.echo(f"systemctl_commands_executed: {result.systemctl_commands_executed or []}")
     typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+    if result.status == "rejected":
+        raise typer.Exit(code=1)
 
 
 def _echo_systemctl_result(result: SystemctlActionResult) -> None:
