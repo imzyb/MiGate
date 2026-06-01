@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
-import subprocess
+
 
 
 DEFAULT_SETUP_SERVICE_START_TIMEOUT_SECONDS = 15
@@ -48,16 +50,25 @@ def run_setup_service_start(
         )
 
     commands = [
-        ("daemon_reload", ["systemctl", "daemon-reload"]),
-        ("enable_xray_service", ["systemctl", "enable", "--now", MIGATE_XRAY_SERVICE_NAME]),
-        ("enable_proxy_service", ["systemctl", "enable", "--now", MIGATE_PROXY_SERVICE_NAME]),
+        ("daemon_reload", ["systemctl", "daemon-reload"], True),
+        ("enable_xray_service", ["systemctl", "enable", "--now", MIGATE_XRAY_SERVICE_NAME], True),
+        ("enable_proxy_service", ["systemctl", "enable", "--now", MIGATE_PROXY_SERVICE_NAME], True),
+        ("check_xray_active", ["systemctl", "is-active", MIGATE_XRAY_SERVICE_NAME], False),
+        ("check_proxy_active", ["systemctl", "is-active", MIGATE_PROXY_SERVICE_NAME], False),
+        ("stability_wait", [], False),
+        ("verify_xray_stable", ["systemctl", "is-active", MIGATE_XRAY_SERVICE_NAME], False),
+        ("verify_proxy_stable", ["systemctl", "is-active", MIGATE_PROXY_SERVICE_NAME], False),
     ]
     run = runner or _default_runner
     steps: list[SetupServiceStartCommandResult] = []
     commands_executed: list[list[str]] = []
     performed_side_effects = False
 
-    for name, command in commands:
+    for name, command, is_side_effect in commands:
+        if name == "stability_wait":
+            time.sleep(1.0)
+            continue
+
         commands_executed.append(command)
         try:
             completed = run(command)
@@ -79,7 +90,7 @@ def run_setup_service_start(
                 returncode=None,
                 stdout=_timeout_stream_to_text(exc.output),
                 stderr=_format_timeout_stderr(exc),
-                performed_side_effects=True,
+                performed_side_effects=is_side_effect,
             )
         else:
             step = SetupServiceStartCommandResult(
@@ -89,7 +100,7 @@ def run_setup_service_start(
                 returncode=completed.returncode,
                 stdout=completed.stdout or "",
                 stderr=completed.stderr or "",
-                performed_side_effects=True,
+                performed_side_effects=is_side_effect,
             )
 
         steps.append(step)

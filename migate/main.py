@@ -62,7 +62,7 @@ from migate.routing.policy_plan import build_policy_routing_plan
 from migate.vpn.config_render import OpenVPNRenderPlan, render_openvpn_config_preview
 from migate.vpn.config_save import OpenVPNConfigSaveResult, save_openvpn_config_preview
 from migate.xray.apply_cli import XrayApplyResult, apply_validated_xray_restart, apply_validated_xray_tun_start
-from migate.xray.config_cli import preview_xray_config, save_xray_config
+from migate.xray.config_cli import XrayConfigSaveResult, preview_xray_config, save_xray_config
 from migate.xray.deploy_cli import render_xray_deploy_plan, render_xray_deploy_result, run_xray_deploy
 from migate.xray.doctor import DoctorReport, run_xray_install_doctor
 from migate.xray.install_executor import dry_run_xray_install_plan
@@ -252,6 +252,7 @@ def build_setup_plan(
             SetupStep("validate_setup", "validate requested panel address, admin identity, and path", False),
             SetupStep("save_panel_config", "persist panel host, port, admin hash, and base path", True),
             SetupStep("install_xray", "install xray-core if missing through the gated installer", True),
+            SetupStep("save_xray_config", "write and validate MiGate Xray config", True),
             SetupStep("save_xray_service", "write MiGate Xray systemd service", True),
             SetupStep("save_proxy_service", "write MiGate proxy systemd service", True),
             SetupStep("start_services", "enable and start MiGate services after validation", True),
@@ -423,6 +424,7 @@ def run_setup(
     yes: bool,
     allow_system_changes: bool,
     xray_install_runner: Callable[[], XrayInstallResult] | None = None,
+    xray_config_save_runner: Callable[[], XrayConfigSaveResult] | None = None,
     xray_service_save_runner: Callable[[], XrayServiceSaveResult] | None = None,
     proxy_service_save_runner: Callable[[], ProxyServiceSaveResult] | None = None,
     setup_service_start_runner: Callable[[], SetupServiceStartResult] | None = None,
@@ -494,6 +496,34 @@ def run_setup(
             performed_side_effects=save_result.performed_side_effects or install_result.performed_side_effects,
         )
 
+    xray_config_result = xray_config_save_runner() if xray_config_save_runner else save_xray_config(
+        MiGateConfig(),
+        MiGateConfig().xray.config_path,
+        yes=True,
+        allow_system_changes=True,
+    )
+    xray_config_phase = SetupRunPhase(
+        name="save_xray_config",
+        status=xray_config_result.status,
+        message=xray_config_result.message,
+        performed_side_effects=xray_config_result.performed_side_effects,
+    )
+    performed_side_effects = (
+        save_result.performed_side_effects
+        or install_result.performed_side_effects
+        or xray_config_result.performed_side_effects
+    )
+    if xray_config_result.status != "saved":
+        return _setup_run_result_from_plan(
+            plan,
+            status="failed" if xray_config_result.status != "rejected" else "rejected",
+            message=f"setup stopped at save_xray_config: {xray_config_result.message}",
+            setup_config_target=setup_config_target,
+            phases=[save_phase, install_phase, xray_config_phase],
+            commands_executed=save_result.commands_executed,
+            performed_side_effects=performed_side_effects,
+        )
+
     xray_service_result = xray_service_save_runner() if xray_service_save_runner else save_xray_service_unit(
         DEFAULT_XRAY_SERVICE_PATH,
         yes=True,
@@ -505,18 +535,14 @@ def run_setup(
         message=xray_service_result.message,
         performed_side_effects=xray_service_result.performed_side_effects,
     )
-    performed_side_effects = (
-        save_result.performed_side_effects
-        or install_result.performed_side_effects
-        or xray_service_result.performed_side_effects
-    )
+    performed_side_effects = performed_side_effects or xray_service_result.performed_side_effects
     if xray_service_result.status != "saved":
         return _setup_run_result_from_plan(
             plan,
             status="failed" if xray_service_result.status != "rejected" else "rejected",
             message=f"setup stopped at save_xray_service: {xray_service_result.message}",
             setup_config_target=setup_config_target,
-            phases=[save_phase, install_phase, xray_service_phase],
+            phases=[save_phase, install_phase, xray_config_phase, xray_service_phase],
             commands_executed=save_result.commands_executed,
             performed_side_effects=performed_side_effects,
         )
@@ -539,7 +565,7 @@ def run_setup(
             status="failed" if proxy_service_result.status != "rejected" else "rejected",
             message=f"setup stopped at save_proxy_service: {proxy_service_result.message}",
             setup_config_target=setup_config_target,
-            phases=[save_phase, install_phase, xray_service_phase, proxy_service_phase],
+            phases=[save_phase, install_phase, xray_config_phase, xray_service_phase, proxy_service_phase],
             commands_executed=save_result.commands_executed,
             performed_side_effects=performed_side_effects,
         )
@@ -562,7 +588,7 @@ def run_setup(
             status="failed" if service_start_result.status != "rejected" else "rejected",
             message=f"setup stopped at start_services: {service_start_result.message}",
             setup_config_target=setup_config_target,
-            phases=[save_phase, install_phase, xray_service_phase, proxy_service_phase, service_start_phase],
+            phases=[save_phase, install_phase, xray_config_phase, xray_service_phase, proxy_service_phase, service_start_phase],
             commands_executed=[*save_result.commands_executed, *service_commands],
             performed_side_effects=performed_side_effects,
         )
@@ -572,7 +598,7 @@ def run_setup(
         status="success",
         message="setup completed successfully",
         setup_config_target=setup_config_target,
-        phases=[save_phase, install_phase, xray_service_phase, proxy_service_phase, service_start_phase],
+        phases=[save_phase, install_phase, xray_config_phase, xray_service_phase, proxy_service_phase, service_start_phase],
         commands_executed=[*save_result.commands_executed, *service_commands],
         performed_side_effects=performed_side_effects,
     )

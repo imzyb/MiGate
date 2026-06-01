@@ -32,6 +32,7 @@ from migate.setup_service_start import SetupServiceStartCommandResult, SetupServ
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
 from migate.xray.doctor import DoctorCheck, DoctorReport
 from migate.xray.apply_cli import XrayApplyResult
+from migate.xray.config_cli import XrayConfigSaveResult
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult
 from migate.xray.service_cli import XrayServiceSaveResult
 from migate.xray.validator import XrayValidationResult
@@ -69,11 +70,12 @@ def test_build_setup_plan_redacts_credentials_and_orders_deployment_steps():
         "validate_setup",
         "save_panel_config",
         "install_xray",
+        "save_xray_config",
         "save_xray_service",
         "save_proxy_service",
         "start_services",
     ]
-    assert [step.performs_side_effects for step in plan.steps] == [False, True, True, True, True, True]
+    assert [step.performs_side_effects for step in plan.steps] == [False, True, True, True, True, True, True]
 
 
 
@@ -111,6 +113,7 @@ def test_setup_command_defaults_to_dry_run_deployment_plan_without_side_effects(
     assert "- validate_setup: read-only" in result.output
     assert "- save_panel_config: planned side-effect" in result.output
     assert "- install_xray: planned side-effect" in result.output
+    assert "- save_xray_config: planned side-effect" in result.output
     assert "- save_xray_service: planned side-effect" in result.output
     assert "- save_proxy_service: planned side-effect" in result.output
     assert "- start_services: planned side-effect" in result.output
@@ -246,8 +249,9 @@ def test_build_setup_panel_config_stores_hash_not_plaintext_password():
 
 
 
-def test_run_setup_saves_panel_config_installs_xray_saves_service_units_and_starts_services(tmp_path):
+def test_run_setup_saves_panel_config_installs_xray_config_saves_service_units_and_starts_services(tmp_path):
     target = tmp_path / "panel.json"
+    xray_config_target = tmp_path / "xray" / "config.json"
     xray_service_target = tmp_path / "migate-xray.service"
     proxy_service_target = tmp_path / "migate-proxy.service"
     calls = []
@@ -255,6 +259,18 @@ def test_run_setup_saves_panel_config_installs_xray_saves_service_units_and_star
     def xray_install_runner() -> XrayInstallResult:
         calls.append("install_xray")
         return XrayInstallResult(status="success", message="xray installed", steps=[], performed_side_effects=True)
+
+    def xray_config_save_runner() -> XrayConfigSaveResult:
+        calls.append("save_xray_config")
+        xray_config_target.parent.mkdir(parents=True, exist_ok=True)
+        xray_config_target.write_text('{"inbounds": []}\n', encoding="utf-8")
+        return XrayConfigSaveResult(
+            status="saved",
+            message="config saved and validated",
+            target=xray_config_target,
+            validation_status="valid",
+            performed_side_effects=True,
+        )
 
     def xray_service_save_runner() -> XrayServiceSaveResult:
         calls.append("save_xray_service")
@@ -275,11 +291,15 @@ def test_run_setup_saves_panel_config_installs_xray_saves_service_units_and_star
                 SetupServiceStartCommandResult("daemon_reload", "success", ["systemctl", "daemon-reload"], 0, "reload ok", "", True),
                 SetupServiceStartCommandResult("enable_xray_service", "success", ["systemctl", "enable", "--now", "migate-xray.service"], 0, "xray ok", "", True),
                 SetupServiceStartCommandResult("enable_proxy_service", "success", ["systemctl", "enable", "--now", "migate-proxy.service"], 0, "proxy ok", "", True),
+                SetupServiceStartCommandResult("check_xray_active", "success", ["systemctl", "is-active", "migate-xray.service"], 0, "active\n", "", False),
+                SetupServiceStartCommandResult("check_proxy_active", "success", ["systemctl", "is-active", "migate-proxy.service"], 0, "active\n", "", False),
             ],
             commands_executed=[
                 ["systemctl", "daemon-reload"],
                 ["systemctl", "enable", "--now", "migate-xray.service"],
                 ["systemctl", "enable", "--now", "migate-proxy.service"],
+                ["systemctl", "is-active", "migate-xray.service"],
+                ["systemctl", "is-active", "migate-proxy.service"],
             ],
             performed_side_effects=True,
         )
@@ -295,12 +315,13 @@ def test_run_setup_saves_panel_config_installs_xray_saves_service_units_and_star
         yes=True,
         allow_system_changes=True,
         xray_install_runner=xray_install_runner,
+        xray_config_save_runner=xray_config_save_runner,
         xray_service_save_runner=xray_service_save_runner,
         proxy_service_save_runner=proxy_service_save_runner,
         setup_service_start_runner=setup_service_start_runner,
     )
 
-    assert calls == ["install_xray", "save_xray_service", "save_proxy_service", "start_services"]
+    assert calls == ["install_xray", "save_xray_config", "save_xray_service", "save_proxy_service", "start_services"]
     assert result.status == "success"
     assert result.message == "setup completed successfully"
     assert result.admin_password == "[REDACTED]"
@@ -308,6 +329,7 @@ def test_run_setup_saves_panel_config_installs_xray_saves_service_units_and_star
     assert [(phase.name, phase.status, phase.performed_side_effects) for phase in result.phases] == [
         ("save_panel_config", "success", True),
         ("install_xray", "success", True),
+        ("save_xray_config", "saved", True),
         ("save_xray_service", "saved", True),
         ("save_proxy_service", "saved", True),
         ("start_services", "success", True),
@@ -316,12 +338,59 @@ def test_run_setup_saves_panel_config_installs_xray_saves_service_units_and_star
         "systemctl daemon-reload",
         "systemctl enable --now migate-xray.service",
         "systemctl enable --now migate-proxy.service",
+        "systemctl is-active migate-xray.service",
+        "systemctl is-active migate-proxy.service",
     ]
     assert result.performed_side_effects is True
     assert "super-secret-password" not in json.dumps(result, default=lambda value: value.__dict__)
     assert target.exists()
+    assert xray_config_target.exists()
     assert xray_service_target.exists()
     assert proxy_service_target.exists()
+
+
+def test_run_setup_stops_when_xray_config_save_fails_before_service_units(tmp_path):
+    target = tmp_path / "panel.json"
+    calls = []
+
+    def xray_install_runner() -> XrayInstallResult:
+        calls.append("install_xray")
+        return XrayInstallResult(status="success", message="xray installed", steps=[], performed_side_effects=True)
+
+    def xray_config_save_runner() -> XrayConfigSaveResult:
+        calls.append("save_xray_config")
+        return XrayConfigSaveResult(
+            status="invalid",
+            message="config validation failed; removed invalid new config",
+            target=tmp_path / "xray" / "config.json",
+            validation_status="invalid",
+            performed_side_effects=True,
+            rollback_performed=True,
+        )
+
+    result = run_setup(
+        setup_config_target=target,
+        panel_host="0.0.0.0",
+        panel_port=8787,
+        admin_user="admin",
+        admin_password="super-secret-password",
+        base_path="/mg-admin",
+        public_host="203.0.113.10",
+        yes=True,
+        allow_system_changes=True,
+        xray_install_runner=xray_install_runner,
+        xray_config_save_runner=xray_config_save_runner,
+    )
+
+    assert calls == ["install_xray", "save_xray_config"]
+    assert result.status == "failed"
+    assert result.message == "setup stopped at save_xray_config: config validation failed; removed invalid new config"
+    assert [(phase.name, phase.status) for phase in result.phases] == [
+        ("save_panel_config", "success"),
+        ("install_xray", "success"),
+        ("save_xray_config", "invalid"),
+    ]
+    assert result.performed_side_effects is True
 
 
 
@@ -387,6 +456,7 @@ def test_run_setup_stops_when_xray_service_save_fails(tmp_path):
     assert [(phase.name, phase.status) for phase in result.phases] == [
         ("save_panel_config", "success"),
         ("install_xray", "success"),
+        ("save_xray_config", "saved"),
         ("save_xray_service", "rejected"),
     ]
     assert result.performed_side_effects is True
@@ -431,6 +501,7 @@ def test_run_setup_stops_when_proxy_service_save_fails(tmp_path):
     assert [(phase.name, phase.status) for phase in result.phases] == [
         ("save_panel_config", "success"),
         ("install_xray", "success"),
+        ("save_xray_config", "saved"),
         ("save_xray_service", "saved"),
         ("save_proxy_service", "rejected"),
     ]
@@ -495,6 +566,7 @@ def test_run_setup_stops_when_service_start_fails(tmp_path):
     assert [(phase.name, phase.status) for phase in result.phases] == [
         ("save_panel_config", "success"),
         ("install_xray", "success"),
+        ("save_xray_config", "saved"),
         ("save_xray_service", "saved"),
         ("save_proxy_service", "saved"),
         ("start_services", "failed"),
