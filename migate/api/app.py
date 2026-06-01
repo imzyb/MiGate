@@ -268,10 +268,9 @@ def _service_status_row(service_name: str, result: SystemdResult) -> str:
 """
 
 
-def _service_status_html(status_loader: Callable[[str], SystemdResult], *, refreshed: bool = False) -> str:
-    xray_result = status_loader("migate-xray.service")
-    panel_result = status_loader("migate-panel.service")
+def _service_statuses_html(services: dict[str, SystemdResult], *, refreshed: bool = False) -> str:
     heading = "服务状态已刷新" if refreshed else "服务状态"
+    rows = "\n".join(_service_status_row(name, result) for name, result in services.items())
     return f"""
   <section class="card">
     <h2>{heading}</h2>
@@ -279,14 +278,16 @@ def _service_status_html(status_loader: Callable[[str], SystemdResult], *, refre
     <form method="post" action="/systemd/status/refresh">
       <button type="submit">刷新服务状态</button>
     </form>
-    {_service_status_row("migate-xray.service", xray_result)}
-    {_service_status_row("migate-panel.service", panel_result)}
+    {rows}
   </section>
 """
 
 
-def _xray_runtime_html(runtime_loader: Callable[[], XrayRuntimeStatus], *, refreshed: bool = False) -> str:
-    status = runtime_loader()
+def _service_status_html(status_loader: Callable[[str], SystemdResult], *, refreshed: bool = False) -> str:
+    return _service_statuses_html(_load_migate_systemd_services(status_loader), refreshed=refreshed)
+
+
+def _xray_runtime_status_html(status: XrayRuntimeStatus, *, refreshed: bool = False) -> str:
     heading = "Xray 运行时已刷新" if refreshed else "Xray 运行时"
     version = status.version or "未识别 / 未安装"
     guidance = ""
@@ -308,6 +309,10 @@ def _xray_runtime_html(runtime_loader: Callable[[], XrayRuntimeStatus], *, refre
     <pre>{escape(output)}</pre>
   </section>
 """
+
+
+def _xray_runtime_html(runtime_loader: Callable[[], XrayRuntimeStatus], *, refreshed: bool = False) -> str:
+    return _xray_runtime_status_html(runtime_loader(), refreshed=refreshed)
 
 
 def _xray_install_plan_json(plan: XrayInstallPlan) -> dict[str, object]:
@@ -403,8 +408,7 @@ def _xray_install_dry_run_html(dry_run_loader: Callable[[], XrayInstallDryRunRes
 """
 
 
-def _egress_status_html(status_loader: Callable[[], EgressStatusReport], *, refreshed: bool = False) -> str:
-    report = status_loader()
+def _egress_status_report_html(report: EgressStatusReport, *, refreshed: bool = False) -> str:
     heading = "Egress 出口状态已刷新" if refreshed else "Egress 出口状态"
     checks = "\n".join(f"{check.name}: {check.status} - {check.message}" for check in report.checks)
     preview = "\n".join(
@@ -424,6 +428,10 @@ def _egress_status_html(status_loader: Callable[[], EgressStatusReport], *, refr
     <pre>{escape(preview)}</pre>
   </section>
 """
+
+
+def _egress_status_html(status_loader: Callable[[], EgressStatusReport], *, refreshed: bool = False) -> str:
+    return _egress_status_report_html(status_loader(), refreshed=refreshed)
 
 
 def _egress_dry_run_controls_html() -> str:
@@ -973,17 +981,25 @@ def create_app(
             "performed_side_effects": False,
         }
 
-    def dashboard_snapshot() -> dict[str, object]:
-        nodes = repo.list_nodes()
-        return _dashboard_snapshot_json(
-            nodes=nodes,
-            runtime=runtime_loader(),
-            egress=egress_loader(),
-            proxy=proxy_loader(),
-            services=_load_migate_systemd_services(status_loader),
-            readiness=readiness_loader(host="166.88.232.2", port=22, user="root"),
-            leak_check=leak_check_loader(host="166.88.232.2", port=22, user="root", socks_port=34501),
-            rollout=remote_rollout_loader(
+    def collect_dashboard_parts() -> tuple[
+        list[NodeRecord],
+        XrayRuntimeStatus,
+        EgressStatusReport,
+        ProxyRunResult,
+        dict[str, SystemdResult],
+        RemoteReadinessReport,
+        RemoteLeakCheckReport,
+        RemoteRolloutPlan,
+    ]:
+        return (
+            repo.list_nodes(),
+            runtime_loader(),
+            egress_loader(),
+            proxy_loader(),
+            _load_migate_systemd_services(status_loader),
+            readiness_loader(host="166.88.232.2", port=22, user="root"),
+            leak_check_loader(host="166.88.232.2", port=22, user="root", socks_port=34501),
+            remote_rollout_loader(
                 host="166.88.232.2",
                 port=22,
                 user="root",
@@ -992,22 +1008,51 @@ def create_app(
             ),
         )
 
+    def dashboard_snapshot_from_parts(
+        parts: tuple[
+            list[NodeRecord],
+            XrayRuntimeStatus,
+            EgressStatusReport,
+            ProxyRunResult,
+            dict[str, SystemdResult],
+            RemoteReadinessReport,
+            RemoteLeakCheckReport,
+            RemoteRolloutPlan,
+        ]
+    ) -> dict[str, object]:
+        nodes, runtime, egress, proxy, services, readiness, leak_check, rollout = parts
+        return _dashboard_snapshot_json(
+            nodes=nodes,
+            runtime=runtime,
+            egress=egress,
+            proxy=proxy,
+            services=services,
+            readiness=readiness,
+            leak_check=leak_check,
+            rollout=rollout,
+        )
+
+    def dashboard_snapshot() -> dict[str, object]:
+        return dashboard_snapshot_from_parts(collect_dashboard_parts())
+
     @app.get("/api/dashboard")
     def api_dashboard() -> dict[str, object]:
         return dashboard_snapshot()
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:
-        nodes = repo.list_nodes()
+        parts = collect_dashboard_parts()
+        nodes, runtime, egress, _proxy, services, _readiness, _leak_check, _rollout = parts
+        snapshot = dashboard_snapshot_from_parts(parts)
         return _page_shell(
             _home_body(
                 nodes=nodes,
-                result_html=_dashboard_html(dashboard_snapshot()),
-                xray_runtime_html=_xray_runtime_html(runtime_loader),
+                result_html=_dashboard_html(snapshot),
+                xray_runtime_html=_xray_runtime_status_html(runtime),
                 xray_install_plan_html=_xray_install_plan_html(plan_loader),
-                egress_status_html=_egress_status_html(egress_loader),
+                egress_status_html=_egress_status_report_html(egress),
                 egress_dry_run_html=_egress_dry_run_controls_html(),
-                service_status_html=_service_status_html(status_loader),
+                service_status_html=_service_statuses_html(services),
                 systemd_html=_systemd_preview_html(migate_config),
             )
         )
