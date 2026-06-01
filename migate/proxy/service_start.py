@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import subprocess
 
-from migate.proxy.runtime import ProxyRuntimeReport, run_proxy_doctor
+from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport, run_proxy_doctor
 
 MIGATE_PROXY_SERVICE_NAME = "migate-proxy.service"
 
@@ -27,6 +27,7 @@ class ProxyServiceStartResult:
     status: str
     message: str
     preflight_status: str
+    preflight_checks: list[ProxyRuntimeCheck]
     systemctl_results: list[ProxyServiceStartCommandResult]
     commands_executed: list[list[str]]
     performed_side_effects: bool
@@ -52,6 +53,7 @@ def run_proxy_service_start(
             status="rejected",
             message="proxy service start requires yes=True and allow_system_changes=True",
             preflight_status="skipped",
+            preflight_checks=[],
             systemctl_results=[],
             commands_executed=[],
             performed_side_effects=False,
@@ -63,6 +65,7 @@ def run_proxy_service_start(
             status="preflight_failed",
             message=f"proxy service start blocked by preflight: {preflight.status}",
             preflight_status=preflight.status,
+            preflight_checks=preflight.checks,
             systemctl_results=[],
             commands_executed=[],
             performed_side_effects=False,
@@ -96,6 +99,7 @@ def run_proxy_service_start(
                 status="failed",
                 message=f"proxy service start failed at {name}",
                 preflight_status=preflight.status,
+                preflight_checks=preflight.checks,
                 systemctl_results=results,
                 commands_executed=commands_executed,
                 performed_side_effects=performed_side_effects,
@@ -115,6 +119,7 @@ def run_proxy_service_start(
                 status="failed",
                 message=f"proxy service start failed at {name}",
                 preflight_status=preflight.status,
+                preflight_checks=preflight.checks,
                 systemctl_results=results,
                 commands_executed=commands_executed,
                 performed_side_effects=performed_side_effects or is_side_effect,
@@ -150,6 +155,7 @@ def run_proxy_service_start(
             status="failed",
             message=f"proxy service start failed at {name}",
             preflight_status=preflight.status,
+            preflight_checks=preflight.checks,
             systemctl_results=results,
             commands_executed=commands_executed,
             performed_side_effects=performed_side_effects or is_side_effect,
@@ -159,6 +165,7 @@ def run_proxy_service_start(
         status="success",
         message="MiGate proxy service enabled and started",
         preflight_status=preflight.status,
+        preflight_checks=preflight.checks,
         systemctl_results=results,
         commands_executed=commands_executed,
         performed_side_effects=performed_side_effects,

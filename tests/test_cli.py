@@ -29,6 +29,7 @@ from migate.egress.lifecycle import EgressLifecyclePhase, EgressLifecycleResult
 from migate.egress.status import EgressStatusCheck, EgressStatusReport
 from migate.proxy.service_cli import ProxyServiceSaveResult
 from migate.proxy.service_start import ProxyServiceStartCommandResult, ProxyServiceStartResult
+from migate.proxy.runtime import ProxyRuntimeCheck
 from migate.setup_service_start import SetupServiceStartCommandResult, SetupServiceStartResult
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
 from migate.xray.doctor import DoctorCheck, DoctorReport
@@ -3832,6 +3833,7 @@ def test_proxy_service_start_command_renders_gated_start_result(monkeypatch):
             status="success",
             message="MiGate proxy service enabled and started",
             preflight_status="ok",
+            preflight_checks=[ProxyRuntimeCheck("proxy_runtime", "pass", "ready")],
             systemctl_results=[
                 ProxyServiceStartCommandResult(
                     name="daemon_reload",
@@ -3866,6 +3868,8 @@ def test_proxy_service_start_command_renders_gated_start_result(monkeypatch):
     assert result.exit_code == 0
     assert "status: success" in result.output
     assert "preflight_status: ok" in result.output
+    assert "preflight_checks:" in result.output
+    assert "- proxy_runtime: pass - ready" in result.output
     assert "- action: daemon_reload status: success returncode: 0" in result.output
     assert "- action: enable_proxy_service status: success returncode: 0" in result.output
     assert "performed_side_effects: True" in result.output

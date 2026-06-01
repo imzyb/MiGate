@@ -44,6 +44,7 @@ def test_run_proxy_service_start_rejects_when_preflight_is_not_ok_and_skips_syst
     assert result.status == "preflight_failed"
     assert result.message == "proxy service start blocked by preflight: blocked"
     assert result.preflight_status == "blocked"
+    assert result.preflight_checks == [ProxyRuntimeCheck("tun_interface", "fail", "tun0 missing")]
     assert result.systemctl_results == []
     assert result.commands_executed == []
     assert result.performed_side_effects is False

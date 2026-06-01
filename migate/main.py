@@ -1405,8 +1405,13 @@ def render_proxy_service_start_result(result: ProxyServiceStartResult) -> str:
         f"status: {result.status}",
         f"message: {result.message}",
         f"preflight_status: {result.preflight_status}",
-        "systemctl_results:",
+        "preflight_checks:",
     ]
+    lines.extend(
+        f"- {check.name}: {check.status} - {check.message}"
+        for check in result.preflight_checks
+    )
+    lines.append("systemctl_results:")
     lines.extend(
         f"- action: {step.name} status: {step.status} returncode: {step.returncode}"
         for step in result.systemctl_results
