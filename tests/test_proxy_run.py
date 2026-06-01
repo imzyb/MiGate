@@ -91,9 +91,9 @@ def test_proxy_run_starts_local_socks_listener_when_preflight_passes():
             bind_host=host,
             bind_port=port,
             listener_started=True,
-            accepted_connections=1,
+            accepted_connections=2,
             upstream_connections=1,
-            timed_out_connections=0,
+            timed_out_connections=1,
             max_clients=max_clients,
             client_timeout=client_timeout,
             events=[],
@@ -120,7 +120,36 @@ def test_proxy_run_starts_local_socks_listener_when_preflight_passes():
     assert result.message == "SOCKS5 listener started; direct upstream relay enabled"
     assert result.listener_started is True
     assert result.forwarding_started is True
+    assert result.accepted_connections == 2
+    assert result.upstream_connections == 1
+    assert result.timed_out_connections == 1
+    assert result.max_clients == 0
+    assert result.client_timeout == 0.25
     assert result.performed_side_effects is True
+
+
+def test_render_proxy_run_result_includes_runtime_counters_when_listener_runs():
+    result = ProxyRunResult(
+        status="running",
+        message="SOCKS5 listener started; direct upstream relay enabled",
+        checks=[ProxyRuntimeCheck("fail_policy", "ok", "fail_policy is block")],
+        listener_started=True,
+        forwarding_started=True,
+        accepted_connections=2,
+        upstream_connections=1,
+        timed_out_connections=1,
+        max_clients=0,
+        client_timeout=0.25,
+        performed_side_effects=True,
+    )
+
+    rendered = render_proxy_run_result(result)
+
+    assert "accepted_connections: 2" in rendered
+    assert "upstream_connections: 1" in rendered
+    assert "timed_out_connections: 1" in rendered
+    assert "max_clients: 0" in rendered
+    assert "client_timeout: 0.25" in rendered
 
 
 def test_render_proxy_run_result_is_structured():
