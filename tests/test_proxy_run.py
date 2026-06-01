@@ -6,6 +6,7 @@ from migate.proxy.socks5_listener import Socks5ServeResult
 
 def test_proxy_run_rejects_when_safety_preflight_fails():
     calls = []
+    server_calls = []
 
     def doctor_loader(config: MiGateConfig) -> ProxyRuntimeReport:
         calls.append(config)
@@ -15,7 +16,11 @@ def test_proxy_run_rejects_when_safety_preflight_fails():
             performed_side_effects=False,
         )
 
-    result = run_proxy_placeholder(MiGateConfig(), doctor_loader=doctor_loader)
+    result = run_proxy_placeholder(
+        MiGateConfig(),
+        doctor_loader=doctor_loader,
+        server_starter=lambda *_args, **_kwargs: server_calls.append("started"),
+    )
 
     assert result == ProxyRunResult(
         status="rejected",
@@ -26,6 +31,47 @@ def test_proxy_run_rejects_when_safety_preflight_fails():
         performed_side_effects=False,
     )
     assert len(calls) == 1
+    assert server_calls == []
+
+
+def test_proxy_run_rejects_xray_tun_upstream_guard_failures_without_starting_listener():
+    config = MiGateConfig()
+    config.egress.backend = "xray-tun"
+    server_calls = []
+
+    result = run_proxy_placeholder(
+        config,
+        doctor_loader=lambda loaded_config: ProxyRuntimeReport(
+            status="failed",
+            checks=[
+                ProxyRuntimeCheck("socks_listen", "failed", "127.0.0.1:34501 state is unknown"),
+                ProxyRuntimeCheck(
+                    "egress_guard",
+                    "failed",
+                    "required upstream proxy 127.0.0.1:34501 state is unknown; egress blocked",
+                ),
+            ],
+            performed_side_effects=False,
+        ),
+        server_starter=lambda *_args, **_kwargs: server_calls.append("started"),
+    )
+
+    assert result == ProxyRunResult(
+        status="rejected",
+        message="proxy run preflight failed; listener not started",
+        checks=[
+            ProxyRuntimeCheck("socks_listen", "failed", "127.0.0.1:34501 state is unknown"),
+            ProxyRuntimeCheck(
+                "egress_guard",
+                "failed",
+                "required upstream proxy 127.0.0.1:34501 state is unknown; egress blocked",
+            ),
+        ],
+        listener_started=False,
+        forwarding_started=False,
+        performed_side_effects=False,
+    )
+    assert server_calls == []
 
 
 def test_proxy_run_starts_local_socks_listener_when_preflight_passes():

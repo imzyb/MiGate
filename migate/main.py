@@ -796,8 +796,16 @@ def proxy_status(
 
 
 @proxy_app.command("run")
-def proxy_run() -> None:
-    result = run_proxy_placeholder(MiGateConfig())
+def proxy_run(
+    backend: str | None = typer.Option(None, "--backend", help="Override configured egress backend: openvpn or xray-tun."),
+) -> None:
+    config = _config_with_backend_override(MiGateConfig(), backend)
+    try:
+        _select_tunnel_start_plan(config)
+    except ValueError as exc:
+        _echo_unsupported_egress_backend(exc)
+        raise typer.Exit(code=1) from exc
+    result = run_proxy_placeholder(config)
     typer.echo(render_proxy_run_result(result))
     if result.status == "rejected":
         raise typer.Exit(code=1)

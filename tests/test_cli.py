@@ -2586,6 +2586,59 @@ def test_proxy_status_command_rejects_unknown_backend_without_host_probe(monkeyp
     assert calls == []
 
 
+def test_proxy_run_command_accepts_backend_xray_tun_override_and_renders_preflight_guard_failure(monkeypatch):
+    from migate.proxy.run import ProxyRunResult
+    from migate.proxy.runtime import ProxyRuntimeCheck
+
+    captured = {}
+
+    def fake_run_proxy_placeholder(config, *args, **kwargs):
+        captured["backend"] = config.egress.backend
+        return ProxyRunResult(
+            status="rejected",
+            message="proxy run preflight failed; listener not started",
+            checks=[
+                ProxyRuntimeCheck("socks_listen", "failed", "127.0.0.1:34501 state is unknown"),
+                ProxyRuntimeCheck(
+                    "egress_guard",
+                    "failed",
+                    "required upstream proxy 127.0.0.1:34501 state is unknown; egress blocked",
+                ),
+            ],
+            listener_started=False,
+            forwarding_started=False,
+            performed_side_effects=False,
+        )
+
+    monkeypatch.setattr(main_module, "run_proxy_placeholder", fake_run_proxy_placeholder)
+
+    result = runner.invoke(app, ["proxy", "run", "--backend", "xray-tun"])
+
+    assert result.exit_code == 1
+    assert captured == {"backend": "xray-tun"}
+    assert "Proxy run" in result.output
+    assert "status: rejected" in result.output
+    assert "socks_listen: failed - 127.0.0.1:34501 state is unknown" in result.output
+    assert "egress_guard: failed - required upstream proxy 127.0.0.1:34501 state is unknown; egress blocked" in result.output
+    assert "listener_started: False" in result.output
+    assert "forwarding_started: False" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_proxy_run_command_rejects_unknown_backend_without_running_preflight(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main_module, "run_proxy_placeholder", lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    result = runner.invoke(app, ["proxy", "run", "--backend", "wireguard"])
+
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "unsupported egress backend: wireguard" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert calls == []
+
+
 def test_proxy_run_command_rejects_when_preflight_fails(monkeypatch):
     from migate.proxy.run import ProxyRunResult
     from migate.proxy.runtime import ProxyRuntimeCheck
