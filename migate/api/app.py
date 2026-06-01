@@ -193,6 +193,11 @@ def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
         toggle_action = _panel_url(base_path, f"/nodes/{node.id}/disable" if node.enabled else f"/nodes/{node.id}/enable")
         toggle_label = "禁用节点" if node.enabled else "启用节点"
         delete_action = _panel_url(base_path, f"/nodes/{node.id}/delete")
+        edit_action = _panel_url(base_path, f"/nodes/{node.id}/edit")
+        vless_selected = " selected" if node.protocol == "vless" else ""
+        trojan_selected = " selected" if node.protocol == "trojan" else ""
+        ss_selected = " selected" if node.protocol == "shadowsocks" else ""
+        socks5_port_value = "" if node.socks5_port is None else str(node.socks5_port)
         items.append(
             f"""
     <article class="node">
@@ -211,6 +216,37 @@ def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
           <button type="submit">删除节点</button>
         </form>
       </div>
+      <details>
+        <summary>编辑节点</summary>
+        <form method="post" action="{escape(edit_action)}">
+          <label>节点协议
+            <select name="protocol">
+              <option value="vless"{vless_selected}>VLESS</option>
+              <option value="trojan"{trojan_selected}>Trojan</option>
+              <option value="shadowsocks"{ss_selected}>Shadowsocks</option>
+            </select>
+          </label>
+          <label>节点名称
+            <input name="name" value="{escape(node.name)}">
+          </label>
+          <label>服务器域名/IP
+            <input name="host" value="{escape(node.host)}" required>
+          </label>
+          <label>端口
+            <input name="port" type="number" value="{node.port}" min="1" max="65535" required>
+          </label>
+          <label class="wide">UUID / 密码
+            <input name="credential" value="{escape(node.credential)}" required>
+          </label>
+          <label>SOCKS5 出口主机（可选）
+            <input name="socks5_host" value="{escape(node.socks5_host)}">
+          </label>
+          <label>SOCKS5 出口端口（可选）
+            <input name="socks5_port" type="number" min="1" max="65535" value="{escape(socks5_port_value)}">
+          </label>
+          <button type="submit">保存修改</button>
+        </form>
+      </details>
     </article>
 """
         )
@@ -1409,6 +1445,43 @@ def create_app(
   </section>
 """
         return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, base_path=panel_base_path))
+
+    @app.post(_panel_url(panel_base_path, "/nodes/{node_id}/edit"), response_class=HTMLResponse)
+    def edit_node(
+        node_id: int,
+        protocol: str = Form(...),
+        host: str = Form(...),
+        port: int = Form(...),
+        name: str = Form("MiGate Node"),
+        credential: str = Form(""),
+        socks5_host: str = Form(""),
+        socks5_port: str = Form(""),
+    ) -> str:
+        existing = repo.get_node(node_id)
+        if existing is None:
+            return _node_action_result("节点不存在", f"节点 #{node_id} 不存在。")
+        cleaned_name = name.strip() or "MiGate Node"
+        cleaned_host = host.strip()
+        cleaned_credential = _credential_for_protocol(protocol, credential.strip())
+        cleaned_socks5_host = socks5_host.strip()
+        cleaned_socks5_port = int(socks5_port) if cleaned_socks5_host and socks5_port.strip() else None
+        link = _build_link(protocol=protocol, host=cleaned_host, port=port, name=cleaned_name, credential=cleaned_credential)
+        subscription = build_base64_subscription([link])
+        node = repo.update_node(
+            node_id,
+            protocol=protocol,
+            name=cleaned_name,
+            host=cleaned_host,
+            port=port,
+            credential=cleaned_credential,
+            share_link=link,
+            subscription=subscription,
+            socks5_host=cleaned_socks5_host,
+            socks5_port=cleaned_socks5_port,
+        )
+        if node is None:
+            return _node_action_result("节点不存在", f"节点 #{node_id} 不存在。")
+        return _node_action_result("节点已更新", f"节点 {node.name} 已更新。")
 
     @app.post(_panel_url(panel_base_path, "/nodes/{node_id}/enable"), response_class=HTMLResponse)
     def enable_node(node_id: int) -> str:

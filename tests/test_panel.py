@@ -171,6 +171,54 @@ def test_panel_base_path_blocks_operation_posts_until_logged_in(tmp_path):
 
 
 
+def test_node_repository_update_node_preserves_enabled_and_returns_none_for_missing(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    node = repo.create_node(
+        protocol="trojan",
+        name="Old Repo Node",
+        host="old-repo.example.com",
+        port=443,
+        credential="old-password",
+        share_link="trojan://old-password@old-repo.example.com:443#Old",
+        subscription="old-subscription",
+        socks5_host="127.0.0.1",
+        socks5_port=34501,
+    )
+    repo.set_node_enabled(node.id, False)
+
+    updated = repo.update_node(
+        node.id,
+        protocol="vless",
+        name="Updated Repo Node",
+        host="new-repo.example.com",
+        port=8443,
+        credential="updated-uuid",
+        share_link="vless://updated-uuid@new-repo.example.com:8443#Updated",
+        subscription="updated-subscription",
+        socks5_host="127.0.0.2",
+        socks5_port=34502,
+    )
+
+    assert updated is not None
+    assert updated.enabled is False
+    assert updated.protocol == "vless"
+    assert updated.share_link == "vless://updated-uuid@new-repo.example.com:8443#Updated"
+    assert updated.socks5_host == "127.0.0.2"
+    assert updated.socks5_port == 34502
+    assert repo.update_node(
+        9999,
+        protocol="vless",
+        name="Missing",
+        host="missing.example.com",
+        port=443,
+        credential="missing-uuid",
+        share_link="vless://missing",
+        subscription="missing-subscription",
+    ) is None
+
+
+
 def test_node_repository_can_toggle_and_delete_nodes(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     repo.initialize()
@@ -435,6 +483,124 @@ def test_panel_node_delete_removes_node_from_web_api_and_export(tmp_path):
     exported = client.get("/api/nodes/export").json()
     assert exported["links"] == ["vless://keep-uuid@keep.example.com:443#Keep"]
     assert "doomed-password" not in str(exported)
+
+
+
+def test_panel_node_edit_updates_fields_and_regenerates_link_and_subscription(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    node = repo.create_node(
+        protocol="trojan",
+        name="Old Node",
+        host="old.example.com",
+        port=443,
+        credential="old-password",
+        share_link="trojan://old-password@old.example.com:443#Old",
+        subscription="old-subscription",
+        socks5_host="127.0.0.1",
+        socks5_port=34501,
+    )
+    client = TestClient(create_app(node_repository=repo, panel_config_path=config_path))
+
+    blocked = client.post(
+        f"/mg-admin/nodes/{node.id}/edit",
+        data={
+            "protocol": "vless",
+            "host": "blocked.example.com",
+            "port": "8443",
+            "name": "Blocked",
+            "credential": "blocked-uuid",
+        },
+        follow_redirects=False,
+    )
+    assert blocked.status_code == 303
+    assert blocked.headers["location"] == "/mg-admin/login"
+    assert repo.get_node(node.id).host == "old.example.com"
+
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+    home_before = client.get("/mg-admin/")
+    assert f'action="/mg-admin/nodes/{node.id}/edit"' in home_before.text
+    assert 'name="socks5_host" value="127.0.0.1"' in home_before.text
+    assert 'name="socks5_port" type="number" min="1" max="65535" value="34501"' in home_before.text
+
+    response = client.post(
+        f"/mg-admin/nodes/{node.id}/edit",
+        data={
+            "protocol": "vless",
+            "host": "new.example.com",
+            "port": "8443",
+            "name": "New Node",
+            "credential": "00000000-0000-4000-8000-000000000123",
+            "socks5_host": "127.0.0.2",
+            "socks5_port": "34502",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "节点 New Node 已更新" in response.text
+    updated = repo.get_node(node.id)
+    assert updated.protocol == "vless"
+    assert updated.name == "New Node"
+    assert updated.host == "new.example.com"
+    assert updated.port == 8443
+    assert updated.credential == "00000000-0000-4000-8000-000000000123"
+    assert updated.socks5_host == "127.0.0.2"
+    assert updated.socks5_port == 34502
+    assert updated.enabled is True
+    assert updated.share_link.startswith("vless://00000000-0000-4000-8000-000000000123@new.example.com:8443")
+    assert updated.subscription != "old-subscription"
+    exported = client.get("/api/nodes/export").json()
+    assert exported["links"] == [updated.share_link]
+    assert "old-password" not in str(exported)
+
+
+
+def test_panel_node_edit_preserves_disabled_state_and_can_clear_socks5(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    node = repo.create_node(
+        protocol="trojan",
+        name="Disabled Node",
+        host="disabled.example.com",
+        port=443,
+        credential="disabled-password",
+        share_link="trojan://disabled-password@disabled.example.com:443#Disabled",
+        subscription="disabled-subscription",
+        socks5_host="127.0.0.1",
+        socks5_port=34501,
+    )
+    repo.set_node_enabled(node.id, False)
+    client = TestClient(create_app(node_repository=repo, panel_config_path=config_path))
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+
+    response = client.post(
+        f"/mg-admin/nodes/{node.id}/edit",
+        data={
+            "protocol": "trojan",
+            "host": "disabled-new.example.com",
+            "port": "9443",
+            "name": "Disabled Updated",
+            "credential": "disabled-new-password",
+            "socks5_host": "",
+            "socks5_port": "",
+        },
+    )
+
+    assert response.status_code == 200
+    updated = repo.get_node(node.id)
+    assert updated.enabled is False
+    assert updated.socks5_host == ""
+    assert updated.socks5_port is None
+    assert updated.share_link.startswith("trojan://disabled-new-password@disabled-new.example.com:9443")
+    exported = client.get("/api/nodes/export").json()
+    assert exported["links"] == []
+    inventory = client.get("/api/nodes").json()["nodes"][0]
+    assert inventory["enabled"] is False
+    assert inventory["socks5"] is None
 
 
 
