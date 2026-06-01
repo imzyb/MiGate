@@ -15,6 +15,7 @@ from migate.config import MiGateConfig
 from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusReport, run_egress_status
 from migate.proxy.run import ProxyRunResult, run_proxy
+from migate.proxy.service_cli import preview_proxy_service_unit
 from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
 from migate.routing.policy_plan import build_policy_routing_plan
 from migate.systemd.manager import SystemdResult, daemon_reload, restart_service, service_status
@@ -683,20 +684,39 @@ def create_app(
     def api_proxy_runtime() -> dict[str, object]:
         return _proxy_run_result_json(proxy_loader())
 
+    @app.get("/api/proxy/service/preview")
+    def api_proxy_service_preview() -> dict[str, object]:
+        name = "migate-proxy.service"
+        return {
+            "status": "preview",
+            "name": name,
+            "target_path": str(unit_dir / name),
+            "content": preview_proxy_service_unit(),
+            "systemctl_commands_executed": [],
+            "performed_side_effects": False,
+        }
+
     @app.get("/api/systemd/units/preview")
     def api_systemd_units_preview() -> dict[str, object]:
-        units = [build_xray_unit(migate_config), build_panel_unit(migate_config)]
+        units = [
+            {
+                "name": unit.name,
+                "target_path": str(unit_dir / unit.name),
+                "content": unit.content,
+            }
+            for unit in [build_xray_unit(migate_config), build_panel_unit(migate_config)]
+        ]
+        units.append(
+            {
+                "name": "migate-proxy.service",
+                "target_path": str(unit_dir / "migate-proxy.service"),
+                "content": preview_proxy_service_unit(),
+            }
+        )
         return {
             "status": "preview",
             "target_dir": str(unit_dir),
-            "units": [
-                {
-                    "name": unit.name,
-                    "target_path": str(unit_dir / unit.name),
-                    "content": unit.content,
-                }
-                for unit in units
-            ],
+            "units": units,
             "systemctl_commands_executed": [],
             "performed_side_effects": False,
         }
