@@ -2039,7 +2039,7 @@ def test_xray_tun_service_preview_command_prints_unit_without_systemctl():
 def test_xray_tun_service_save_command_requires_double_gate():
     result = runner.invoke(app, ["xray", "tun-service", "save"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "status: rejected" in result.output
     assert "xray tun service save requires yes=True and allow_system_changes=True" in result.output
     assert "systemctl_commands_executed: []" in result.output
@@ -2087,7 +2087,7 @@ def test_xray_service_preview_command_prints_unit_without_systemctl():
 def test_xray_service_save_command_requires_double_gate():
     result = runner.invoke(app, ["xray", "service", "save"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "status: rejected" in result.output
     assert "service save requires yes=True and allow_system_changes=True" in result.output
     assert "systemctl_commands_executed: []" in result.output
@@ -2987,7 +2987,7 @@ def test_proxy_service_preview_command_prints_unit_without_systemctl():
 def test_proxy_service_save_command_requires_double_gate():
     result = runner.invoke(app, ["proxy", "service", "save"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "status: rejected" in result.output
     assert "proxy service save requires yes=True and allow_system_changes=True" in result.output
     assert "systemctl_commands_executed: []" in result.output
