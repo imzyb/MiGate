@@ -7,6 +7,7 @@ import migate.main as main_module
 from migate.main import (
     app,
     build_panel_server_config,
+    build_setup_panel_config,
     build_setup_plan,
     build_remote_egress_cli_plan,
     build_remote_install_cli_plan,
@@ -145,6 +146,105 @@ def test_setup_command_rejects_real_execution_until_gated_runner_exists():
     assert "super-secret-password" not in result.output
     assert "commands_executed: []" in result.output
     assert "performed_side_effects: False" in result.output
+
+
+
+def test_build_setup_panel_config_stores_hash_not_plaintext_password():
+    config = build_setup_panel_config(
+        panel_host="127.0.0.1",
+        panel_port=8787,
+        admin_user="admin",
+        admin_password="super-secret-password",
+        base_path="mg-admin",
+        public_host="example.com",
+    )
+
+    assert config["password_hash"] == "sha256:5c76fcf4400da3b4804d70b91af20703d483f2c5860cc2f8d59592a1da8d2121"
+    assert "admin_password" not in config
+    assert "super-secret-password" not in json.dumps(config)
+    assert config["base_path"] == "/mg-admin"
+
+
+
+def test_setup_config_save_rejects_without_double_gate_and_does_not_write_or_leak_password(tmp_path):
+    target = tmp_path / "panel.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "setup-config-save",
+            "--target",
+            str(target),
+            "--panel-host",
+            "0.0.0.0",
+            "--panel-port",
+            "8787",
+            "--admin-user",
+            "admin",
+            "--admin-password",
+            "super-secret-password",
+            "--base-path",
+            "/mg-admin",
+            "--public-host",
+            "203.0.113.10",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "MiGate setup config save" in result.output
+    assert "status: rejected" in result.output
+    assert "requires --yes --allow-system-changes" in result.output
+    assert f"target: {target}" in result.output
+    assert "super-secret-password" not in result.output
+    assert "password_hash" not in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert not target.exists()
+
+
+
+def test_setup_config_save_writes_hashed_panel_config_with_double_gate(tmp_path):
+    target = tmp_path / "panel.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "setup-config-save",
+            "--target",
+            str(target),
+            "--panel-host",
+            "0.0.0.0",
+            "--panel-port",
+            "8787",
+            "--admin-user",
+            "admin",
+            "--admin-password",
+            "super-secret-password",
+            "--base-path",
+            "/mg-admin",
+            "--public-host",
+            "203.0.113.10",
+            "--yes",
+            "--allow-system-changes",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "MiGate setup config save" in result.output
+    assert "status: success" in result.output
+    assert f"target: {target}" in result.output
+    assert "validation_status: valid" in result.output
+    assert "performed_side_effects: True" in result.output
+    assert "super-secret-password" not in result.output
+    saved = json.loads(target.read_text())
+    assert saved == {
+        "panel_host": "0.0.0.0",
+        "panel_port": 8787,
+        "admin_user": "admin",
+        "password_hash": "sha256:5c76fcf4400da3b4804d70b91af20703d483f2c5860cc2f8d59592a1da8d2121",
+        "base_path": "/mg-admin",
+        "public_host": "203.0.113.10",
+    }
 
 
 
