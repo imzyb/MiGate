@@ -2472,6 +2472,35 @@ def test_proxy_doctor_command_exits_nonzero_when_runtime_preflight_fails_closed(
     assert "performed_side_effects: False" in result.output
 
 
+def test_proxy_doctor_command_accepts_backend_xray_tun_override_and_renders_upstream_guard_failure(monkeypatch):
+    from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport
+
+    captured = {}
+
+    def fake_run_proxy_doctor(config=None):
+        captured["backend"] = config.egress.backend
+        return ProxyRuntimeReport(
+            status="failed",
+            checks=[
+                ProxyRuntimeCheck("socks_listen", "failed", "127.0.0.1:34501 state is unknown"),
+                ProxyRuntimeCheck("egress_guard", "failed", "required upstream proxy 127.0.0.1:34501 state is unknown; egress blocked"),
+            ],
+            performed_side_effects=False,
+        )
+
+    monkeypatch.setattr(main_module, "run_proxy_doctor", fake_run_proxy_doctor)
+
+    result = runner.invoke(app, ["proxy", "doctor", "--backend", "xray-tun"])
+
+    assert result.exit_code == 1
+    assert captured == {"backend": "xray-tun"}
+    assert "Proxy doctor" in result.output
+    assert "status: failed" in result.output
+    assert "socks_listen: failed - 127.0.0.1:34501 state is unknown" in result.output
+    assert "egress_guard: failed - required upstream proxy 127.0.0.1:34501 state is unknown; egress blocked" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
 def test_proxy_status_command_reports_observational_status(monkeypatch):
     from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport
 
@@ -2492,6 +2521,70 @@ def test_proxy_status_command_reports_observational_status(monkeypatch):
     assert "status: observed" in result.output
     assert "socks_listen: ok - 127.0.0.1:34501 is listening" in result.output
     assert "performed_side_effects: False" in result.output
+
+
+def test_proxy_status_command_accepts_backend_xray_tun_override(monkeypatch):
+    from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport
+
+    captured = {}
+
+    def fake_run_proxy_status(config=None):
+        captured["backend"] = config.egress.backend
+        return ProxyRuntimeReport(
+            status="observed",
+            checks=[ProxyRuntimeCheck("egress_guard", "failed", "required upstream proxy 127.0.0.1:34501 is unavailable; egress blocked")],
+            performed_side_effects=False,
+        )
+
+    monkeypatch.setattr(main_module, "run_proxy_status", fake_run_proxy_status)
+
+    result = runner.invoke(app, ["proxy", "status", "--backend", "xray-tun"])
+
+    assert result.exit_code == 0
+    assert captured == {"backend": "xray-tun"}
+    assert "Proxy status" in result.output
+    assert "status: observed" in result.output
+    assert "egress_guard: failed - required upstream proxy 127.0.0.1:34501 is unavailable; egress blocked" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+def test_proxy_doctor_command_rejects_unknown_backend_without_host_probe(monkeypatch):
+    calls = []
+
+    def fake_run_proxy_doctor(config=None):
+        calls.append(config.egress.backend)
+        raise AssertionError("proxy doctor probe should not run for unsupported backend")
+
+    monkeypatch.setattr(main_module, "run_proxy_doctor", fake_run_proxy_doctor)
+
+    result = runner.invoke(app, ["proxy", "doctor", "--backend", "wireguard"])
+
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "unsupported egress backend: wireguard" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert calls == []
+
+
+def test_proxy_status_command_rejects_unknown_backend_without_host_probe(monkeypatch):
+    calls = []
+
+    def fake_run_proxy_status(config=None):
+        calls.append(config.egress.backend)
+        raise AssertionError("proxy status probe should not run for unsupported backend")
+
+    monkeypatch.setattr(main_module, "run_proxy_status", fake_run_proxy_status)
+
+    result = runner.invoke(app, ["proxy", "status", "--backend", "wireguard"])
+
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "unsupported egress backend: wireguard" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert calls == []
+
 
 def test_proxy_run_command_rejects_when_preflight_fails(monkeypatch):
     from migate.proxy.run import ProxyRunResult

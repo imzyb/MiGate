@@ -767,16 +767,32 @@ def remote_leak_check(
 
 
 @proxy_app.command("doctor")
-def proxy_doctor() -> None:
-    report = run_proxy_doctor(MiGateConfig())
+def proxy_doctor(
+    backend: str | None = typer.Option(None, "--backend", help="Override configured egress backend: openvpn or xray-tun."),
+) -> None:
+    config = _config_with_backend_override(MiGateConfig(), backend)
+    try:
+        _select_tunnel_start_plan(config)
+    except ValueError as exc:
+        _echo_unsupported_egress_backend(exc)
+        raise typer.Exit(code=1) from exc
+    report = run_proxy_doctor(config)
     typer.echo(render_proxy_runtime_report("Proxy doctor", report))
     if report.status != "ok":
         raise typer.Exit(code=1)
 
 
 @proxy_app.command("status")
-def proxy_status() -> None:
-    typer.echo(render_proxy_runtime_report("Proxy status", run_proxy_status(MiGateConfig())))
+def proxy_status(
+    backend: str | None = typer.Option(None, "--backend", help="Override configured egress backend: openvpn or xray-tun."),
+) -> None:
+    config = _config_with_backend_override(MiGateConfig(), backend)
+    try:
+        _select_tunnel_start_plan(config)
+    except ValueError as exc:
+        _echo_unsupported_egress_backend(exc)
+        raise typer.Exit(code=1) from exc
+    typer.echo(render_proxy_runtime_report("Proxy status", run_proxy_status(config)))
 
 
 @proxy_app.command("run")
