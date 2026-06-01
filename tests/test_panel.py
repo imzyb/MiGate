@@ -36,6 +36,132 @@ def test_panel_home_contains_beginner_node_form_and_status_cards():
     assert 'name="port"' in response.text
 
 
+def test_panel_home_renders_readonly_dashboard_cards_from_loaders(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def runtime_loader() -> XrayRuntimeStatus:
+        calls.append("runtime")
+        return XrayRuntimeStatus(
+            status="installed",
+            bin_path="/usr/local/bin/xray",
+            version="1.8.24",
+            message="xray is installed",
+            returncode=0,
+        )
+
+    def egress_status_loader() -> EgressStatusReport:
+        calls.append("egress")
+        return EgressStatusReport(
+            status="observed",
+            checks=[EgressStatusCheck("egress_guard", "ok", "egress safe")],
+            performed_side_effects=False,
+        )
+
+    def proxy_runtime_loader() -> ProxyRunResult:
+        calls.append("proxy")
+        return ProxyRunResult(
+            status="running",
+            message="SOCKS5 listener started; direct upstream relay enabled",
+            checks=[ProxyRuntimeCheck("egress_guard", "ok", "egress safe")],
+            listener_started=True,
+            forwarding_started=True,
+            max_clients=0,
+            serve_mode="continuous",
+            performed_side_effects=True,
+        )
+
+    def status_loader(service_name: str) -> SystemdResult:
+        calls.append(f"status:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
+
+    def readiness_loader(*, host: str, port: int, user: str) -> RemoteReadinessReport:
+        calls.append("readiness")
+        return RemoteReadinessReport(
+            status="ok",
+            target=f"{user}@{host}:{port}",
+            checks=[RemoteReadinessCheck("migate_cli", "ok", "/usr/local/bin/migate")],
+            commands_executed=["ssh readiness"],
+            performed_side_effects=False,
+        )
+
+    def leak_check_loader(*, host: str, port: int, user: str, socks_port: int = 34501) -> RemoteLeakCheckReport:
+        calls.append("leak_check")
+        return RemoteLeakCheckReport(
+            status="ok",
+            target=f"{user}@{host}:{port}",
+            native_public_ip="198.51.100.10",
+            egress_public_ip="203.0.113.20",
+            checks=[RemoteLeakCheck("egress_guard", "ok", "egress guard passed")],
+            commands_executed=["ssh leak-check"],
+            performed_side_effects=False,
+        )
+
+    def rollout_plan_loader(*, host: str, port: int, user: str, staging_dir: str, backend: str | None = None) -> RemoteRolloutPlan:
+        calls.append("rollout")
+        return RemoteRolloutPlan(
+            status="dry_run",
+            message="remote rollout dry-run only; no SSH or system changes performed",
+            target=f"{user}@{host}:{port}",
+            credential_hint="[REDACTED]",
+            staging_dir=staging_dir,
+            steps=[],
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_runtime_loader=runtime_loader,
+            egress_status_loader=egress_status_loader,
+            proxy_runtime_loader=proxy_runtime_loader,
+            systemd_status_loader=status_loader,
+            remote_readiness_loader=readiness_loader,
+            remote_leak_check_loader=leak_check_loader,
+            remote_rollout_plan_loader=rollout_plan_loader,
+        )
+    )
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Dashboard 总览" in decoded
+    assert "整体状态" in decoded
+    assert "ok" in decoded
+    assert "Xray 状态" in decoded
+    assert "installed" in decoded
+    assert "VPNGate 出口" in decoded
+    assert "observed" in decoded
+    assert "SOCKS5 出站" in decoded
+    assert "continuous" in decoded
+    assert "远端 readiness" in decoded
+    assert "root@166.88.232.2:22" in decoded
+    assert "远端 leak-check" in decoded
+    assert "203.0.113.20" in decoded
+    assert "安全预览入口" in decoded
+    assert "/api/dashboard" in decoded
+    assert "/api/remote/rollout/dry-run" in decoded
+    assert "危险动作：禁用" in decoded
+    assert "待接入" not in decoded
+    assert calls == [
+        "runtime",
+        "egress",
+        "proxy",
+        "status:migate-xray.service",
+        "status:migate-panel.service",
+        "status:migate-proxy.service",
+        "readiness",
+        "leak_check",
+        "rollout",
+        "runtime",
+        "egress",
+        "status:migate-xray.service",
+        "status:migate-panel.service",
+    ]
+
+
 def test_panel_create_vless_node_returns_share_link_and_subscription(tmp_path):
     client = TestClient(create_app(xray_config_path=tmp_path / "config.json"))
 
@@ -221,7 +347,7 @@ def test_panel_home_shows_xray_runtime_status_without_install_side_effects(tmp_p
     assert "刷新 Xray 运行时" in decoded
     assert "下载 Xray" not in decoded
     assert "安装 Xray" not in decoded
-    assert calls == ["runtime"]
+    assert calls == ["runtime", "runtime"]
 
 
 def test_panel_xray_runtime_refresh_shows_not_installed_guidance(tmp_path):
@@ -572,7 +698,7 @@ def test_panel_home_shows_egress_status_card_without_start_stop_actions(tmp_path
     assert "performed_side_effects: False" in decoded
     assert "启动 Egress" not in decoded
     assert "停止 Egress" not in decoded
-    assert calls == ["egress-status"]
+    assert calls == ["egress-status", "egress-status"]
 
 
 def test_panel_egress_status_refresh_renders_latest_readonly_report(tmp_path):
@@ -1003,6 +1129,7 @@ def test_panel_dashboard_api_returns_webui_bootstrap_snapshot_without_side_effec
     assert payload["cards"]["remote"]["rollout_dry_run"]["status"] == "dry_run"
     assert payload["actions"] == {
         "safe_previews": [
+            {"name": "dashboard", "method": "GET", "path": "/api/dashboard"},
             {"name": "xray_install_plan", "method": "GET", "path": "/api/xray/install-plan"},
             {"name": "xray_install_dry_run", "method": "GET", "path": "/api/xray/install/dry-run"},
             {"name": "egress_up_dry_run", "method": "GET", "path": "/api/egress/up/dry-run"},
