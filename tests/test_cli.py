@@ -1200,10 +1200,47 @@ def test_run_remote_lifecycle_cli_rejects_real_execution_without_double_gate(mon
     assert calls == []
 
 
-def test_remote_lifecycle_command_real_path_runs_only_doctor_with_double_gate(monkeypatch):
+def test_run_remote_lifecycle_cli_threads_backend_to_acceptance_runner(monkeypatch):
     from migate.remote.doctor import RemoteDoctorCheck, RemoteDoctorReport
 
-    calls = []
+    captured = {}
+    acceptance = RemoteAcceptanceResult(
+        status="success",
+        message="remote acceptance passed",
+        target="root@166.88.232.2:22",
+        expected_phases=["doctor", "rollout_smoke"],
+        phases=[],
+        commands_executed=["acceptance command"],
+        performed_side_effects=True,
+        backend="xray-tun",
+    )
+
+    monkeypatch.setattr(main_module, "run_remote_acceptance_cli", lambda **kwargs: captured.update(kwargs) or acceptance)
+
+    result = run_remote_lifecycle_cli(
+        host="166.88.232.2",
+        port=22,
+        user="root",
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=True,
+        backend="xray-tun",
+        doctor_runner=lambda: RemoteDoctorReport("ok", "root@166.88.232.2:22", [RemoteDoctorCheck("ssh", "ok", "ok")], ["ssh doctor"], False),
+    )
+
+    assert result.status == "success"
+    assert result.commands_executed == ["ssh doctor", "acceptance command"]
+    assert result.performed_side_effects is True
+    assert captured["backend"] == "xray-tun"
+    assert captured["dry_run"] is False
+    assert captured["yes"] is True
+    assert captured["allow_remote_changes"] is True
+
+
+def test_remote_lifecycle_command_real_path_runs_acceptance_with_double_gate(monkeypatch):
+    from migate.remote.doctor import RemoteDoctorCheck, RemoteDoctorReport
+
+    captured = {}
     report = RemoteDoctorReport(
         status="ok",
         target="root@166.88.232.2:22",
@@ -1211,17 +1248,29 @@ def test_remote_lifecycle_command_real_path_runs_only_doctor_with_double_gate(mo
         commands_executed=["ssh -p 22 root@166.88.232.2 ..."],
         performed_side_effects=False,
     )
-    monkeypatch.setattr(main_module, "run_remote_doctor", lambda **kwargs: calls.append(kwargs) or report)
+    acceptance = RemoteAcceptanceResult(
+        status="success",
+        message="remote acceptance passed",
+        target="root@166.88.232.2:22",
+        expected_phases=["doctor", "rollout_smoke"],
+        phases=[],
+        commands_executed=["acceptance command"],
+        performed_side_effects=True,
+        backend="xray-tun",
+    )
+    monkeypatch.setattr(main_module, "run_remote_doctor", lambda **kwargs: report)
+    monkeypatch.setattr(main_module, "run_remote_acceptance_cli", lambda **kwargs: captured.update(kwargs) or acceptance)
 
-    result = runner.invoke(app, ["remote", "lifecycle", "--no-dry-run", "--yes", "--allow-remote-changes"])
+    result = runner.invoke(app, ["remote", "lifecycle", "--backend", "xray-tun", "--no-dry-run", "--yes", "--allow-remote-changes"])
 
     assert result.exit_code == 0
     assert "Remote lifecycle result" in result.output
     assert "status: success" in result.output
     assert "- doctor: success - remote doctor ok" in result.output
-    assert "performed_side_effects: False" in result.output
-    assert "not implemented" in result.output
-    assert len(calls) == 1
+    assert "- acceptance: success - remote acceptance passed" in result.output
+    assert "performed_side_effects: True" in result.output
+    assert "not implemented" not in result.output
+    assert captured["backend"] == "xray-tun"
 
 
 def test_remote_lifecycle_command_real_path_rejects_without_allow_remote_changes(monkeypatch):

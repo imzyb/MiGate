@@ -345,6 +345,7 @@ def run_remote_lifecycle_cli(
     dry_run: bool,
     yes: bool,
     allow_remote_changes: bool,
+    backend: str | None = None,
     doctor_runner: Callable[[], object] | None = None,
 ):
     return run_remote_lifecycle(
@@ -354,7 +355,18 @@ def run_remote_lifecycle_cli(
         dry_run=dry_run,
         yes=yes,
         allow_remote_changes=allow_remote_changes,
+        backend=backend,
         doctor_runner=doctor_runner,
+        acceptance_runner=lambda: run_remote_acceptance_cli(
+            host=host,
+            port=port,
+            user=user,
+            staging_dir="/tmp/migate-install",
+            dry_run=False,
+            yes=True,
+            allow_remote_changes=True,
+            backend=backend,
+        ),
     )
 
 
@@ -690,9 +702,10 @@ def remote_lifecycle(
     host: str = typer.Option("166.88.232.2", "--host", help="Dedicated test VPS host or IP; credentials must not be embedded."),
     port: int = typer.Option(22, "--port", help="SSH port for the dedicated test VPS."),
     user: str = typer.Option("root", "--user", help="SSH username; do not include passwords or tokens."),
+    backend: str | None = typer.Option(None, "--backend", help="Optional egress backend override, for example xray-tun."),
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge remote command execution."),
-    allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the first real remote lifecycle layer to run remote doctor only."),
+    allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow gated remote lifecycle orchestration through acceptance."),
 ) -> None:
     if dry_run:
         plan = build_remote_lifecycle_cli_plan(host=host, port=port, user=user)
@@ -708,6 +721,7 @@ def remote_lifecycle(
         dry_run=dry_run,
         yes=yes,
         allow_remote_changes=allow_remote_changes,
+        backend=backend,
         doctor_runner=lambda: run_remote_doctor(host=host, port=port, user=user),
     )
     typer.echo(render_remote_lifecycle_run_result(result), nl=False)
