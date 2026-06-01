@@ -31,6 +31,7 @@ from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
 from migate.xray.doctor import DoctorCheck, DoctorReport
 from migate.xray.apply_cli import XrayApplyResult
 from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResult
+from migate.xray.service_cli import XrayServiceSaveResult
 from migate.xray.validator import XrayValidationResult
 from migate.remote.egress_runner import RemoteEgressCommandResult
 from migate.remote.install_runner import RemoteInstallCommandResult
@@ -162,7 +163,7 @@ def test_setup_command_real_execution_renders_injected_setup_result_without_touc
         calls.append(kwargs)
         return SetupRunResult(
             status="partial",
-            message="setup completed through install_xray; remaining privileged phases are still planned",
+            message="setup completed through save_xray_service; remaining privileged phases are still planned",
             panel_bind="0.0.0.0:8787",
             panel_url="http://203.0.113.10:8787/mg-admin",
             admin_user="admin",
@@ -172,7 +173,7 @@ def test_setup_command_real_execution_renders_injected_setup_result_without_touc
             phases=[
                 SetupRunPhase("save_panel_config", "success", "setup panel config saved", True),
                 SetupRunPhase("install_xray", "success", "xray installed", True),
-                SetupRunPhase("save_xray_service", "planned", "write MiGate Xray systemd service", False),
+                SetupRunPhase("save_xray_service", "saved", "service unit saved; daemon-reload not run", True),
                 SetupRunPhase("save_proxy_service", "planned", "write MiGate proxy systemd service", False),
                 SetupRunPhase("start_services", "planned", "enable and start MiGate services after validation", False),
             ],
@@ -212,11 +213,11 @@ def test_setup_command_real_execution_renders_injected_setup_result_without_touc
     assert calls[0]["allow_system_changes"] is True
     assert "MiGate setup result" in result.output
     assert "status: partial" in result.output
-    assert "message: setup completed through install_xray; remaining privileged phases are still planned" in result.output
+    assert "message: setup completed through save_xray_service; remaining privileged phases are still planned" in result.output
     assert f"setup_config_target: {target}" in result.output
     assert "save_panel_config: success" in result.output
     assert "install_xray: success" in result.output
-    assert "save_xray_service: planned" in result.output
+    assert "save_xray_service: saved" in result.output
     assert "save_proxy_service: planned" in result.output
     assert "start_services: planned" in result.output
     assert "super-secret-password" not in result.output
@@ -243,13 +244,19 @@ def test_build_setup_panel_config_stores_hash_not_plaintext_password():
 
 
 
-def test_run_setup_saves_panel_config_installs_xray_then_leaves_remaining_privileged_phases_planned(tmp_path):
+def test_run_setup_saves_panel_config_installs_xray_saves_xray_service_then_leaves_remaining_phases_planned(tmp_path):
     target = tmp_path / "panel.json"
+    service_target = tmp_path / "migate-xray.service"
     calls = []
 
     def xray_install_runner() -> XrayInstallResult:
         calls.append("install_xray")
         return XrayInstallResult(status="success", message="xray installed", steps=[], performed_side_effects=True)
+
+    def xray_service_save_runner() -> XrayServiceSaveResult:
+        calls.append("save_xray_service")
+        service_target.write_text("[Unit]\nDescription=MiGate Xray service\n", encoding="utf-8")
+        return XrayServiceSaveResult(status="saved", message="service unit saved; daemon-reload not run", target=service_target, performed_side_effects=True)
 
     result = run_setup(
         setup_config_target=target,
@@ -262,23 +269,25 @@ def test_run_setup_saves_panel_config_installs_xray_then_leaves_remaining_privil
         yes=True,
         allow_system_changes=True,
         xray_install_runner=xray_install_runner,
+        xray_service_save_runner=xray_service_save_runner,
     )
 
-    assert calls == ["install_xray"]
+    assert calls == ["install_xray", "save_xray_service"]
     assert result.status == "partial"
-    assert result.message == "setup completed through install_xray; remaining privileged phases are still planned"
+    assert result.message == "setup completed through save_xray_service; remaining privileged phases are still planned"
     assert result.admin_password == "[REDACTED]"
     assert result.setup_config_target == str(target)
     assert [(phase.name, phase.status, phase.performed_side_effects) for phase in result.phases] == [
         ("save_panel_config", "success", True),
         ("install_xray", "success", True),
-        ("save_xray_service", "planned", False),
+        ("save_xray_service", "saved", True),
         ("save_proxy_service", "planned", False),
         ("start_services", "planned", False),
     ]
     assert result.performed_side_effects is True
     assert "super-secret-password" not in json.dumps(result, default=lambda value: value.__dict__)
     assert target.exists()
+    assert service_target.exists()
 
 
 
@@ -306,6 +315,45 @@ def test_run_setup_stops_when_xray_install_fails(tmp_path):
     assert [(phase.name, phase.status) for phase in result.phases] == [
         ("save_panel_config", "success"),
         ("install_xray", "failed"),
+    ]
+    assert result.performed_side_effects is True
+    assert target.exists()
+
+
+
+def test_run_setup_stops_when_xray_service_save_fails(tmp_path):
+    target = tmp_path / "panel.json"
+    calls = []
+
+    def xray_install_runner() -> XrayInstallResult:
+        calls.append("install_xray")
+        return XrayInstallResult(status="success", message="xray installed", steps=[], performed_side_effects=True)
+
+    def xray_service_save_runner() -> XrayServiceSaveResult:
+        calls.append("save_xray_service")
+        return XrayServiceSaveResult(status="rejected", message="service save requires yes=True and allow_system_changes=True", target=tmp_path / "migate-xray.service", performed_side_effects=False)
+
+    result = run_setup(
+        setup_config_target=target,
+        panel_host="0.0.0.0",
+        panel_port=8787,
+        admin_user="admin",
+        admin_password="super-secret-password",
+        base_path="/mg-admin",
+        public_host="203.0.113.10",
+        yes=True,
+        allow_system_changes=True,
+        xray_install_runner=xray_install_runner,
+        xray_service_save_runner=xray_service_save_runner,
+    )
+
+    assert calls == ["install_xray", "save_xray_service"]
+    assert result.status == "rejected"
+    assert result.message == "setup stopped at save_xray_service: service save requires yes=True and allow_system_changes=True"
+    assert [(phase.name, phase.status) for phase in result.phases] == [
+        ("save_panel_config", "success"),
+        ("install_xray", "success"),
+        ("save_xray_service", "rejected"),
     ]
     assert result.performed_side_effects is True
     assert target.exists()

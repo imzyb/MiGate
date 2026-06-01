@@ -70,6 +70,7 @@ from migate.xray.install_runner import XrayInstallCommandResult, XrayInstallResu
 from migate.xray.service_cli import (
     DEFAULT_XRAY_SERVICE_PATH,
     DEFAULT_XRAY_TUN_SERVICE_PATH,
+    XrayServiceSaveResult,
     preview_xray_service_unit,
     preview_xray_tun_service_unit,
     save_xray_service_unit,
@@ -421,6 +422,7 @@ def run_setup(
     yes: bool,
     allow_system_changes: bool,
     xray_install_runner: Callable[[], XrayInstallResult] | None = None,
+    xray_service_save_runner: Callable[[], XrayServiceSaveResult] | None = None,
 ) -> SetupRunResult:
     plan = build_setup_plan(
         panel_host=panel_host,
@@ -489,19 +491,46 @@ def run_setup(
             performed_side_effects=save_result.performed_side_effects or install_result.performed_side_effects,
         )
 
+    xray_service_result = xray_service_save_runner() if xray_service_save_runner else save_xray_service_unit(
+        DEFAULT_XRAY_SERVICE_PATH,
+        yes=True,
+        allow_system_changes=True,
+    )
+    xray_service_phase = SetupRunPhase(
+        name="save_xray_service",
+        status=xray_service_result.status,
+        message=xray_service_result.message,
+        performed_side_effects=xray_service_result.performed_side_effects,
+    )
+    performed_side_effects = (
+        save_result.performed_side_effects
+        or install_result.performed_side_effects
+        or xray_service_result.performed_side_effects
+    )
+    if xray_service_result.status != "saved":
+        return _setup_run_result_from_plan(
+            plan,
+            status="failed" if xray_service_result.status != "rejected" else "rejected",
+            message=f"setup stopped at save_xray_service: {xray_service_result.message}",
+            setup_config_target=setup_config_target,
+            phases=[save_phase, install_phase, xray_service_phase],
+            commands_executed=save_result.commands_executed,
+            performed_side_effects=performed_side_effects,
+        )
+
     remaining_phases = [
         SetupRunPhase(step.name, "planned", step.description, False)
         for step in plan.steps
-        if step.name not in {"validate_setup", "save_panel_config", "install_xray"}
+        if step.name not in {"validate_setup", "save_panel_config", "install_xray", "save_xray_service"}
     ]
     return _setup_run_result_from_plan(
         plan,
         status="partial",
-        message="setup completed through install_xray; remaining privileged phases are still planned",
+        message="setup completed through save_xray_service; remaining privileged phases are still planned",
         setup_config_target=setup_config_target,
-        phases=[save_phase, install_phase, *remaining_phases],
+        phases=[save_phase, install_phase, xray_service_phase, *remaining_phases],
         commands_executed=save_result.commands_executed,
-        performed_side_effects=save_result.performed_side_effects or install_result.performed_side_effects,
+        performed_side_effects=performed_side_effects,
     )
 
 
