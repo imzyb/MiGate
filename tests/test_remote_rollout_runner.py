@@ -233,39 +233,60 @@ def test_service_apply_runner_uses_xray_tun_service_substeps_for_xray_tun_backen
     ]
 
 
-def test_socks5_smoke_runner_reports_loopback_greeting_diagnostics_without_side_effects():
+def test_socks5_smoke_runner_reports_loopback_connect_relay_diagnostics_without_side_effects():
     plan = _plan()
     calls = []
 
     def runner(command: str) -> RemoteRolloutCommandResult:
         calls.append(command)
-        return RemoteRolloutCommandResult(1, "connect stdout", "connection refused")
+        return RemoteRolloutCommandResult(1, "connect stdout", "relay failed")
 
     phase = build_remote_rollout_socks5_smoke_runner(plan, runner=runner)()
 
     expected_command = (
         "ssh -p 22 root@166.88.232.2 -- 'python3 - <<\"PY\"\n"
         "import socket\n"
+        "import threading\n"
+        "ready = threading.Event()\n"
+        "upstream = socket.socket()\n"
+        "upstream.bind((\"127.0.0.1\", 0))\n"
+        "upstream.listen(1)\n"
+        "upstream_port = upstream.getsockname()[1]\n"
+        "def echo_once():\n"
+        "    ready.set()\n"
+        "    conn, _ = upstream.accept()\n"
+        "    data = conn.recv(4)\n"
+        "    assert data == b\"ping\"\n"
+        "    conn.sendall(b\"pong\")\n"
+        "    conn.close()\n"
+        "    upstream.close()\n"
+        "threading.Thread(target=echo_once, daemon=True).start()\n"
+        "ready.wait(5)\n"
         "s=socket.create_connection((\"127.0.0.1\", 34501), timeout=5)\n"
         "s.sendall(bytes([5,1,0]))\n"
         "assert s.recv(2) == bytes([5,0])\n"
+        "s.sendall(bytes([5,1,0,1,127,0,0,1,upstream_port >> 8, upstream_port & 255]))\n"
+        "reply = s.recv(10)\n"
+        "assert reply[:2] == bytes([5,0])\n"
+        "s.sendall(b\"ping\")\n"
+        "assert s.recv(4) == b\"pong\"\n"
         "s.close()\n"
         "PY'"
     )
     assert phase.action == "socks5_smoke"
     assert phase.status == "failed"
-    assert phase.message == "socks5_smoke failed at loopback_greeting"
+    assert phase.message == "socks5_smoke failed at loopback_connect_relay"
     assert calls == [expected_command]
     assert phase.commands_executed == [expected_command]
     assert phase.performed_side_effects is False
     assert phase.command_results == [
         RemoteRolloutSubstepResult(
-            name="loopback_greeting",
+            name="loopback_connect_relay",
             status="failed",
             command=expected_command,
             returncode=1,
             stdout="connect stdout",
-            stderr="connection refused",
+            stderr="relay failed",
         )
     ]
 
@@ -320,12 +341,12 @@ def test_run_remote_rollout_plan_preserves_failed_socks5_smoke_substep_diagnosti
     socks_phase = RemoteRolloutPhaseResult(
         action="socks5_smoke",
         status="failed",
-        message="socks5_smoke failed at loopback_greeting",
+        message="socks5_smoke failed at loopback_connect_relay",
         commands_executed=["ssh socks smoke"],
         performed_side_effects=False,
         command_results=[
             RemoteRolloutSubstepResult(
-                name="loopback_greeting",
+                name="loopback_connect_relay",
                 status="failed",
                 command="ssh socks smoke",
                 returncode=1,
@@ -357,7 +378,7 @@ def test_run_remote_rollout_plan_preserves_failed_socks5_smoke_substep_diagnosti
     assert result.phases[-1].command_results == socks_phase.command_results
     assert result.commands_executed == ["install command", "ssh readiness", "egress command", "service command", "ssh socks smoke"]
     rendered = render_remote_rollout_run_result(result)
-    assert "  - loopback_greeting: failed returncode=1" in rendered
+    assert "  - loopback_connect_relay: failed returncode=1" in rendered
     assert "    stderr: connection refused" in rendered
 
 

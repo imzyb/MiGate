@@ -282,12 +282,12 @@ def test_run_remote_rollout_cli_stops_at_default_socks5_smoke_failure_and_render
     assert result.message == "remote rollout stopped at socks5_smoke"
     assert calls == ["install", "readiness", "egress_up", "service_apply"]
     assert [phase.action for phase in result.phases] == ["install", "readiness", "egress_up", "service_apply", "socks5_smoke"]
-    assert result.phases[-1].message == "socks5_smoke failed at loopback_greeting"
+    assert result.phases[-1].message == "socks5_smoke failed at loopback_connect_relay"
     assert result.phases[-1].performed_side_effects is False
     assert smoke_commands == result.phases[-1].commands_executed
     rendered = render_remote_rollout_run_result(result)
-    assert "- socks5_smoke: failed - socks5_smoke failed at loopback_greeting" in rendered
-    assert "  - loopback_greeting: failed returncode=1" in rendered
+    assert "- socks5_smoke: failed - socks5_smoke failed at loopback_connect_relay" in rendered
+    assert "  - loopback_connect_relay: failed returncode=1" in rendered
     assert "    stderr: connection refused" in rendered
     assert "leak_check" not in calls
 

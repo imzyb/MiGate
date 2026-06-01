@@ -212,7 +212,7 @@ def build_remote_rollout_socks5_smoke_runner(
         status = "success" if command_result.returncode == 0 else "failed"
         command_results = [
             RemoteRolloutSubstepResult(
-                name="loopback_greeting",
+                name="loopback_connect_relay",
                 status=status,
                 command=command,
                 returncode=command_result.returncode,
@@ -223,7 +223,7 @@ def build_remote_rollout_socks5_smoke_runner(
         return RemoteRolloutPhaseResult(
             action="socks5_smoke",
             status=status,
-            message="socks5_smoke ok" if status == "success" else "socks5_smoke failed at loopback_greeting",
+            message="socks5_smoke ok" if status == "success" else "socks5_smoke failed at loopback_connect_relay",
             commands_executed=[command],
             performed_side_effects=step.performs_side_effects,
             command_results=command_results,

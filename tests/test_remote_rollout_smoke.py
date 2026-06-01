@@ -161,12 +161,12 @@ def test_render_remote_rollout_smoke_result_includes_nested_failed_socks5_smoke_
             RemoteRolloutPhaseResult(
                 action="socks5_smoke",
                 status="failed",
-                message="socks5_smoke failed at loopback_greeting",
+                message="socks5_smoke failed at loopback_connect_relay",
                 commands_executed=["ssh socks smoke"],
                 performed_side_effects=False,
                 command_results=[
                     RemoteRolloutSubstepResult(
-                        name="loopback_greeting",
+                        name="loopback_connect_relay",
                         status="failed",
                         command="ssh socks smoke",
                         returncode=1,
@@ -190,8 +190,8 @@ def test_render_remote_rollout_smoke_result_includes_nested_failed_socks5_smoke_
     rendered = render_remote_rollout_smoke_result(result)
 
     assert "remote rollout smoke failed: remote rollout stopped at socks5_smoke" in rendered
-    assert "- socks5_smoke: failed - socks5_smoke failed at loopback_greeting" in rendered
-    assert "  - loopback_greeting: failed returncode=1" in rendered
+    assert "- socks5_smoke: failed - socks5_smoke failed at loopback_connect_relay" in rendered
+    assert "  - loopback_connect_relay: failed returncode=1" in rendered
     assert "    stdout: smoke stdout" in rendered
     assert "    stderr: connection refused" in rendered
 

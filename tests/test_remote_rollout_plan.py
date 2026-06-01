@@ -48,7 +48,7 @@ def test_remote_rollout_dry_run_orders_install_readiness_egress_service_smoke_th
             RemoteRolloutStep(
                 action="socks5_smoke",
                 description="run read-only remote SOCKS5 loopback smoke check after proxy service starts",
-                command_preview="ssh -p 22 root@166.88.232.2 -- 'python3 - <<\"PY\"\nimport socket\ns=socket.create_connection((\"127.0.0.1\", 34501), timeout=5)\ns.sendall(bytes([5,1,0]))\nassert s.recv(2) == bytes([5,0])\ns.close()\nPY'",
+                command_preview="ssh -p 22 root@166.88.232.2 -- 'python3 - <<\"PY\"\nimport socket\nimport threading\nready = threading.Event()\nupstream = socket.socket()\nupstream.bind((\"127.0.0.1\", 0))\nupstream.listen(1)\nupstream_port = upstream.getsockname()[1]\ndef echo_once():\n    ready.set()\n    conn, _ = upstream.accept()\n    data = conn.recv(4)\n    assert data == b\"ping\"\n    conn.sendall(b\"pong\")\n    conn.close()\n    upstream.close()\nthreading.Thread(target=echo_once, daemon=True).start()\nready.wait(5)\ns=socket.create_connection((\"127.0.0.1\", 34501), timeout=5)\ns.sendall(bytes([5,1,0]))\nassert s.recv(2) == bytes([5,0])\ns.sendall(bytes([5,1,0,1,127,0,0,1,upstream_port >> 8, upstream_port & 255]))\nreply = s.recv(10)\nassert reply[:2] == bytes([5,0])\ns.sendall(b\"ping\")\nassert s.recv(4) == b\"pong\"\ns.close()\nPY'",
                 performs_side_effects=False,
             ),
             RemoteRolloutStep(

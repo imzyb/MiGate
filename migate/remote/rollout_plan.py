@@ -68,9 +68,30 @@ def build_remote_rollout_dry_run_plan(*, host: str, port: int, user: str, stagin
     socks5_smoke_remote_script = (
         'python3 - <<"PY"\n'
         "import socket\n"
+        "import threading\n"
+        "ready = threading.Event()\n"
+        "upstream = socket.socket()\n"
+        'upstream.bind(("127.0.0.1", 0))\n'
+        "upstream.listen(1)\n"
+        "upstream_port = upstream.getsockname()[1]\n"
+        "def echo_once():\n"
+        "    ready.set()\n"
+        "    conn, _ = upstream.accept()\n"
+        "    data = conn.recv(4)\n"
+        '    assert data == b"ping"\n'
+        '    conn.sendall(b"pong")\n'
+        "    conn.close()\n"
+        "    upstream.close()\n"
+        "threading.Thread(target=echo_once, daemon=True).start()\n"
+        "ready.wait(5)\n"
         's=socket.create_connection(("127.0.0.1", 34501), timeout=5)\n'
         "s.sendall(bytes([5,1,0]))\n"
         "assert s.recv(2) == bytes([5,0])\n"
+        "s.sendall(bytes([5,1,0,1,127,0,0,1,upstream_port >> 8, upstream_port & 255]))\n"
+        "reply = s.recv(10)\n"
+        "assert reply[:2] == bytes([5,0])\n"
+        's.sendall(b"ping")\n'
+        'assert s.recv(4) == b"pong"\n'
         "s.close()\n"
         "PY"
     )
