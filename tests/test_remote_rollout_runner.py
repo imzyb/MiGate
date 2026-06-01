@@ -220,16 +220,14 @@ def test_service_apply_runner_uses_xray_tun_service_substeps_for_xray_tun_backen
     assert calls == [
         "ssh -p 22 root@166.88.232.2 -- 'migate xray tun-service save --yes --allow-system-changes'",
         "ssh -p 22 root@166.88.232.2 -- 'migate proxy service save --yes --allow-system-changes'",
-        "ssh -p 22 root@166.88.232.2 -- 'systemctl daemon-reload'",
-        "ssh -p 22 root@166.88.232.2 -- 'systemctl restart migate-xray-tun.service migate-proxy.service'",
-        "ssh -p 22 root@166.88.232.2 -- 'systemctl is-active migate-xray-tun.service migate-proxy.service'",
+        "ssh -p 22 root@166.88.232.2 -- 'migate xray apply tun-start --yes --allow-system-changes'",
+        "ssh -p 22 root@166.88.232.2 -- 'migate proxy service start --yes --allow-system-changes'",
     ]
     assert [step.name for step in phase.command_results] == [
         "xray_tun_service_save",
         "proxy_service_save",
-        "daemon_reload",
-        "restart_services",
-        "verify_services_active",
+        "xray_tun_apply_start",
+        "proxy_service_start",
     ]
 
 
