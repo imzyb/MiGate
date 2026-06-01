@@ -144,6 +144,20 @@ def test_panel_home_renders_readonly_dashboard_cards_from_loaders(tmp_path):
     assert "/api/dashboard" in decoded
     assert "/api/remote/rollout/dry-run" in decoded
     assert "危险动作：禁用" in decoded
+    assert "远端状态详情" in decoded
+    assert "readiness: ok" in decoded
+    assert "migate_cli: ok - /usr/local/bin/migate" in decoded
+    assert "commands_executed: ['ssh readiness']" in decoded
+    assert "leak-check: ok" in decoded
+    assert "native_public_ip: 198.51.100.10" in decoded
+    assert "egress_public_ip: 203.0.113.20" in decoded
+    assert "egress_guard: ok - egress guard passed" in decoded
+    assert "rollout dry-run: dry_run" in decoded
+    assert "staging_dir: /tmp/migate-install" in decoded
+    assert "performed_side_effects: False" in decoded
+    assert "执行 rollout" not in decoded
+    assert "远端安装" not in decoded
+    assert "启动远端服务" not in decoded
     assert "待接入" not in decoded
     assert calls == [
         "runtime",
@@ -156,6 +170,88 @@ def test_panel_home_renders_readonly_dashboard_cards_from_loaders(tmp_path):
         "leak_check",
         "rollout",
     ]
+
+
+def test_panel_home_renders_remote_fail_closed_details_without_dangerous_actions(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def runtime_loader() -> XrayRuntimeStatus:
+        return XrayRuntimeStatus(status="installed", bin_path="/usr/local/bin/xray", version="1.8.24", message="xray is installed")
+
+    def egress_status_loader() -> EgressStatusReport:
+        return EgressStatusReport(status="observed", checks=[EgressStatusCheck("egress_guard", "ok", "local egress safe")], performed_side_effects=False)
+
+    def proxy_runtime_loader() -> ProxyRunResult:
+        return ProxyRunResult(status="running", message="SOCKS5 listener started", checks=[], listener_started=True, forwarding_started=True, serve_mode="continuous", performed_side_effects=True)
+
+    def status_loader(service_name: str) -> SystemdResult:
+        return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
+
+    def readiness_loader(*, host: str, port: int, user: str) -> RemoteReadinessReport:
+        calls.append("readiness")
+        return RemoteReadinessReport(
+            status="ok",
+            target="[REDACTED]",
+            checks=[RemoteReadinessCheck("migate_cli", "ok", "/usr/local/bin/migate")],
+            commands_executed=["ssh readiness"],
+            performed_side_effects=False,
+        )
+
+    def leak_check_loader(*, host: str, port: int, user: str, socks_port: int = 34501) -> RemoteLeakCheckReport:
+        calls.append("leak_check")
+        return RemoteLeakCheckReport(
+            status="failed",
+            target="[REDACTED]",
+            native_public_ip="198.51.100.10",
+            egress_public_ip="198.51.100.10",
+            checks=[RemoteLeakCheck("egress_guard", "failed", "blocked: native public IP leak detected")],
+            commands_executed=["ssh leak-check"],
+            performed_side_effects=False,
+        )
+
+    def rollout_plan_loader(*, host: str, port: int, user: str, staging_dir: str, backend: str | None = None) -> RemoteRolloutPlan:
+        calls.append("rollout")
+        return RemoteRolloutPlan(
+            status="dry_run",
+            message="remote rollout dry-run only; no SSH or system changes performed",
+            target="[REDACTED]",
+            credential_hint="[REDACTED]",
+            staging_dir=staging_dir,
+            steps=[],
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_runtime_loader=runtime_loader,
+            egress_status_loader=egress_status_loader,
+            proxy_runtime_loader=proxy_runtime_loader,
+            systemd_status_loader=status_loader,
+            remote_readiness_loader=readiness_loader,
+            remote_leak_check_loader=leak_check_loader,
+            remote_rollout_plan_loader=rollout_plan_loader,
+        )
+    )
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "远端状态详情" in decoded
+    assert "leak-check: failed" in decoded
+    assert "egress_guard: failed - blocked: native public IP leak detected" in decoded
+    assert "native_public_ip: 198.51.100.10" in decoded
+    assert "egress_public_ip: 198.51.100.10" in decoded
+    assert "performed_side_effects: False" in decoded
+    assert "危险动作：禁用" in decoded
+    assert "执行 rollout" not in decoded
+    assert "远端安装" not in decoded
+    assert "启动远端服务" not in decoded
+    assert calls == ["readiness", "leak_check", "rollout"]
+
 
 
 def test_panel_create_vless_node_returns_share_link_and_subscription(tmp_path):

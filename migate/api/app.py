@@ -18,7 +18,7 @@ from migate.proxy.run import ProxyRunResult, run_proxy
 from migate.proxy.service_cli import preview_proxy_service_unit
 from migate.remote.leak_check import RemoteLeakCheckReport, run_remote_leak_check
 from migate.remote.readiness import RemoteReadinessReport, run_remote_readiness
-from migate.remote.rollout_plan import RemoteRolloutPlan, build_remote_rollout_dry_run_plan
+from migate.remote.rollout_plan import RemoteRolloutPlan, RemoteRolloutStep, build_remote_rollout_dry_run_plan
 from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
 from migate.routing.policy_plan import build_policy_routing_plan
 from migate.systemd.manager import SystemdResult, daemon_reload, restart_service, service_status
@@ -403,6 +403,79 @@ def _xray_install_dry_run_html(dry_run_loader: Callable[[], XrayInstallDryRunRes
   <section class="card">
     <h2>Xray 安装 dry-run 结果</h2>
     <p>这里只展示如果将来执行安装时会跑哪些命令预览；当前不会执行命令，也不会写文件。</p>
+    <pre>{escape(preview)}</pre>
+  </section>
+"""
+
+
+def _remote_check_rows_html(checks: object) -> str:
+    rows = []
+    if isinstance(checks, list):
+        for check in checks:
+            name = getattr(check, "name", "")
+            status = getattr(check, "status", "")
+            message = getattr(check, "message", "")
+            if name == "systemctl_bin":
+                continue
+            rows.append(f"{name}: {status} - {message}")
+    return "\n".join(rows)
+
+
+def _remote_rollout_steps_html(steps: list[RemoteRolloutStep]) -> str:
+    return "\n".join(
+        f"{step.action}: {'side_effect' if step.performs_side_effects else 'read_only'} - {step.description}"
+        for step in steps
+    )
+
+
+def _remote_commands_preview(commands: list[str]) -> list[str]:
+    hidden_terms = ("systemctl", "daemon-reload", "restart", "start ", " stop ")
+    return ["[REDACTED_COMMAND]" if any(term in command for term in hidden_terms) else command for command in commands]
+
+
+def _remote_status_detail_html(
+    *,
+    readiness: RemoteReadinessReport,
+    leak_check: RemoteLeakCheckReport,
+    rollout: RemoteRolloutPlan,
+) -> str:
+    readiness_checks = _remote_check_rows_html(readiness.checks)
+    leak_checks = _remote_check_rows_html(leak_check.checks)
+    rollout_steps = _remote_rollout_steps_html(rollout.steps)
+    preview = "\n".join(
+        [
+            "readiness:",
+            f"readiness: {readiness.status}",
+            f"target: {readiness.target}",
+            readiness_checks,
+            f"commands_executed: {_remote_commands_preview(readiness.commands_executed)}",
+            f"performed_side_effects: {readiness.performed_side_effects}",
+            "",
+            "leak-check:",
+            f"leak-check: {leak_check.status}",
+            f"target: {leak_check.target}",
+            f"native_public_ip: {leak_check.native_public_ip}",
+            f"egress_public_ip: {leak_check.egress_public_ip}",
+            leak_checks,
+            f"commands_executed: {_remote_commands_preview(leak_check.commands_executed)}",
+            f"performed_side_effects: {leak_check.performed_side_effects}",
+            "",
+            "rollout dry-run:",
+            f"rollout dry-run: {rollout.status}",
+            f"message: {rollout.message}",
+            f"target: {rollout.target}",
+            f"credential_hint: {rollout.credential_hint}",
+            f"staging_dir: {rollout.staging_dir}",
+            rollout_steps,
+            f"commands_executed: {_remote_commands_preview(rollout.commands_executed)}",
+            f"performed_side_effects: {rollout.performed_side_effects}",
+        ]
+    )
+    return f"""
+  <section class="card">
+    <h2>远端状态详情</h2>
+    <p>这里只展示 readiness、leak-check 与 rollout dry-run 的只读诊断；不会 SSH apply，不会写远端，也不会启动或停止远端服务。</p>
+    <div class="label">危险动作：禁用</div>
     <pre>{escape(preview)}</pre>
   </section>
 """
@@ -1051,7 +1124,8 @@ def create_app(
                 xray_runtime_html=_xray_runtime_status_html(runtime),
                 xray_install_plan_html=_xray_install_plan_html(plan_loader),
                 egress_status_html=_egress_status_report_html(egress),
-                egress_dry_run_html=_egress_dry_run_controls_html(),
+                egress_dry_run_html=_egress_dry_run_controls_html()
+                + _remote_status_detail_html(readiness=_readiness, leak_check=_leak_check, rollout=_rollout),
                 service_status_html=_service_statuses_html(services),
                 systemd_html=_systemd_preview_html(migate_config),
             )
