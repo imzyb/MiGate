@@ -171,6 +171,143 @@ def test_panel_base_path_blocks_operation_posts_until_logged_in(tmp_path):
 
 
 
+def test_node_repository_migrates_existing_nodes_with_empty_socks5_metadata(tmp_path):
+    db_path = tmp_path / "migate.db"
+    import sqlite3
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE nodes (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              protocol TEXT NOT NULL,
+              name TEXT NOT NULL,
+              host TEXT NOT NULL,
+              port INTEGER NOT NULL,
+              credential TEXT NOT NULL,
+              share_link TEXT NOT NULL,
+              subscription TEXT NOT NULL,
+              enabled INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO nodes (protocol, name, host, port, credential, share_link, subscription)
+            VALUES ('vless', 'Legacy', 'legacy.example.com', 443, 'legacy-uuid', 'vless://legacy', 'legacy-sub')
+            """
+        )
+
+    repo = NodeRepository(db_path)
+    repo.initialize()
+    nodes = repo.list_nodes()
+
+    assert len(nodes) == 1
+    assert nodes[0].socks5_host == ""
+    assert nodes[0].socks5_port is None
+    created = repo.create_node(
+        protocol="trojan",
+        name="New",
+        host="new.example.com",
+        port=8443,
+        credential="new-password",
+        share_link="trojan://new",
+        subscription="new-sub",
+        socks5_host="127.0.0.1",
+        socks5_port=34501,
+    )
+    assert created.socks5_host == "127.0.0.1"
+    assert created.socks5_port == 34501
+
+
+
+def test_panel_node_form_persists_optional_socks5_egress_metadata(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    repo = NodeRepository(tmp_path / "migate.db")
+    client = TestClient(create_app(node_repository=repo, panel_config_path=config_path))
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+
+    home = client.get("/mg-admin/")
+    assert 'name="socks5_host"' in home.text
+    assert 'name="socks5_port"' in home.text
+
+    created = client.post(
+        "/mg-admin/nodes/create",
+        data={
+            "protocol": "trojan",
+            "host": "node.example.com",
+            "port": "443",
+            "name": "Node With Egress",
+            "credential": "node-password",
+            "socks5_host": "127.0.0.1",
+            "socks5_port": "34501",
+        },
+    )
+
+    assert created.status_code == 200
+    nodes = repo.list_nodes()
+    assert len(nodes) == 1
+    assert nodes[0].socks5_host == "127.0.0.1"
+    assert nodes[0].socks5_port == 34501
+    assert "SOCKS5 出口：127.0.0.1:34501" in created.text
+    inventory = client.get("/api/nodes").json()["nodes"][0]
+    assert inventory["socks5"] == {"host": "127.0.0.1", "port": 34501}
+    assert "node-password" not in str(inventory)
+    assert "trojan://" not in str(inventory)
+
+
+
+def test_panel_export_api_returns_links_and_combined_subscription_after_login(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="VLESS Node",
+        host="vless.example.com",
+        port=443,
+        credential="vless-uuid",
+        share_link="vless://vless-uuid@vless.example.com:443#VLESS",
+        subscription="single-vless-subscription",
+    )
+    repo.create_node(
+        protocol="trojan",
+        name="Trojan Node",
+        host="trojan.example.com",
+        port=8443,
+        credential="trojan-password",
+        share_link="trojan://trojan-password@trojan.example.com:8443#Trojan",
+        subscription="single-trojan-subscription",
+    )
+    client = TestClient(create_app(node_repository=repo, panel_config_path=config_path))
+
+    blocked = client.get("/api/nodes/export")
+    assert blocked.status_code == 401
+    assert "vless://" not in blocked.text
+    assert "trojan://" not in blocked.text
+
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+    inventory = client.get("/api/nodes").json()
+    assert "vless://" not in str(inventory)
+    assert "trojan-password" not in str(inventory)
+
+    exported = client.get("/api/nodes/export")
+
+    assert exported.status_code == 200
+    payload = exported.json()
+    assert payload["counts"] == {"total": 2, "enabled": 2}
+    assert payload["links"] == [
+        "trojan://trojan-password@trojan.example.com:8443#Trojan",
+        "vless://vless-uuid@vless.example.com:443#VLESS",
+    ]
+    assert payload["subscription"] == "dHJvamFuOi8vdHJvamFuLXBhc3N3b3JkQHRyb2phbi5leGFtcGxlLmNvbTo4NDQzI1Ryb2phbgp2bGVzczovL3ZsZXNzLXV1aWRAdmxlc3MuZXhhbXBsZS5jb206NDQzI1ZMRVNT"
+    assert payload["performed_side_effects"] is False
+
+
+
 def test_panel_auth_redirects_home_to_login_without_leaking_node_links(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     repo.initialize()
@@ -2234,6 +2371,7 @@ def test_panel_nodes_api_returns_sanitized_webui_ready_json(tmp_path):
                 "name": "MiGate JP",
                 "host": "example.com",
                 "port": 443,
+                "socks5": None,
                 "enabled": True,
                 "created_at": node.created_at,
             }

@@ -189,11 +189,13 @@ def _nodes_html(nodes: list[NodeRecord]) -> str:
     items = []
     for node in nodes:
         address = f"{escape(node.host)}:{node.port}"
+        socks5 = f"<div class=\"label\">SOCKS5 出口：{escape(node.socks5_host)}:{node.socks5_port}</div>" if node.socks5_host and node.socks5_port else "<div class=\"label\">SOCKS5 出口：默认 MiGate 本地出口</div>"
         items.append(
             f"""
     <article class="node">
       <div class="node-title">{escape(node.name)} <span class="label">#{node.id}</span></div>
       <div class="label">协议：{escape(node.protocol)} ｜ 地址：{address} ｜ 状态：{'启用' if node.enabled else '禁用'}</div>
+      {socks5}
       <div class="label">分享链接</div>
       <pre>{escape(node.share_link)}</pre>
       <div class="label">订阅内容</div>
@@ -311,6 +313,12 @@ def _home_body(
       </label>
       <label class="wide">UUID / 密码（留空自动生成）
         <input name="credential" placeholder="VLESS 填 UUID；Trojan/SS 填密码；留空自动生成">
+      </label>
+      <label>SOCKS5 出口主机（可选）
+        <input name="socks5_host" placeholder="127.0.0.1">
+      </label>
+      <label>SOCKS5 出口端口（可选）
+        <input name="socks5_port" type="number" min="1" max="65535" placeholder="34501">
       </label>
       <button type="submit">生成并保存节点</button>
     </form>
@@ -1067,6 +1075,7 @@ def create_app(
                     "name": node.name,
                     "host": node.host,
                     "port": node.port,
+                    "socks5": {"host": node.socks5_host, "port": node.socks5_port} if node.socks5_host and node.socks5_port else None,
                     "enabled": node.enabled,
                     "created_at": node.created_at,
                 }
@@ -1075,6 +1084,21 @@ def create_app(
             "counts": {
                 "total": len(nodes),
                 "enabled": sum(1 for node in nodes if node.enabled),
+            },
+            "performed_side_effects": False,
+        }
+
+    @app.get("/api/nodes/export")
+    def api_nodes_export() -> dict[str, object]:
+        nodes = repo.list_nodes()
+        enabled_nodes = [node for node in nodes if node.enabled]
+        links = [node.share_link for node in enabled_nodes]
+        return {
+            "links": links,
+            "subscription": build_base64_subscription(links),
+            "counts": {
+                "total": len(nodes),
+                "enabled": len(enabled_nodes),
             },
             "performed_side_effects": False,
         }
@@ -1329,12 +1353,15 @@ def create_app(
         port: int = Form(...),
         name: str = Form("MiGate Node"),
         credential: str = Form(""),
+        socks5_host: str = Form(""),
+        socks5_port: int | None = Form(None),
     ):
         auth_redirect = require_panel_auth(request)
         if auth_redirect is not None:
             return auth_redirect
         cleaned_name = name.strip() or "MiGate Node"
         cleaned_host = host.strip()
+        cleaned_socks5_host = socks5_host.strip()
         cleaned_credential = _credential_for_protocol(protocol, credential.strip())
         link = _build_link(protocol=protocol, host=cleaned_host, port=port, name=cleaned_name, credential=cleaned_credential)
         subscription = build_base64_subscription([link])
@@ -1346,11 +1373,15 @@ def create_app(
             credential=cleaned_credential,
             share_link=link,
             subscription=subscription,
+            socks5_host=cleaned_socks5_host,
+            socks5_port=socks5_port if cleaned_socks5_host else None,
         )
+        socks5_html = f"<div class=\"label\">SOCKS5 出口：{escape(node.socks5_host)}:{node.socks5_port}</div>" if node.socks5_host and node.socks5_port else "<div class=\"label\">SOCKS5 出口：默认 MiGate 本地出口</div>"
         result = f"""
   <section class="card">
     <h2>节点已生成</h2>
     <p>节点 #{node.id} 已保存。复制下面的分享链接，或复制订阅内容导入客户端。</p>
+    {socks5_html}
     <div class="label">分享链接</div>
     <pre>{escape(link)}</pre>
     <div class="label">订阅内容</div>

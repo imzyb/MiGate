@@ -14,10 +14,17 @@ CREATE TABLE IF NOT EXISTS nodes (
   credential TEXT NOT NULL,
   share_link TEXT NOT NULL,
   subscription TEXT NOT NULL,
+  socks5_host TEXT NOT NULL DEFAULT '',
+  socks5_port INTEGER,
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 """
+
+MIGRATIONS = (
+    "ALTER TABLE nodes ADD COLUMN socks5_host TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE nodes ADD COLUMN socks5_port INTEGER",
+)
 
 
 @dataclass(frozen=True)
@@ -32,6 +39,8 @@ class NodeRecord:
     subscription: str
     enabled: bool
     created_at: str
+    socks5_host: str = ""
+    socks5_port: int | None = None
 
 
 class NodeRepository:
@@ -42,6 +51,11 @@ class NodeRepository:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(nodes)").fetchall()}
+            if "socks5_host" not in existing_columns:
+                conn.execute(MIGRATIONS[0])
+            if "socks5_port" not in existing_columns:
+                conn.execute(MIGRATIONS[1])
 
     def create_node(
         self,
@@ -53,14 +67,16 @@ class NodeRepository:
         credential: str,
         share_link: str,
         subscription: str,
+        socks5_host: str = "",
+        socks5_port: int | None = None,
     ) -> NodeRecord:
         with self._connect() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO nodes (protocol, name, host, port, credential, share_link, subscription)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO nodes (protocol, name, host, port, credential, share_link, subscription, socks5_host, socks5_port)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (protocol, name, host, port, credential, share_link, subscription),
+                (protocol, name, host, port, credential, share_link, subscription, socks5_host, socks5_port),
             )
             if cursor.lastrowid is None:
                 raise RuntimeError("failed to create node record")
@@ -89,6 +105,8 @@ class NodeRepository:
             credential=str(row["credential"]),
             share_link=str(row["share_link"]),
             subscription=str(row["subscription"]),
+            socks5_host=str(row["socks5_host"] or ""),
+            socks5_port=int(row["socks5_port"]) if row["socks5_port"] is not None else None,
             enabled=bool(row["enabled"]),
             created_at=str(row["created_at"]),
         )
