@@ -2669,6 +2669,7 @@ def test_proxy_run_command_rejects_when_preflight_fails(monkeypatch):
 def test_proxy_run_command_reports_listener_started_when_preflight_passes(monkeypatch):
     from migate.proxy.run import ProxyRunResult
     from migate.proxy.runtime import ProxyRuntimeCheck
+    from migate.proxy.socks5_listener import Socks5ServeEvent
 
     monkeypatch.setattr(
         main_module,
@@ -2684,6 +2685,26 @@ def test_proxy_run_command_reports_listener_started_when_preflight_passes(monkey
             timed_out_connections=1,
             max_clients=0,
             client_timeout=0.25,
+            events=[
+                Socks5ServeEvent(
+                    client_id=1,
+                    phase="connect",
+                    status="accepted",
+                    target_host="127.0.0.1",
+                    target_port=8080,
+                    upstream_connected=True,
+                    bytes_from_client=4,
+                    bytes_from_upstream=4,
+                ),
+                Socks5ServeEvent(
+                    client_id=2,
+                    phase="greeting",
+                    status="timed_out",
+                    target_host=None,
+                    target_port=None,
+                    upstream_connected=False,
+                ),
+            ],
             performed_side_effects=True,
         ),
     )
@@ -2700,6 +2721,8 @@ def test_proxy_run_command_reports_listener_started_when_preflight_passes(monkey
     assert "timed_out_connections: 1" in result.output
     assert "max_clients: 0" in result.output
     assert "client_timeout: 0.25" in result.output
+    assert "event[1]: client_id=1 phase=connect status=accepted target=127.0.0.1:8080 upstream_connected=True bytes_from_client=4 bytes_from_upstream=4" in result.output
+    assert "event[2]: client_id=2 phase=greeting status=timed_out target=n/a upstream_connected=False bytes_from_client=0 bytes_from_upstream=0" in result.output
     assert "performed_side_effects: True" in result.output
 
 

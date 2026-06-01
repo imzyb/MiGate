@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from migate.config import MiGateConfig
 from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport, run_proxy_doctor
-from migate.proxy.socks5_listener import Socks5ServerStarter, run_socks5_serve
+from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServerStarter, run_socks5_serve
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,7 @@ class ProxyRunResult:
     timed_out_connections: int = 0
     max_clients: int | None = None
     client_timeout: float | None = None
+    events: list[Socks5ServeEvent] | None = None
     performed_side_effects: bool = False
 
 
@@ -65,6 +66,7 @@ def run_proxy(
         timed_out_connections=serve_result.timed_out_connections,
         max_clients=serve_result.max_clients,
         client_timeout=serve_result.client_timeout,
+        events=serve_result.events,
         performed_side_effects=serve_result.performed_side_effects,
     )
 
@@ -84,5 +86,12 @@ def render_proxy_run_result(result: ProxyRunResult) -> str:
         lines.append(f"max_clients: {result.max_clients}")
     if result.client_timeout is not None:
         lines.append(f"client_timeout: {result.client_timeout}")
+    for index, event in enumerate(result.events or [], start=1):
+        target = f"{event.target_host}:{event.target_port}" if event.target_host and event.target_port is not None else "n/a"
+        lines.append(
+            f"event[{index}]: client_id={event.client_id} phase={event.phase} status={event.status} "
+            f"target={target} upstream_connected={event.upstream_connected} "
+            f"bytes_from_client={event.bytes_from_client} bytes_from_upstream={event.bytes_from_upstream}"
+        )
     lines.append(f"performed_side_effects: {result.performed_side_effects}")
     return "\n".join(lines)
