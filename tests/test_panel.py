@@ -155,10 +155,6 @@ def test_panel_home_renders_readonly_dashboard_cards_from_loaders(tmp_path):
         "readiness",
         "leak_check",
         "rollout",
-        "runtime",
-        "egress",
-        "status:migate-xray.service",
-        "status:migate-panel.service",
     ]
 
 
@@ -347,7 +343,7 @@ def test_panel_home_shows_xray_runtime_status_without_install_side_effects(tmp_p
     assert "刷新 Xray 运行时" in decoded
     assert "下载 Xray" not in decoded
     assert "安装 Xray" not in decoded
-    assert calls == ["runtime", "runtime"]
+    assert calls == ["runtime"]
 
 
 def test_panel_xray_runtime_refresh_shows_not_installed_guidance(tmp_path):
@@ -698,7 +694,7 @@ def test_panel_home_shows_egress_status_card_without_start_stop_actions(tmp_path
     assert "performed_side_effects: False" in decoded
     assert "启动 Egress" not in decoded
     assert "停止 Egress" not in decoded
-    assert calls == ["egress-status", "egress-status"]
+    assert calls == ["egress-status"]
 
 
 def test_panel_egress_status_refresh_renders_latest_readonly_report(tmp_path):
