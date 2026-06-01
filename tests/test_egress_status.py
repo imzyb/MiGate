@@ -1,5 +1,13 @@
 from migate.config import EgressConfig, MiGateConfig
-from migate.egress.status import EgressStatusCheck, EgressStatusReport, render_egress_status_report, run_egress_doctor, run_egress_status
+from migate.egress.status import (
+    EgressStatusCheck,
+    EgressStatusReport,
+    UpstreamProxyProbeResult,
+    _default_upstream_proxy_connectable,
+    render_egress_status_report,
+    run_egress_doctor,
+    run_egress_status,
+)
 from migate.proxy.runtime import TunnelProcessStatus
 from migate.xray.systemctl_cli import ALLOWED_XRAY_TUN_SERVICE_NAME
 
@@ -9,6 +17,35 @@ class FakeCommandResult:
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
+
+
+def test_default_upstream_proxy_probe_reports_connection_refused_as_unavailable(monkeypatch):
+    def fake_create_connection(address, timeout):
+        raise ConnectionRefusedError("connection refused")
+
+    monkeypatch.setattr("migate.egress.status.socket.create_connection", fake_create_connection)
+
+    result = _default_upstream_proxy_connectable("127.0.0.1", 34501)
+
+    assert result == UpstreamProxyProbeResult(
+        status="unavailable",
+        message="xray-tun upstream SOCKS proxy 127.0.0.1:34501 is not listening; egress blocked",
+    )
+
+
+def test_default_upstream_proxy_probe_reports_unexpected_probe_errors_as_unknown(monkeypatch):
+    def fake_create_connection(address, timeout):
+        raise RuntimeError("probe backend crashed")
+
+    monkeypatch.setattr("migate.egress.status.socket.create_connection", fake_create_connection)
+
+    result = _default_upstream_proxy_connectable("127.0.0.1", 34501)
+
+    assert result == UpstreamProxyProbeResult(
+        status="unknown",
+        message="xray-tun upstream SOCKS proxy 127.0.0.1:34501 state is unknown; egress blocked",
+        detail="probe backend crashed",
+    )
 
 
 def test_egress_doctor_fails_closed_when_tun_missing_and_tunnel_not_running():
