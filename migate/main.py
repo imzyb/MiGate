@@ -160,6 +160,29 @@ class SetupConfigSaveResult:
     performed_side_effects: bool
 
 
+@dataclass(frozen=True)
+class SetupRunPhase:
+    name: str
+    status: str
+    message: str
+    performed_side_effects: bool
+
+
+@dataclass(frozen=True)
+class SetupRunResult:
+    status: str
+    message: str
+    panel_bind: str
+    panel_url: str
+    admin_user: str
+    admin_password: str
+    base_path: str
+    setup_config_target: str
+    phases: list[SetupRunPhase]
+    commands_executed: list[str]
+    performed_side_effects: bool
+
+
 def build_panel_server_config(host: str, port: int) -> PanelServerConfig:
     return PanelServerConfig(app="migate.api.app:create_app", host=host, port=port, factory=True)
 
@@ -359,6 +382,130 @@ def render_setup_config_save_result(result: SetupConfigSaveResult) -> str:
             f"performed_side_effects: {result.performed_side_effects}",
         ]
     )
+
+
+def _setup_run_result_from_plan(
+    plan: SetupPlan,
+    *,
+    status: str,
+    message: str,
+    setup_config_target: Path,
+    phases: list[SetupRunPhase] | None = None,
+    commands_executed: list[str] | None = None,
+    performed_side_effects: bool = False,
+) -> SetupRunResult:
+    return SetupRunResult(
+        status=status,
+        message=message,
+        panel_bind=plan.panel_bind,
+        panel_url=plan.panel_url,
+        admin_user=plan.admin_user,
+        admin_password="[REDACTED]",
+        base_path=plan.base_path,
+        setup_config_target=str(setup_config_target),
+        phases=phases or [],
+        commands_executed=commands_executed or [],
+        performed_side_effects=performed_side_effects,
+    )
+
+
+def run_setup(
+    *,
+    setup_config_target: Path,
+    panel_host: str,
+    panel_port: int,
+    admin_user: str,
+    admin_password: str,
+    base_path: str,
+    public_host: str,
+    yes: bool,
+    allow_system_changes: bool,
+) -> SetupRunResult:
+    plan = build_setup_plan(
+        panel_host=panel_host,
+        panel_port=panel_port,
+        admin_user=admin_user,
+        admin_password=admin_password,
+        base_path=base_path,
+        public_host=public_host,
+    )
+    if plan.status == "rejected":
+        return _setup_run_result_from_plan(plan, status="rejected", message=plan.message, setup_config_target=setup_config_target)
+    if not yes or not allow_system_changes:
+        return _setup_run_result_from_plan(
+            plan,
+            status="rejected",
+            message="setup requires --yes --allow-system-changes for real execution",
+            setup_config_target=setup_config_target,
+        )
+
+    save_result = save_setup_panel_config(
+        target=setup_config_target,
+        panel_host=panel_host,
+        panel_port=panel_port,
+        admin_user=admin_user,
+        admin_password=admin_password,
+        base_path=base_path,
+        public_host=public_host,
+        yes=True,
+        allow_system_changes=True,
+    )
+    save_phase = SetupRunPhase(
+        name="save_panel_config",
+        status=save_result.status,
+        message=save_result.message,
+        performed_side_effects=save_result.performed_side_effects,
+    )
+    if save_result.status != "success":
+        return _setup_run_result_from_plan(
+            plan,
+            status="failed" if save_result.status != "rejected" else "rejected",
+            message=save_result.message,
+            setup_config_target=setup_config_target,
+            phases=[save_phase],
+            commands_executed=save_result.commands_executed,
+            performed_side_effects=save_result.performed_side_effects,
+        )
+
+    remaining_phases = [
+        SetupRunPhase(step.name, "planned", step.description, False)
+        for step in plan.steps
+        if step.name not in {"validate_setup", "save_panel_config"}
+    ]
+    return _setup_run_result_from_plan(
+        plan,
+        status="partial",
+        message="setup completed through save_panel_config; remaining privileged phases are still planned",
+        setup_config_target=setup_config_target,
+        phases=[save_phase, *remaining_phases],
+        commands_executed=save_result.commands_executed,
+        performed_side_effects=save_result.performed_side_effects,
+    )
+
+
+def render_setup_run_result(result: SetupRunResult) -> str:
+    lines = [
+        "MiGate setup result",
+        f"status: {result.status}",
+        f"message: {result.message}",
+        f"panel_url: {result.panel_url}",
+        f"panel_bind: {result.panel_bind}",
+        f"admin_user: {result.admin_user}",
+        f"admin_password: {result.admin_password}",
+        f"base_path: {result.base_path}",
+        f"setup_config_target: {result.setup_config_target}",
+        "phases:",
+    ]
+    for phase in result.phases:
+        mode = "side-effect" if phase.performed_side_effects else "no side-effect"
+        lines.append(f"- {phase.name}: {phase.status} - {phase.message} ({mode})")
+    lines.extend(
+        [
+            f"commands_executed: {result.commands_executed}",
+            f"performed_side_effects: {result.performed_side_effects}",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def build_xray_install_cli_plan(*, system: str | None = None, machine: str | None = None, version: str = "latest") -> XrayInstallPlan:
@@ -1627,27 +1774,38 @@ def setup(
     admin_password: str = typer.Option("", "--admin-password", help="Initial administrator password; rendered as [REDACTED]."),
     base_path: str = typer.Option("/", "--base-path", help="Panel URL base path, for example /mg-admin."),
     public_host: str = typer.Option("127.0.0.1", "--public-host", help="Host/IP used to render the operator Web URL."),
-    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview setup by default; real execution is implemented in a later gated runner."),
+    setup_config_target: Path = typer.Option(Path("/etc/migate/panel.json"), "--setup-config-target", help="Target MiGate panel setup config path for real setup."),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview setup by default; real execution requires --yes --allow-system-changes."),
+    yes: bool = typer.Option(False, "--yes", help="Confirm real setup actions."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Allow writing privileged/system configuration paths."),
 ) -> None:
-    plan = build_setup_plan(
+    if dry_run:
+        plan = build_setup_plan(
+            panel_host=panel_host,
+            panel_port=panel_port,
+            admin_user=admin_user,
+            admin_password=admin_password,
+            base_path=base_path,
+            public_host=public_host,
+        )
+        typer.echo(render_setup_plan(plan))
+        if plan.status == "rejected":
+            raise typer.Exit(code=1)
+        return
+
+    result = run_setup(
+        setup_config_target=setup_config_target,
         panel_host=panel_host,
         panel_port=panel_port,
         admin_user=admin_user,
         admin_password=admin_password,
         base_path=base_path,
         public_host=public_host,
+        yes=yes,
+        allow_system_changes=allow_system_changes,
     )
-    if not dry_run and plan.status == "dry_run":
-        plan = _rejected_setup_plan(
-            message="real setup runner is not implemented yet; use --dry-run",
-            panel_host=panel_host,
-            panel_port=panel_port,
-            admin_user=admin_user,
-            base_path=base_path,
-            public_host=public_host,
-        )
-    typer.echo(render_setup_plan(plan))
-    if plan.status == "rejected":
+    typer.echo(render_setup_run_result(result))
+    if result.status not in {"success", "partial"}:
         raise typer.Exit(code=1)
 
 

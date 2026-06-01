@@ -20,6 +20,7 @@ from migate.main import (
     run_remote_lifecycle_cli,
     run_remote_rollout_cli,
     run_remote_rollout_smoke_cli,
+    run_setup,
     run_xray_install_cli,
 )
 from migate.egress.lifecycle import EgressLifecyclePhase, EgressLifecycleResult
@@ -137,15 +138,69 @@ def test_setup_command_rejects_unsafe_base_path_without_password_leak():
 
 
 
-def test_setup_command_rejects_real_execution_until_gated_runner_exists():
+def test_setup_command_rejects_real_execution_without_double_gate():
     result = runner.invoke(app, ["setup", "--admin-password", "super-secret-password", "--no-dry-run"])
 
     assert result.exit_code == 1
+    assert "MiGate setup result" in result.output
     assert "status: rejected" in result.output
-    assert "real setup runner is not implemented yet" in result.output
+    assert "setup requires --yes --allow-system-changes for real execution" in result.output
+    assert "real setup runner is not implemented yet" not in result.output
     assert "super-secret-password" not in result.output
     assert "commands_executed: []" in result.output
     assert "performed_side_effects: False" in result.output
+
+
+
+def test_setup_command_real_execution_saves_panel_config_with_double_gate(tmp_path):
+    target = tmp_path / "panel.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "setup",
+            "--admin-password",
+            "super-secret-password",
+            "--panel-host",
+            "0.0.0.0",
+            "--panel-port",
+            "8787",
+            "--admin-user",
+            "admin",
+            "--base-path",
+            "/mg-admin",
+            "--public-host",
+            "203.0.113.10",
+            "--setup-config-target",
+            str(target),
+            "--no-dry-run",
+            "--yes",
+            "--allow-system-changes",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "MiGate setup result" in result.output
+    assert "status: partial" in result.output
+    assert "message: setup completed through save_panel_config; remaining privileged phases are still planned" in result.output
+    assert f"setup_config_target: {target}" in result.output
+    assert "save_panel_config: success" in result.output
+    assert "install_xray: planned" in result.output
+    assert "save_xray_service: planned" in result.output
+    assert "save_proxy_service: planned" in result.output
+    assert "start_services: planned" in result.output
+    assert "super-secret-password" not in result.output
+    assert "password_hash" not in result.output
+    assert "performed_side_effects: True" in result.output
+    saved = json.loads(target.read_text())
+    assert saved == {
+        "panel_host": "0.0.0.0",
+        "panel_port": 8787,
+        "admin_user": "admin",
+        "password_hash": "sha256:5c76fcf4400da3b4804d70b91af20703d483f2c5860cc2f8d59592a1da8d2121",
+        "base_path": "/mg-admin",
+        "public_host": "203.0.113.10",
+    }
 
 
 
@@ -163,6 +218,38 @@ def test_build_setup_panel_config_stores_hash_not_plaintext_password():
     assert "admin_password" not in config
     assert "super-secret-password" not in json.dumps(config)
     assert config["base_path"] == "/mg-admin"
+
+
+
+def test_run_setup_saves_panel_config_then_leaves_remaining_privileged_phases_planned(tmp_path):
+    target = tmp_path / "panel.json"
+
+    result = run_setup(
+        setup_config_target=target,
+        panel_host="0.0.0.0",
+        panel_port=8787,
+        admin_user="admin",
+        admin_password="super-secret-password",
+        base_path="/mg-admin",
+        public_host="203.0.113.10",
+        yes=True,
+        allow_system_changes=True,
+    )
+
+    assert result.status == "partial"
+    assert result.message == "setup completed through save_panel_config; remaining privileged phases are still planned"
+    assert result.admin_password == "[REDACTED]"
+    assert result.setup_config_target == str(target)
+    assert [(phase.name, phase.status, phase.performed_side_effects) for phase in result.phases] == [
+        ("save_panel_config", "success", True),
+        ("install_xray", "planned", False),
+        ("save_xray_service", "planned", False),
+        ("save_proxy_service", "planned", False),
+        ("start_services", "planned", False),
+    ]
+    assert result.performed_side_effects is True
+    assert "super-secret-password" not in json.dumps(result, default=lambda value: value.__dict__)
+    assert target.exists()
 
 
 
