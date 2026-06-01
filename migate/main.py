@@ -127,8 +127,125 @@ class PanelServerConfig:
     factory: bool = True
 
 
+@dataclass(frozen=True)
+class SetupStep:
+    name: str
+    description: str
+    performs_side_effects: bool
+
+
+@dataclass(frozen=True)
+class SetupPlan:
+    status: str
+    panel_bind: str
+    panel_url: str
+    admin_user: str
+    admin_password: str
+    base_path: str
+    steps: list[SetupStep]
+    commands_executed: list[str]
+    performed_side_effects: bool
+    message: str = "setup dry-run only; no files written and no services changed"
+
+
 def build_panel_server_config(host: str, port: int) -> PanelServerConfig:
     return PanelServerConfig(app="migate.api.app:create_app", host=host, port=port, factory=True)
+
+
+def _normalize_base_path(base_path: str) -> str:
+    if not base_path.startswith("/"):
+        return f"/{base_path}"
+    return base_path
+
+
+def _rejected_setup_plan(*, message: str, panel_host: str, panel_port: int, admin_user: str, base_path: str, public_host: str) -> SetupPlan:
+    normalized_base_path = _normalize_base_path(base_path) if base_path else "/"
+    path_suffix = "" if normalized_base_path == "/" else normalized_base_path
+    return SetupPlan(
+        status="rejected",
+        panel_bind=f"{panel_host}:{panel_port}",
+        panel_url=f"http://{public_host}:{panel_port}{path_suffix}",
+        admin_user=admin_user,
+        admin_password="[REDACTED]",
+        base_path=normalized_base_path,
+        steps=[],
+        commands_executed=[],
+        performed_side_effects=False,
+        message=message,
+    )
+
+
+def build_setup_plan(
+    *,
+    panel_host: str,
+    panel_port: int,
+    admin_user: str,
+    admin_password: str,
+    base_path: str,
+    public_host: str,
+) -> SetupPlan:
+    if not admin_password:
+        return _rejected_setup_plan(
+            message="admin password is required",
+            panel_host=panel_host,
+            panel_port=panel_port,
+            admin_user=admin_user,
+            base_path=base_path,
+            public_host=public_host,
+        )
+    if base_path.startswith("http://") or base_path.startswith("https://") or ".." in base_path:
+        return _rejected_setup_plan(
+            message="base_path must be an absolute URL path without scheme or traversal",
+            panel_host=panel_host,
+            panel_port=panel_port,
+            admin_user=admin_user,
+            base_path="/",
+            public_host=public_host,
+        )
+    normalized_base_path = _normalize_base_path(base_path)
+    path_suffix = "" if normalized_base_path == "/" else normalized_base_path
+    return SetupPlan(
+        status="dry_run",
+        panel_bind=f"{panel_host}:{panel_port}",
+        panel_url=f"http://{public_host}:{panel_port}{path_suffix}",
+        admin_user=admin_user,
+        admin_password="[REDACTED]",
+        base_path=normalized_base_path,
+        steps=[
+            SetupStep("validate_setup", "validate requested panel address, admin identity, and path", False),
+            SetupStep("save_panel_config", "persist panel host, port, admin hash, and base path", True),
+            SetupStep("install_xray", "install xray-core if missing through the gated installer", True),
+            SetupStep("save_xray_service", "write MiGate Xray systemd service", True),
+            SetupStep("save_proxy_service", "write MiGate proxy systemd service", True),
+            SetupStep("start_services", "enable and start MiGate services after validation", True),
+        ],
+        commands_executed=[],
+        performed_side_effects=False,
+    )
+
+
+def render_setup_plan(plan: SetupPlan) -> str:
+    lines = [
+        "MiGate setup dry-run",
+        f"status: {plan.status}",
+        f"message: {plan.message}",
+        f"panel_url: {plan.panel_url}",
+        f"panel_bind: {plan.panel_bind}",
+        f"admin_user: {plan.admin_user}",
+        f"admin_password: {plan.admin_password}",
+        f"base_path: {plan.base_path}",
+        "steps:",
+    ]
+    for step in plan.steps:
+        mode = "planned side-effect" if step.performs_side_effects else "read-only"
+        lines.append(f"- {step.name}: {mode} - {step.description}")
+    lines.extend(
+        [
+            f"commands_executed: {plan.commands_executed}",
+            f"performed_side_effects: {plan.performed_side_effects}",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def build_xray_install_cli_plan(*, system: str | None = None, machine: str | None = None, version: str = "latest") -> XrayInstallPlan:
@@ -1386,6 +1503,38 @@ def xray_install(
     )
     _echo_install_result(result)
     if result.status != "success":
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def setup(
+    panel_host: str = typer.Option(MiGateConfig().security.web_bind, "--panel-host", help="Panel bind host for the deployment plan."),
+    panel_port: int = typer.Option(MiGateConfig().security.web_port, "--panel-port", min=1, max=65535, help="Panel bind port."),
+    admin_user: str = typer.Option("admin", "--admin-user", help="Initial administrator username."),
+    admin_password: str = typer.Option("", "--admin-password", help="Initial administrator password; rendered as [REDACTED]."),
+    base_path: str = typer.Option("/", "--base-path", help="Panel URL base path, for example /mg-admin."),
+    public_host: str = typer.Option("127.0.0.1", "--public-host", help="Host/IP used to render the operator Web URL."),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview setup by default; real execution is implemented in a later gated runner."),
+) -> None:
+    plan = build_setup_plan(
+        panel_host=panel_host,
+        panel_port=panel_port,
+        admin_user=admin_user,
+        admin_password=admin_password,
+        base_path=base_path,
+        public_host=public_host,
+    )
+    if not dry_run and plan.status == "dry_run":
+        plan = _rejected_setup_plan(
+            message="real setup runner is not implemented yet; use --dry-run",
+            panel_host=panel_host,
+            panel_port=panel_port,
+            admin_user=admin_user,
+            base_path=base_path,
+            public_host=public_host,
+        )
+    typer.echo(render_setup_plan(plan))
+    if plan.status == "rejected":
         raise typer.Exit(code=1)
 
 
