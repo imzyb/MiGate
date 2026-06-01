@@ -848,6 +848,8 @@ def proxy_socks5_serve(
     except ValueError as exc:
         typer.echo(str(exc).replace("; ", "\n"))
         raise typer.Exit(code=1) from exc
+    if result.status == "rejected":
+        raise typer.Exit(code=1)
 
 
 @proxy_service_app.command("save")

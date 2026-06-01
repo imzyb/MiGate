@@ -2629,7 +2629,7 @@ def test_proxy_socks5_serve_command_outputs_jsonl_dry_run_summary_only():
 def test_proxy_socks5_serve_command_rejects_real_listen_without_gate():
     result = runner.invoke(app, ["proxy", "socks5", "serve", "--no-dry-run", "--yes"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "status: rejected" in result.output
     assert "requires yes=True and allow_network_listen=True" in result.output
     assert "listener_started: False" in result.output
@@ -2639,7 +2639,7 @@ def test_proxy_socks5_serve_command_rejects_real_listen_without_gate():
 def test_proxy_socks5_serve_command_outputs_json_rejected_gate_result():
     result = runner.invoke(app, ["proxy", "socks5", "serve", "--no-dry-run", "--yes", "--format", "json"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     payload = json.loads(result.output)
     assert payload["status"] == "rejected"
     assert payload["listener_started"] is False
