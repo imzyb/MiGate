@@ -7,6 +7,7 @@ import migate.main as main_module
 from migate.main import (
     app,
     build_panel_server_config,
+    build_setup_plan,
     build_remote_egress_cli_plan,
     build_remote_install_cli_plan,
     build_remote_lifecycle_cli_plan,
@@ -37,6 +38,114 @@ from migate.remote.acceptance import RemoteAcceptanceResult
 
 
 runner = CliRunner()
+
+
+def test_build_setup_plan_redacts_credentials_and_orders_deployment_steps():
+    plan = build_setup_plan(
+        panel_host="0.0.0.0",
+        panel_port=8787,
+        admin_user="admin",
+        admin_password="super-secret-password",
+        base_path="mg-admin",
+        public_host="203.0.113.10",
+    )
+
+    assert plan.status == "dry_run"
+    assert plan.panel_bind == "0.0.0.0:8787"
+    assert plan.panel_url == "http://203.0.113.10:8787/mg-admin"
+    assert plan.admin_user == "admin"
+    assert plan.admin_password == "[REDACTED]"
+    assert plan.base_path == "/mg-admin"
+    assert plan.commands_executed == []
+    assert plan.performed_side_effects is False
+    assert [step.name for step in plan.steps] == [
+        "validate_setup",
+        "save_panel_config",
+        "install_xray",
+        "save_xray_service",
+        "save_proxy_service",
+        "start_services",
+    ]
+    assert [step.performs_side_effects for step in plan.steps] == [False, True, True, True, True, True]
+
+
+
+def test_setup_command_defaults_to_dry_run_deployment_plan_without_side_effects():
+    result = runner.invoke(
+        app,
+        [
+            "setup",
+            "--panel-host",
+            "0.0.0.0",
+            "--panel-port",
+            "8787",
+            "--admin-user",
+            "admin",
+            "--admin-password",
+            "super-secret-password",
+            "--base-path",
+            "/mg-admin",
+            "--public-host",
+            "203.0.113.10",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "MiGate setup dry-run" in result.output
+    assert "status: dry_run" in result.output
+    assert "panel_url: http://203.0.113.10:8787/mg-admin" in result.output
+    assert "panel_bind: 0.0.0.0:8787" in result.output
+    assert "admin_user: admin" in result.output
+    assert "admin_password: [REDACTED]" in result.output
+    assert "super-secret-password" not in result.output
+    assert "base_path: /mg-admin" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+    assert "- validate_setup: read-only" in result.output
+    assert "- save_panel_config: planned side-effect" in result.output
+    assert "- install_xray: planned side-effect" in result.output
+    assert "- save_xray_service: planned side-effect" in result.output
+    assert "- save_proxy_service: planned side-effect" in result.output
+    assert "- start_services: planned side-effect" in result.output
+    assert "systemctl" not in result.output
+    assert "daemon-reload" not in result.output
+
+
+
+def test_setup_command_rejects_missing_admin_password_without_side_effects():
+    result = runner.invoke(app, ["setup", "--admin-user", "admin", "--admin-password", ""])
+
+    assert result.exit_code == 1
+    assert "MiGate setup dry-run" in result.output
+    assert "status: rejected" in result.output
+    assert "admin password is required" in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+
+def test_setup_command_rejects_unsafe_base_path_without_password_leak():
+    result = runner.invoke(app, ["setup", "--admin-password", "super-secret-password", "--base-path", "http://evil.example/admin"])
+
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "base_path must be an absolute URL path" in result.output
+    assert "super-secret-password" not in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
+
+def test_setup_command_rejects_real_execution_until_gated_runner_exists():
+    result = runner.invoke(app, ["setup", "--admin-password", "super-secret-password", "--no-dry-run"])
+
+    assert result.exit_code == 1
+    assert "status: rejected" in result.output
+    assert "real setup runner is not implemented yet" in result.output
+    assert "super-secret-password" not in result.output
+    assert "commands_executed: []" in result.output
+    assert "performed_side_effects: False" in result.output
+
 
 
 def test_remote_readiness_command_runs_read_only_probe(monkeypatch):
