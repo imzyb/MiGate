@@ -6,6 +6,8 @@ from migate.api.app import create_app
 from migate.database.repository import NodeRepository
 from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusCheck, EgressStatusReport
+from migate.proxy.run import ProxyRunResult
+from migate.proxy.runtime import ProxyRuntimeCheck
 from migate.systemd.manager import SystemdResult
 from migate.xray.install_executor import XrayInstallDryRunResult, XrayInstallDryRunStep
 from migate.xray.install_plan import XrayInstallPlan, XrayInstallStep
@@ -915,12 +917,30 @@ def test_panel_status_summary_api_returns_webui_ready_readonly_json(tmp_path):
             return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
         return SystemdResult(status="failed", returncode=3, stdout="", stderr="inactive")
 
+    def proxy_runtime_loader() -> ProxyRunResult:
+        calls.append("proxy")
+        return ProxyRunResult(
+            status="running",
+            message="SOCKS5 listener started; direct upstream relay enabled",
+            checks=[ProxyRuntimeCheck("egress_guard", "ok", "egress safe")],
+            listener_started=True,
+            forwarding_started=True,
+            accepted_connections=2,
+            upstream_connections=2,
+            timed_out_connections=0,
+            max_clients=0,
+            serve_mode="continuous",
+            client_timeout=5.0,
+            performed_side_effects=True,
+        )
+
     client = TestClient(
         create_app(
             node_repository=repo,
             xray_runtime_loader=runtime_loader,
             egress_status_loader=egress_status_loader,
             systemd_status_loader=status_loader,
+            proxy_runtime_loader=proxy_runtime_loader,
         )
     )
 
@@ -947,6 +967,20 @@ def test_panel_status_summary_api_returns_webui_ready_readonly_json(tmp_path):
                 {"name": "egress_guard", "status": "failed", "message": "blocked: tunnel is not running"},
             ],
         },
+        "proxy": {
+            "status": "running",
+            "message": "SOCKS5 listener started; direct upstream relay enabled",
+            "listener_started": True,
+            "forwarding_started": True,
+            "accepted_connections": 2,
+            "upstream_connections": 2,
+            "timed_out_connections": 0,
+            "max_clients": 0,
+            "serve_mode": "continuous",
+            "client_timeout": 5.0,
+            "checks": [{"name": "egress_guard", "status": "ok", "message": "egress safe"}],
+            "performed_side_effects": True,
+        },
         "services": {
             "migate-xray.service": {
                 "status": "success",
@@ -963,7 +997,57 @@ def test_panel_status_summary_api_returns_webui_ready_readonly_json(tmp_path):
         },
         "performed_side_effects": False,
     }
-    assert calls == ["runtime", "egress", "status:migate-xray.service", "status:migate-panel.service"]
+    assert calls == ["runtime", "egress", "proxy", "status:migate-xray.service", "status:migate-panel.service"]
+
+
+def test_panel_proxy_runtime_api_returns_readonly_runtime_snapshot(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def proxy_runtime_loader() -> ProxyRunResult:
+        calls.append("proxy")
+        return ProxyRunResult(
+            status="rejected",
+            message="proxy run preflight failed; listener not started",
+            checks=[
+                ProxyRuntimeCheck("tun_interface", "failed", "tun-migate interface is missing"),
+                ProxyRuntimeCheck("egress_guard", "failed", "blocked: tunnel interface is missing"),
+            ],
+            listener_started=False,
+            forwarding_started=False,
+            accepted_connections=0,
+            upstream_connections=0,
+            timed_out_connections=0,
+            max_clients=None,
+            serve_mode=None,
+            client_timeout=None,
+            performed_side_effects=False,
+        )
+
+    client = TestClient(create_app(node_repository=repo, proxy_runtime_loader=proxy_runtime_loader))
+
+    response = client.get("/api/proxy/runtime")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "status": "rejected",
+        "message": "proxy run preflight failed; listener not started",
+        "listener_started": False,
+        "forwarding_started": False,
+        "accepted_connections": 0,
+        "upstream_connections": 0,
+        "timed_out_connections": 0,
+        "max_clients": None,
+        "serve_mode": None,
+        "client_timeout": None,
+        "checks": [
+            {"name": "tun_interface", "status": "failed", "message": "tun-migate interface is missing"},
+            {"name": "egress_guard", "status": "failed", "message": "blocked: tunnel interface is missing"},
+        ],
+        "performed_side_effects": False,
+    }
+    assert calls == ["proxy"]
 
 
 def test_panel_systemd_status_api_returns_readonly_service_statuses(tmp_path):
