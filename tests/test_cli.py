@@ -2422,6 +2422,28 @@ def test_xray_deploy_command_runs_real_orchestrator_when_double_gated(monkeypatc
     assert calls[0][1]["allow_system_changes"] is True
 
 
+def test_xray_deploy_command_exits_nonzero_when_real_orchestrator_rejects(monkeypatch):
+    from migate.xray.deploy_cli import XrayDeployResult
+
+    def fake_deploy(*_args, **_kwargs):
+        return XrayDeployResult(
+            status="rejected",
+            message="real deploy requires yes=True and allow_system_changes=True",
+            steps=[],
+            performed_side_effects=False,
+        )
+
+    monkeypatch.setattr(main_module, "run_xray_deploy", fake_deploy)
+
+    result = runner.invoke(app, ["xray", "deploy", "--no-dry-run", "--yes"])
+
+    assert result.exit_code == 1
+    assert "Xray deploy result" in result.output
+    assert "status: rejected" in result.output
+    assert "real deploy requires yes=True and allow_system_changes=True" in result.output
+    assert "performed_side_effects: False" in result.output
+
+
 def test_proxy_doctor_command_reports_runtime_preflight(monkeypatch):
     from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport
 

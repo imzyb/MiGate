@@ -1275,8 +1275,12 @@ def xray_deploy(
     )
     if dry_run:
         typer.echo(render_xray_deploy_plan(result))
+        if result.status == "rejected":
+            raise typer.Exit(code=1)
     else:
         typer.echo(render_xray_deploy_result(result))
+        if result.status != "success":
+            raise typer.Exit(code=1)
 
 
 @xray_app.command("doctor")
