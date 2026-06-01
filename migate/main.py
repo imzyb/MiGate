@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+import hashlib
+import json
 import platform
 
 import typer
@@ -148,6 +150,16 @@ class SetupPlan:
     message: str = "setup dry-run only; no files written and no services changed"
 
 
+@dataclass(frozen=True)
+class SetupConfigSaveResult:
+    status: str
+    message: str
+    target: str
+    validation_status: str
+    commands_executed: list[str]
+    performed_side_effects: bool
+
+
 def build_panel_server_config(host: str, port: int) -> PanelServerConfig:
     return PanelServerConfig(app="migate.api.app:create_app", host=host, port=port, factory=True)
 
@@ -246,6 +258,107 @@ def render_setup_plan(plan: SetupPlan) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def build_setup_panel_config(
+    *,
+    panel_host: str,
+    panel_port: int,
+    admin_user: str,
+    admin_password: str,
+    base_path: str,
+    public_host: str,
+) -> dict[str, object]:
+    return {
+        "panel_host": panel_host,
+        "panel_port": panel_port,
+        "admin_user": admin_user,
+        "password_hash": "sha256:" + hashlib.sha256(admin_password.encode()).hexdigest(),
+        "base_path": _normalize_base_path(base_path),
+        "public_host": public_host,
+    }
+
+
+def _validate_setup_panel_config(data: dict[str, object]) -> str:
+    required = {"panel_host", "panel_port", "admin_user", "password_hash", "base_path", "public_host"}
+    if set(data) != required:
+        return "invalid"
+    if not str(data["password_hash"]).startswith("sha256:"):
+        return "invalid"
+    return "valid"
+
+
+def save_setup_panel_config(
+    *,
+    target: Path,
+    panel_host: str,
+    panel_port: int,
+    admin_user: str,
+    admin_password: str,
+    base_path: str,
+    public_host: str,
+    yes: bool,
+    allow_system_changes: bool,
+) -> SetupConfigSaveResult:
+    if not yes or not allow_system_changes:
+        return SetupConfigSaveResult(
+            status="rejected",
+            message="setup config save requires --yes --allow-system-changes",
+            target=str(target),
+            validation_status="not_run",
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+    plan = build_setup_plan(
+        panel_host=panel_host,
+        panel_port=panel_port,
+        admin_user=admin_user,
+        admin_password=admin_password,
+        base_path=base_path,
+        public_host=public_host,
+    )
+    if plan.status == "rejected":
+        return SetupConfigSaveResult(
+            status="rejected",
+            message=plan.message,
+            target=str(target),
+            validation_status="not_run",
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+    data = build_setup_panel_config(
+        panel_host=panel_host,
+        panel_port=panel_port,
+        admin_user=admin_user,
+        admin_password=admin_password,
+        base_path=base_path,
+        public_host=public_host,
+    )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+    validation_status = _validate_setup_panel_config(json.loads(target.read_text()))
+    return SetupConfigSaveResult(
+        status="success" if validation_status == "valid" else "invalid",
+        message="setup panel config saved" if validation_status == "valid" else "setup panel config validation failed",
+        target=str(target),
+        validation_status=validation_status,
+        commands_executed=[],
+        performed_side_effects=True,
+    )
+
+
+def render_setup_config_save_result(result: SetupConfigSaveResult) -> str:
+    return "\n".join(
+        [
+            "MiGate setup config save",
+            f"status: {result.status}",
+            f"message: {result.message}",
+            f"target: {result.target}",
+            f"validation_status: {result.validation_status}",
+            f"commands_executed: {result.commands_executed}",
+            f"performed_side_effects: {result.performed_side_effects}",
+        ]
+    )
 
 
 def build_xray_install_cli_plan(*, system: str | None = None, machine: str | None = None, version: str = "latest") -> XrayInstallPlan:
@@ -1535,6 +1648,34 @@ def setup(
         )
     typer.echo(render_setup_plan(plan))
     if plan.status == "rejected":
+        raise typer.Exit(code=1)
+
+
+@app.command("setup-config-save")
+def setup_config_save(
+    target: Path = typer.Option(Path("/etc/migate/panel.json"), "--target", help="Target MiGate panel setup config path."),
+    panel_host: str = typer.Option(MiGateConfig().security.web_bind, "--panel-host", help="Panel bind host."),
+    panel_port: int = typer.Option(MiGateConfig().security.web_port, "--panel-port", min=1, max=65535, help="Panel bind port."),
+    admin_user: str = typer.Option("admin", "--admin-user", help="Initial administrator username."),
+    admin_password: str = typer.Option("", "--admin-password", help="Initial administrator password; saved only as a hash."),
+    base_path: str = typer.Option("/", "--base-path", help="Panel URL base path."),
+    public_host: str = typer.Option("127.0.0.1", "--public-host", help="Host/IP used to render the operator Web URL."),
+    yes: bool = typer.Option(False, "--yes", help="Confirm writing the MiGate-owned setup config."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Allow writing privileged/system configuration paths."),
+) -> None:
+    result = save_setup_panel_config(
+        target=target,
+        panel_host=panel_host,
+        panel_port=panel_port,
+        admin_user=admin_user,
+        admin_password=admin_password,
+        base_path=base_path,
+        public_host=public_host,
+        yes=yes,
+        allow_system_changes=allow_system_changes,
+    )
+    typer.echo(render_setup_config_save_result(result))
+    if result.status != "success":
         raise typer.Exit(code=1)
 
 
