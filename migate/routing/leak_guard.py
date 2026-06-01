@@ -13,6 +13,7 @@ class EgressGuardState:
     tun_interface_exists: bool
     tunnel_running: bool | None = None
     openvpn_running: bool | None = None
+    upstream_proxy_required: bool = False
     upstream_proxy_ready: bool | None = None
     upstream_proxy_endpoint: str | None = None
     native_public_ip: str | None = None
@@ -69,6 +70,13 @@ def evaluate_egress_guard(state: EgressGuardState) -> EgressGuardDecision:
             "tunnel_not_running",
             "tunnel backend is not running; egress blocked",
             ["tunnel"],
+        )
+    if state.upstream_proxy_required and state.upstream_proxy_ready is None:
+        endpoint = state.upstream_proxy_endpoint or "configured upstream proxy"
+        return _block(
+            "upstream_proxy_state_unknown",
+            f"required upstream proxy {endpoint} state is unknown; egress blocked",
+            ["upstream_proxy"],
         )
     if state.upstream_proxy_ready is False:
         endpoint = state.upstream_proxy_endpoint or "configured upstream proxy"

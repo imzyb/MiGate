@@ -215,7 +215,7 @@ def _tunnel_status_from_bool(backend: str, tun_interface: str, is_running: bool)
 def _build_proxy_runtime_checks(
     config: MiGateConfig,
     *,
-    port_listening: Callable[[str, int], bool],
+    port_listening: Callable[[str, int], bool | None],
     interface_exists: Callable[[str], bool],
     tunnel_status: Callable[[str, str], TunnelProcessStatus],
     native_public_ip: str | None = None,
@@ -229,7 +229,11 @@ def _build_proxy_runtime_checks(
         ProxyRuntimeCheck(
             "socks_listen",
             "ok" if socks_ok else "failed",
-            f"{socks_endpoint} is listening" if socks_ok else f"{socks_endpoint} is not listening",
+            f"{socks_endpoint} is listening"
+            if socks_ok is True
+            else f"{socks_endpoint} state is unknown"
+            if socks_ok is None
+            else f"{socks_endpoint} is not listening",
         )
     )
 
@@ -288,6 +292,7 @@ def _build_proxy_runtime_checks(
             tun_interface=config.vpn.interface,
             tun_interface_exists=tun_ok,
             tunnel_running=tunnel_running,
+            upstream_proxy_required=config.egress.backend == "xray-tun",
             upstream_proxy_ready=socks_ok if config.egress.backend == "xray-tun" else None,
             upstream_proxy_endpoint=socks_endpoint if config.egress.backend == "xray-tun" else None,
             native_public_ip=native_public_ip,

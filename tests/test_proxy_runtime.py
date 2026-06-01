@@ -146,6 +146,40 @@ def test_proxy_doctor_xray_tun_blocks_when_required_upstream_proxy_is_unavailabl
     assert report.status == "failed"
 
 
+def test_proxy_doctor_xray_tun_blocks_when_required_upstream_proxy_state_is_unknown():
+    config = MiGateConfig()
+    config.egress.backend = "xray-tun"
+
+    def fake_tunnel_detector(backend: str, tun_interface: str) -> TunnelProcessStatus:
+        return TunnelProcessStatus(
+            backend=backend,
+            status="running",
+            message=f"{backend} tunnel for {tun_interface} is running",
+            command=["systemctl", "status", "migate-xray-tun.service", "--no-pager"],
+            returncode=0,
+            stdout="active",
+            stderr="",
+            performed_side_effects=False,
+        )
+
+    report = run_proxy_doctor(
+        config,
+        port_listening=lambda host, port: None if port == config.proxy.socks_port else True,
+        interface_exists=lambda name: True,
+        tunnel_process_detector=fake_tunnel_detector,
+        native_public_ip="203.0.113.10",
+        egress_public_ip="198.51.100.20",
+    )
+
+    assert ProxyRuntimeCheck("socks_listen", "failed", "127.0.0.1:34501 state is unknown") in report.checks
+    assert ProxyRuntimeCheck(
+        "egress_guard",
+        "failed",
+        "required upstream proxy 127.0.0.1:34501 state is unknown; egress blocked",
+    ) in report.checks
+    assert report.status == "failed"
+
+
 def test_proxy_doctor_allows_egress_guard_when_tunnel_process_is_running():
     config = MiGateConfig()
 

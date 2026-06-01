@@ -36,7 +36,7 @@ def _default_command_runner(argv: list[str]) -> CommandResult:
     return subprocess.run(argv, capture_output=True, text=True, check=False)
 
 
-def _default_upstream_proxy_connectable(host: str, port: int) -> bool:
+def _default_upstream_proxy_connectable(host: str, port: int) -> bool | None:
     try:
         with socket.create_connection((host, port), timeout=1.0):
             return True
@@ -50,7 +50,7 @@ def _build_egress_status_checks(
     interface_exists: Callable[[str], bool],
     command_runner: Callable[[list[str]], CommandResult],
     tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
-    upstream_proxy_connectable: Callable[[str, int], bool] | None = None,
+    upstream_proxy_connectable: Callable[[str, int], bool | None] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> list[EgressStatusCheck]:
@@ -96,7 +96,9 @@ def _build_egress_status_checks(
                 "ok" if upstream_ok else "failed",
                 (
                     f"xray-tun upstream SOCKS proxy {config.proxy.socks_host}:{config.proxy.socks_port} is listening"
-                    if upstream_ok
+                    if upstream_ok is True
+                    else f"xray-tun upstream SOCKS proxy {config.proxy.socks_host}:{config.proxy.socks_port} state is unknown; egress blocked"
+                    if upstream_ok is None
                     else f"xray-tun upstream SOCKS proxy {config.proxy.socks_host}:{config.proxy.socks_port} is not listening; egress blocked"
                 ),
             )
@@ -109,6 +111,7 @@ def _build_egress_status_checks(
             tun_interface=config.vpn.interface,
             tun_interface_exists=tun_ok,
             tunnel_running=tunnel_running,
+            upstream_proxy_required=config.egress.backend == "xray-tun",
             upstream_proxy_ready=upstream_ok,
             upstream_proxy_endpoint=upstream_endpoint,
             native_public_ip=native_public_ip,
@@ -131,7 +134,7 @@ def run_egress_doctor(
     interface_exists: Callable[[str], bool] | None = None,
     command_runner: Callable[[list[str]], CommandResult] | None = None,
     tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
-    upstream_proxy_connectable: Callable[[str, int], bool] | None = None,
+    upstream_proxy_connectable: Callable[[str, int], bool | None] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> EgressStatusReport:
@@ -158,7 +161,7 @@ def run_egress_status(
     interface_exists: Callable[[str], bool] | None = None,
     command_runner: Callable[[list[str]], CommandResult] | None = None,
     tunnel_process_detector: Callable[[str, str], TunnelProcessStatus] | None = None,
-    upstream_proxy_connectable: Callable[[str, int], bool] | None = None,
+    upstream_proxy_connectable: Callable[[str, int], bool | None] | None = None,
     native_public_ip: str | None = None,
     egress_public_ip: str | None = None,
 ) -> EgressStatusReport:

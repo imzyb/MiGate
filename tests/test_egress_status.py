@@ -182,6 +182,31 @@ def test_egress_doctor_xray_tun_reports_missing_upstream_socks_listener():
     assert report.status == "failed"
 
 
+def test_egress_doctor_xray_tun_treats_upstream_socks_probe_unknown_as_guard_unknown():
+    config = MiGateConfig(egress=EgressConfig(backend="xray-tun"))
+
+    report = run_egress_doctor(
+        config,
+        interface_exists=lambda name: True,
+        command_runner=lambda argv: FakeCommandResult(returncode=0, stdout="active\n"),
+        upstream_proxy_connectable=lambda host, port: None,
+        native_public_ip="198.51.100.10",
+        egress_public_ip="203.0.113.20",
+    )
+
+    assert EgressStatusCheck(
+        "upstream_proxy",
+        "failed",
+        "xray-tun upstream SOCKS proxy 127.0.0.1:34501 state is unknown; egress blocked",
+    ) in report.checks
+    assert EgressStatusCheck(
+        "egress_guard",
+        "failed",
+        "required upstream proxy 127.0.0.1:34501 state is unknown; egress blocked",
+    ) in report.checks
+    assert report.status == "failed"
+
+
 def test_egress_doctor_detects_native_ip_leak():
     report = run_egress_doctor(
         MiGateConfig(),
