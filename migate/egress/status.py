@@ -84,9 +84,12 @@ def _build_egress_status_checks(
         )
     )
 
+    upstream_ok: bool | None = None
+    upstream_endpoint: str | None = None
     if config.egress.backend == "xray-tun":
         connectable = upstream_proxy_connectable or _default_upstream_proxy_connectable
         upstream_ok = connectable(config.proxy.socks_host, config.proxy.socks_port)
+        upstream_endpoint = f"{config.proxy.socks_host}:{config.proxy.socks_port}"
         checks.append(
             EgressStatusCheck(
                 "upstream_proxy",
@@ -106,6 +109,8 @@ def _build_egress_status_checks(
             tun_interface=config.vpn.interface,
             tun_interface_exists=tun_ok,
             tunnel_running=tunnel_running,
+            upstream_proxy_ready=upstream_ok,
+            upstream_proxy_endpoint=upstream_endpoint,
             native_public_ip=native_public_ip,
             egress_public_ip=egress_public_ip,
         )

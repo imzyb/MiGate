@@ -165,7 +165,7 @@ def test_egress_doctor_xray_tun_reports_missing_upstream_socks_listener():
         command_runner=lambda argv: FakeCommandResult(returncode=0, stdout="active\n"),
         upstream_proxy_connectable=lambda host, port: calls.append((host, port)) or False,
         native_public_ip="198.51.100.10",
-        egress_public_ip=None,
+        egress_public_ip="203.0.113.20",
     )
 
     assert calls == [("127.0.0.1", 34501)]
@@ -173,6 +173,11 @@ def test_egress_doctor_xray_tun_reports_missing_upstream_socks_listener():
         "upstream_proxy",
         "failed",
         "xray-tun upstream SOCKS proxy 127.0.0.1:34501 is not listening; egress blocked",
+    ) in report.checks
+    assert EgressStatusCheck(
+        "egress_guard",
+        "failed",
+        "required upstream proxy 127.0.0.1:34501 is unavailable; egress blocked",
     ) in report.checks
     assert report.status == "failed"
 

@@ -79,6 +79,27 @@ def test_egress_guard_blocks_when_tunnel_state_is_unknown():
     assert decision.message == "tunnel backend state is unknown; egress blocked"
 
 
+def test_egress_guard_blocks_when_required_upstream_proxy_is_unavailable():
+    decision = evaluate_egress_guard(
+        EgressGuardState(
+            leak_guard_enabled=True,
+            fail_policy="block",
+            tun_interface="tun-migate",
+            tun_interface_exists=True,
+            tunnel_running=True,
+            upstream_proxy_ready=False,
+            upstream_proxy_endpoint="127.0.0.1:34501",
+            native_public_ip="203.0.113.10",
+            egress_public_ip="198.51.100.20",
+        )
+    )
+
+    assert decision.allowed is False
+    assert decision.reason == "upstream_proxy_unavailable"
+    assert decision.blocked_by == ["upstream_proxy"]
+    assert decision.message == "required upstream proxy 127.0.0.1:34501 is unavailable; egress blocked"
+
+
 def test_egress_guard_blocks_when_egress_ip_matches_native_vps_ip():
     decision = evaluate_egress_guard(
         EgressGuardState(

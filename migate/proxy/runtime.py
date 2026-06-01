@@ -288,6 +288,8 @@ def _build_proxy_runtime_checks(
             tun_interface=config.vpn.interface,
             tun_interface_exists=tun_ok,
             tunnel_running=tunnel_running,
+            upstream_proxy_ready=socks_ok if config.egress.backend == "xray-tun" else None,
+            upstream_proxy_endpoint=socks_endpoint if config.egress.backend == "xray-tun" else None,
             native_public_ip=native_public_ip,
             egress_public_ip=egress_public_ip,
         )
