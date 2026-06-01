@@ -8,6 +8,7 @@ from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusCheck, EgressStatusReport
 from migate.proxy.run import ProxyRunResult
 from migate.proxy.runtime import ProxyRuntimeCheck
+from migate.remote.rollout_plan import RemoteRolloutPlan, RemoteRolloutStep
 from migate.systemd.manager import SystemdResult
 from migate.xray.install_executor import XrayInstallDryRunResult, XrayInstallDryRunStep
 from migate.xray.install_plan import XrayInstallPlan, XrayInstallStep
@@ -1184,6 +1185,106 @@ def test_panel_systemd_status_api_returns_readonly_service_statuses(tmp_path):
         "performed_side_effects": False,
     }
     assert calls == ["migate-xray.service", "migate-panel.service", "migate-proxy.service"]
+
+
+def test_panel_remote_rollout_dry_run_api_returns_readonly_plan_without_ssh(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    calls = []
+
+    def rollout_plan_loader(*, host: str, port: int, user: str, staging_dir: str, backend: str | None = None) -> RemoteRolloutPlan:
+        calls.append({"host": host, "port": port, "user": user, "staging_dir": staging_dir, "backend": backend})
+        return RemoteRolloutPlan(
+            status="dry_run",
+            message="remote rollout dry-run only; no SSH or system changes performed",
+            target=f"{user}@{host}:{port}",
+            credential_hint="[REDACTED]",
+            staging_dir=staging_dir,
+            steps=[
+                RemoteRolloutStep(
+                    action="install",
+                    description="run gated remote install shell",
+                    command_preview="migate remote install --host 203.0.113.10 --port 62422 --user ubuntu --staging-dir /tmp/migate-rollout --no-dry-run --yes --allow-remote-changes",
+                    performs_side_effects=True,
+                ),
+                RemoteRolloutStep(
+                    action="socks5_smoke",
+                    description="run read-only remote SOCKS5 loopback smoke check after proxy service starts",
+                    command_preview="ssh -p 62422 ubuntu@203.0.113.10 -- 'python3 - <<\"PY\" ... PY'",
+                    performs_side_effects=False,
+                ),
+            ],
+            commands_executed=[],
+            performed_side_effects=False,
+        )
+
+    client = TestClient(create_app(node_repository=repo, remote_rollout_plan_loader=rollout_plan_loader))
+
+    response = client.get(
+        "/api/remote/rollout/dry-run",
+        params={"host": "203.0.113.10", "port": 62422, "user": "ubuntu", "staging_dir": "/tmp/migate-rollout", "backend": "xray-tun"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "status": "dry_run",
+        "message": "remote rollout dry-run only; no SSH or system changes performed",
+        "target": "ubuntu@203.0.113.10:62422",
+        "credential_hint": "[REDACTED]",
+        "staging_dir": "/tmp/migate-rollout",
+        "steps": [
+            {
+                "action": "install",
+                "description": "run gated remote install shell",
+                "command_preview": "migate remote install --host 203.0.113.10 --port 62422 --user ubuntu --staging-dir /tmp/migate-rollout --no-dry-run --yes --allow-remote-changes",
+                "performs_side_effects": True,
+            },
+            {
+                "action": "socks5_smoke",
+                "description": "run read-only remote SOCKS5 loopback smoke check after proxy service starts",
+                "command_preview": "ssh -p 62422 ubuntu@203.0.113.10 -- 'python3 - <<\"PY\" ... PY'",
+                "performs_side_effects": False,
+            },
+        ],
+        "commands_executed": [],
+        "performed_side_effects": False,
+    }
+    assert calls == [{"host": "203.0.113.10", "port": 62422, "user": "ubuntu", "staging_dir": "/tmp/migate-rollout", "backend": "xray-tun"}]
+
+
+def test_panel_remote_rollout_dry_run_api_rejects_unsafe_inputs_without_secret_leak(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    client = TestClient(create_app(node_repository=repo))
+
+    credential_response = client.get(
+        "/api/remote/rollout/dry-run",
+        params={"host": "root:secret@166.88.232.2", "port": 22, "user": "root", "staging_dir": "/tmp/migate-install"},
+    )
+    staging_response = client.get(
+        "/api/remote/rollout/dry-run",
+        params={"host": "166.88.232.2", "port": 22, "user": "root", "staging_dir": "/etc/migate"},
+    )
+
+    assert credential_response.status_code == 200
+    credential_payload = credential_response.json()
+    assert credential_payload == {
+        "status": "rejected",
+        "message": "embedded credentials are not allowed in remote rollout targets",
+        "target": "[REDACTED]",
+        "credential_hint": "[REDACTED]",
+        "staging_dir": "",
+        "steps": [],
+        "commands_executed": [],
+        "performed_side_effects": False,
+    }
+    assert "secret" not in credential_response.text
+
+    assert staging_response.status_code == 200
+    staging_payload = staging_response.json()
+    assert staging_payload["status"] == "rejected"
+    assert staging_payload["message"] == "staging_dir must be under /tmp/ for dry-run rollout planning"
+    assert staging_payload["commands_executed"] == []
+    assert staging_payload["performed_side_effects"] is False
 
 
 def test_panel_nodes_api_returns_sanitized_webui_ready_json(tmp_path):

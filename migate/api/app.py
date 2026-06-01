@@ -16,6 +16,7 @@ from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusReport, run_egress_status
 from migate.proxy.run import ProxyRunResult, run_proxy
 from migate.proxy.service_cli import preview_proxy_service_unit
+from migate.remote.rollout_plan import RemoteRolloutPlan, build_remote_rollout_dry_run_plan
 from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
 from migate.routing.policy_plan import build_policy_routing_plan
 from migate.systemd.manager import SystemdResult, daemon_reload, restart_service, service_status
@@ -527,6 +528,27 @@ def _egress_lifecycle_result_json(result: EgressLifecycleResult) -> dict[str, ob
     }
 
 
+def _remote_rollout_plan_json(plan: RemoteRolloutPlan) -> dict[str, object]:
+    return {
+        "status": plan.status,
+        "message": plan.message,
+        "target": plan.target,
+        "credential_hint": plan.credential_hint,
+        "staging_dir": plan.staging_dir,
+        "steps": [
+            {
+                "action": step.action,
+                "description": step.description,
+                "command_preview": step.command_preview,
+                "performs_side_effects": step.performs_side_effects,
+            }
+            for step in plan.steps
+        ],
+        "commands_executed": plan.commands_executed,
+        "performed_side_effects": plan.performed_side_effects,
+    }
+
+
 def _egress_dry_run_result_html(title: str, result_loader: Callable[[], EgressLifecycleResult]) -> str:
     result = result_loader()
     commands = "\n".join(result.commands_executed)
@@ -606,6 +628,7 @@ def create_app(
     proxy_runtime_loader: Callable[[], ProxyRunResult] | None = None,
     egress_up_dry_run_loader: Callable[[], EgressLifecycleResult] | None = None,
     egress_down_dry_run_loader: Callable[[], EgressLifecycleResult] | None = None,
+    remote_rollout_plan_loader: Callable[..., RemoteRolloutPlan] | None = None,
 ) -> FastAPI:
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
     config_path = Path(xray_config_path) if xray_config_path is not None else DEFAULT_XRAY_CONFIG_PATH
@@ -628,6 +651,7 @@ def create_app(
     proxy_loader = proxy_runtime_loader or (lambda: run_proxy(migate_config))
     egress_up_loader = egress_up_dry_run_loader or (lambda: _default_egress_up_dry_run(migate_config))
     egress_down_loader = egress_down_dry_run_loader or (lambda: _default_egress_down_dry_run(migate_config))
+    remote_rollout_loader = remote_rollout_plan_loader or build_remote_rollout_dry_run_plan
     repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
@@ -688,6 +712,18 @@ def create_app(
     @app.get("/api/proxy/runtime")
     def api_proxy_runtime() -> dict[str, object]:
         return _proxy_run_result_json(proxy_loader())
+
+    @app.get("/api/remote/rollout/dry-run")
+    def api_remote_rollout_dry_run(
+        host: str = "166.88.232.2",
+        port: int = 22,
+        user: str = "root",
+        staging_dir: str = "/tmp/migate-install",
+        backend: str | None = None,
+    ) -> dict[str, object]:
+        return _remote_rollout_plan_json(
+            remote_rollout_loader(host=host, port=port, user=user, staging_dir=staging_dir, backend=backend)
+        )
 
     @app.get("/api/proxy/service/preview")
     def api_proxy_service_preview() -> dict[str, object]:
