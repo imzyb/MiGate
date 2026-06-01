@@ -100,6 +100,32 @@ class NodeRepository:
             row = conn.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
         return self._row_to_node(row) if row is not None else None
 
+    def update_node(
+        self,
+        node_id: int,
+        *,
+        protocol: str,
+        name: str,
+        host: str,
+        port: int,
+        credential: str,
+        share_link: str,
+        subscription: str,
+        socks5_host: str = "",
+        socks5_port: int | None = None,
+    ) -> NodeRecord | None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE nodes
+                SET protocol = ?, name = ?, host = ?, port = ?, credential = ?, share_link = ?, subscription = ?, socks5_host = ?, socks5_port = ?
+                WHERE id = ?
+                """,
+                (protocol, name, host, port, credential, share_link, subscription, socks5_host, socks5_port, node_id),
+            )
+            row = conn.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
+        return self._row_to_node(row) if row is not None else None
+
     def delete_node(self, node_id: int) -> NodeRecord | None:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
