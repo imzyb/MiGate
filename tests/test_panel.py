@@ -1,3 +1,4 @@
+import json
 from html import unescape
 
 from fastapi.testclient import TestClient
@@ -16,6 +17,71 @@ from migate.xray.install_executor import XrayInstallDryRunResult, XrayInstallDry
 from migate.xray.install_plan import XrayInstallPlan, XrayInstallStep
 from migate.xray.runtime import XrayRuntimeStatus
 from migate.xray.validator import XrayValidationResult
+
+
+def _write_panel_config(path, *, base_path="/mg-admin"):
+    path.write_text(
+        json.dumps(
+            {
+                "panel_host": "127.0.0.1",
+                "panel_port": 8787,
+                "admin_user": "admin",
+                "password_hash": "sha256:5c76fcf4400da3b4804d70b91af20703d483f2c5860cc2f8d59592a1da8d2121",
+                "base_path": base_path,
+                "public_host": "127.0.0.1",
+            }
+        )
+    )
+
+
+
+def test_panel_loads_auth_config_from_panel_json_and_protects_home(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path)
+    client = TestClient(create_app(node_repository=NodeRepository(tmp_path / "migate.db"), panel_config_path=config_path))
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/mg-admin/login"
+
+
+
+def test_panel_base_path_routes_login_home_logout_and_node_creation(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    repo = NodeRepository(tmp_path / "migate.db")
+    client = TestClient(create_app(node_repository=repo, panel_config_path=config_path))
+
+    assert client.get("/login", follow_redirects=False).status_code == 404
+    assert client.get("/", follow_redirects=False).headers["location"] == "/mg-admin/login"
+
+    login_page = client.get("/mg-admin/login")
+    assert login_page.status_code == 200
+    assert "MiGate 登录" in login_page.text
+    assert 'action="/mg-admin/login"' in login_page.text
+
+    logged_in = client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"}, follow_redirects=False)
+    assert logged_in.status_code == 303
+    assert logged_in.headers["location"] == "/mg-admin/"
+
+    home = client.get("/mg-admin/")
+    assert home.status_code == 200
+    assert 'action="/mg-admin/logout"' in home.text
+    assert 'action="/mg-admin/nodes/create"' in home.text
+
+    created = client.post(
+        "/mg-admin/nodes/create",
+        data={"protocol": "vless", "host": "secret.example.com", "port": "443", "name": "Secret", "credential": "secret-uuid"},
+    )
+    assert created.status_code == 200
+    assert "vless://secret-uuid@secret.example.com:443" in created.text
+    assert len(repo.list_nodes()) == 1
+
+    logout = client.post("/mg-admin/logout", follow_redirects=False)
+    assert logout.status_code == 303
+    assert logout.headers["location"] == "/mg-admin/login"
+
 
 
 def test_panel_auth_redirects_home_to_login_without_leaking_node_links(tmp_path):

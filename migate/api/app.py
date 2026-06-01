@@ -54,6 +54,31 @@ def _hash_panel_password(password: str) -> str:
     return "sha256:" + hashlib.sha256(password.encode()).hexdigest()
 
 
+def _normalize_panel_base_path(base_path: object | None) -> str:
+    value = str(base_path or "/").strip() or "/"
+    if not value.startswith("/"):
+        value = f"/{value}"
+    return value.rstrip("/") or "/"
+
+
+def load_panel_auth_config(path: str | Path | None) -> dict[str, object] | None:
+    if path is None:
+        return None
+    config_path = Path(path)
+    if not config_path.exists():
+        return None
+    data = json.loads(config_path.read_text())
+    if not isinstance(data, dict):
+        return None
+    required = {"admin_user", "password_hash", "base_path"}
+    if not required.issubset(data):
+        return None
+    if not str(data.get("password_hash", "")).startswith("sha256:"):
+        return None
+    data["base_path"] = _normalize_panel_base_path(data.get("base_path"))
+    return data
+
+
 def _panel_auth_enabled(panel_auth_config: dict[str, object] | None) -> bool:
     return panel_auth_config is not None
 
@@ -70,15 +95,26 @@ def _is_authenticated(request: Request, panel_auth_config: dict[str, object] | N
     return request.cookies.get("migate_session") == _session_token_for_auth_config(panel_auth_config or {})
 
 
-def _login_html(message: str = "") -> str:
+def _panel_url(base_path: str, path: str = "/") -> str:
+    normalized_base = _normalize_panel_base_path(base_path)
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    if normalized_base == "/":
+        return normalized_path
+    if normalized_path == "/":
+        return f"{normalized_base}/"
+    return f"{normalized_base}{normalized_path}"
+
+
+def _login_html(message: str = "", *, base_path: str = "/") -> str:
     message_html = f"<p class=\"warn\">{escape(message)}</p>" if message else ""
+    login_action = _panel_url(base_path, "/login")
     return _page_shell(
         f"""
   <section class="card">
     <h1>MiGate 登录</h1>
     <p>请输入 setup 配置中的管理员账号和密码。</p>
     {message_html}
-    <form method="post" action="/login">
+    <form method="post" action="{escape(login_action)}">
       <label>用户名
         <input name="username" required>
       </label>
@@ -92,9 +128,10 @@ def _login_html(message: str = "") -> str:
     )
 
 
-def _logout_html() -> str:
-    return """
-  <form method="post" action="/logout">
+def _logout_html(*, base_path: str = "/") -> str:
+    logout_action = _panel_url(base_path, "/logout")
+    return f"""
+  <form method="post" action="{escape(logout_action)}">
     <button type="submit">退出登录</button>
   </form>
 """
@@ -176,10 +213,10 @@ def _xray_config_for_nodes(nodes: list[NodeRecord]) -> dict[str, object]:
     return build_config_from_nodes(MiGateConfig(), [node for node in nodes if node.enabled])
 
 
-def _xray_preview_html(nodes: list[NodeRecord]) -> str:
+def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
     enabled_nodes = [node for node in nodes if node.enabled]
-    restart_form = """
-    <form method="post" action="/xray/restart">
+    restart_form = f"""
+    <form method="post" action="{escape(_panel_url(base_path, '/xray/restart'))}">
       <button type="submit">校验并重启 Xray</button>
     </form>
 """
@@ -196,10 +233,10 @@ def _xray_preview_html(nodes: list[NodeRecord]) -> str:
   <section class="card">
     <h2>Xray 配置预览</h2>
     <p>当前仅预览，不会重载 Xray。安全约束：不生成 freedom 出站，默认路由到 MiGate SOCKS5。</p>
-    <form method="post" action="/xray/config/save">
+    <form method="post" action="{escape(_panel_url(base_path, '/xray/config/save'))}">
       <button type="submit">保存 Xray 配置</button>
     </form>
-    <form method="post" action="/xray/config/validate">
+    <form method="post" action="{escape(_panel_url(base_path, '/xray/config/validate'))}">
       <button type="submit">校验 Xray 配置</button>
     </form>
     {restart_form}
@@ -213,6 +250,7 @@ def _home_body(
     nodes: list[NodeRecord] | None = None,
     result_html: str = "",
     auth_html: str = "",
+    base_path: str = "/",
     systemd_html: str = "",
     service_status_html: str = "",
     xray_runtime_html: str = "",
@@ -223,7 +261,7 @@ def _home_body(
 ) -> str:
     current_nodes = nodes or []
     nodes_html = _nodes_html(current_nodes)
-    preview_html = _xray_preview_html(current_nodes)
+    preview_html = _xray_preview_html(current_nodes, base_path=base_path)
     return f"""
   <section class="hero">
     <div>
@@ -237,7 +275,7 @@ def _home_body(
   <section class="card">
     <h2>创建节点</h2>
     <p>推荐新手先使用 VLESS TCP；Trojan 和 Shadowsocks 也已支持链接生成。</p>
-    <form method="post" action="/nodes/create">
+    <form method="post" action="{escape(_panel_url(base_path, '/nodes/create'))}">
       <label>节点协议
         <select name="protocol">
           <option value="vless">VLESS</option>
@@ -923,7 +961,14 @@ def create_app(
     remote_leak_check_loader: Callable[..., RemoteLeakCheckReport] | None = None,
     remote_rollout_plan_loader: Callable[..., RemoteRolloutPlan] | None = None,
     panel_auth_config: dict[str, object] | None = None,
+    panel_config_path: str | Path | None = None,
 ) -> FastAPI:
+    loaded_panel_auth_config = panel_auth_config if panel_auth_config is not None else load_panel_auth_config(panel_config_path)
+    panel_base_path = (
+        _normalize_panel_base_path((loaded_panel_auth_config or {}).get("base_path"))
+        if panel_auth_config is None and loaded_panel_auth_config
+        else "/"
+    )
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
     config_path = Path(xray_config_path) if xray_config_path is not None else DEFAULT_XRAY_CONFIG_PATH
     unit_dir = Path(systemd_unit_dir) if systemd_unit_dir is not None else DEFAULT_SYSTEMD_UNIT_DIR
@@ -952,29 +997,29 @@ def create_app(
     app = FastAPI(title="MiGate Panel")
 
     def require_panel_auth(request: Request) -> RedirectResponse | None:
-        if _is_authenticated(request, panel_auth_config):
+        if _is_authenticated(request, loaded_panel_auth_config):
             return None
-        return RedirectResponse("/login", status_code=303)
+        return RedirectResponse(_panel_url(panel_base_path, "/login"), status_code=303)
 
-    @app.get("/login", response_class=HTMLResponse)
+    @app.get(_panel_url(panel_base_path, "/login"), response_class=HTMLResponse)
     def login_page() -> str:
-        return _login_html()
+        return _login_html(base_path=panel_base_path)
 
-    @app.post("/login", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/login"), response_class=HTMLResponse)
     def login(username: str = Form(...), password: str = Form(...)):
-        if not _panel_auth_enabled(panel_auth_config):
-            return RedirectResponse("/", status_code=303)
-        expected_user = str((panel_auth_config or {}).get("admin_user", ""))
-        expected_hash = str((panel_auth_config or {}).get("password_hash", ""))
+        if not _panel_auth_enabled(loaded_panel_auth_config):
+            return RedirectResponse(_panel_url(panel_base_path, "/"), status_code=303)
+        expected_user = str((loaded_panel_auth_config or {}).get("admin_user", ""))
+        expected_hash = str((loaded_panel_auth_config or {}).get("password_hash", ""))
         if username != expected_user or _hash_panel_password(password) != expected_hash:
-            return HTMLResponse(_login_html("登录失败"), status_code=401)
-        response = RedirectResponse("/", status_code=303)
-        response.set_cookie("migate_session", _session_token_for_auth_config(panel_auth_config or {}), httponly=True, samesite="lax")
+            return HTMLResponse(_login_html("登录失败", base_path=panel_base_path), status_code=401)
+        response = RedirectResponse(_panel_url(panel_base_path, "/"), status_code=303)
+        response.set_cookie("migate_session", _session_token_for_auth_config(loaded_panel_auth_config or {}), httponly=True, samesite="lax")
         return response
 
-    @app.post("/logout")
+    @app.post(_panel_url(panel_base_path, "/logout"))
     def logout() -> RedirectResponse:
-        response = RedirectResponse("/login", status_code=303)
+        response = RedirectResponse(_panel_url(panel_base_path, "/login"), status_code=303)
         response.delete_cookie("migate_session")
         return response
 
@@ -1196,7 +1241,12 @@ def create_app(
     def api_dashboard() -> dict[str, object]:
         return dashboard_snapshot()
 
-    @app.get("/", response_class=HTMLResponse)
+    if panel_base_path != "/":
+        @app.get("/")
+        def root_redirect() -> RedirectResponse:
+            return RedirectResponse(_panel_url(panel_base_path, "/login"), status_code=303)
+
+    @app.get(_panel_url(panel_base_path, "/"), response_class=HTMLResponse)
     def home(request: Request):
         auth_redirect = require_panel_auth(request)
         if auth_redirect is not None:
@@ -1208,7 +1258,8 @@ def create_app(
             _home_body(
                 nodes=nodes,
                 result_html=_dashboard_html(snapshot),
-                auth_html=_logout_html() if _panel_auth_enabled(panel_auth_config) else "",
+                auth_html=_logout_html(base_path=panel_base_path) if _panel_auth_enabled(loaded_panel_auth_config) else "",
+                base_path=panel_base_path,
                 xray_runtime_html=_xray_runtime_status_html(runtime),
                 xray_install_plan_html=_xray_install_plan_html(plan_loader),
                 egress_status_html=_egress_status_report_html(egress),
@@ -1235,9 +1286,9 @@ def create_app(
     @app.post("/remote/status/refresh", response_class=HTMLResponse)
     def refresh_remote_status() -> str:
         result = remote_status_detail().replace("远端状态详情", "远端状态详情已刷新", 1)
-        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result))
+        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, base_path=panel_base_path))
 
-    @app.post("/nodes/create", response_class=HTMLResponse)
+    @app.post(_panel_url(panel_base_path, "/nodes/create"), response_class=HTMLResponse)
     def create_node(
         request: Request,
         protocol: str = Form(...),
@@ -1273,7 +1324,7 @@ def create_app(
     <pre>{escape(subscription)}</pre>
   </section>
 """
-        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result))
+        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, base_path=panel_base_path))
 
     @app.post("/xray/config/save", response_class=HTMLResponse)
     def save_xray_config() -> str:

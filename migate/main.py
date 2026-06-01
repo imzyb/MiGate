@@ -130,6 +130,7 @@ class PanelServerConfig:
     host: str
     port: int
     factory: bool = True
+    panel_config_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -186,8 +187,14 @@ class SetupRunResult:
     performed_side_effects: bool
 
 
-def build_panel_server_config(host: str, port: int) -> PanelServerConfig:
-    return PanelServerConfig(app="migate.api.app:create_app", host=host, port=port, factory=True)
+def build_panel_server_config(host: str, port: int, panel_config_path: str | Path | None = None) -> PanelServerConfig:
+    return PanelServerConfig(
+        app="migate.api.app:create_app",
+        host=host,
+        port=port,
+        factory=True,
+        panel_config_path=str(panel_config_path) if panel_config_path is not None else None,
+    )
 
 
 def _normalize_base_path(base_path: str) -> str:
@@ -2000,13 +2007,19 @@ def setup_config_save(
 def panel(
     host: str = typer.Option(MiGateConfig().security.web_bind, help="Panel bind host."),
     port: int = typer.Option(MiGateConfig().security.web_port, help="Panel bind port."),
+    panel_config: Path = typer.Option(Path("/etc/migate/panel.json"), "--panel-config", help="Panel setup config produced by setup-config-save."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print server settings without starting uvicorn."),
 ) -> None:
-    server = build_panel_server_config(host=host, port=port)
+    server = build_panel_server_config(host=host, port=port, panel_config_path=panel_config)
     if dry_run:
-        typer.echo(f"MiGate panel: uvicorn {server.app} --factory --host {server.host} --port {server.port}")
+        typer.echo(
+            f"MiGate panel: uvicorn {server.app} --factory --host {server.host} --port {server.port} "
+            f"panel_config={server.panel_config_path}"
+        )
         return
-    uvicorn.run(server.app, host=server.host, port=server.port, factory=server.factory)
+    from migate.api.app import create_app
+
+    uvicorn.run(lambda: create_app(panel_config_path=panel_config), host=server.host, port=server.port, factory=True)
 
 
 def run() -> None:

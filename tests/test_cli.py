@@ -2352,6 +2352,18 @@ def test_panel_command_accepts_custom_host_and_port_in_dry_run():
     assert "9000" in result.output
 
 
+def test_panel_command_dry_run_accepts_panel_config_path(tmp_path):
+    config_path = tmp_path / "panel.json"
+
+    result = runner.invoke(app, ["panel", "--panel-config", str(config_path), "--dry-run"])
+
+    assert result.exit_code == 0
+    assert "panel_config" in result.output
+    assert str(config_path) in result.output
+    assert "uvicorn" in result.output
+
+
+
 def test_build_panel_server_config_keeps_app_factory_target():
     config = build_panel_server_config(host="127.0.0.1", port=8787)
 
