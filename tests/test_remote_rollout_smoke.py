@@ -1,5 +1,5 @@
 from migate.remote.rollout_plan import build_remote_rollout_dry_run_plan
-from migate.remote.rollout_runner import RemoteRolloutPhaseResult, RemoteRolloutRunResult
+from migate.remote.rollout_runner import RemoteRolloutPhaseResult, RemoteRolloutRunResult, RemoteRolloutSubstepResult
 from migate.remote.rollout_smoke import (
     RemoteRolloutSmokeResult,
     render_remote_rollout_smoke_result,
@@ -146,6 +146,54 @@ def test_remote_rollout_smoke_fails_when_rollout_fails():
     assert result.rollout == rollout
     assert result.commands_executed == rollout.commands_executed
     assert result.performed_side_effects is True
+
+
+def test_render_remote_rollout_smoke_result_includes_nested_failed_socks5_smoke_diagnostics():
+    rollout = RemoteRolloutRunResult(
+        status="failed",
+        message="remote rollout stopped at socks5_smoke",
+        target="root@166.88.232.2:22",
+        phases=[
+            _phase("install", side_effects=True),
+            _phase("readiness"),
+            _phase("egress_up", side_effects=True),
+            _phase("service_apply", side_effects=True),
+            RemoteRolloutPhaseResult(
+                action="socks5_smoke",
+                status="failed",
+                message="socks5_smoke failed at loopback_greeting",
+                commands_executed=["ssh socks smoke"],
+                performed_side_effects=False,
+                command_results=[
+                    RemoteRolloutSubstepResult(
+                        name="loopback_greeting",
+                        status="failed",
+                        command="ssh socks smoke",
+                        returncode=1,
+                        stdout="smoke stdout",
+                        stderr="connection refused",
+                    )
+                ],
+            ),
+        ],
+        commands_executed=["install command", "readiness command", "egress_up command", "service_apply command", "ssh socks smoke"],
+        performed_side_effects=True,
+    )
+    result = run_remote_rollout_smoke(
+        _plan(),
+        dry_run=False,
+        yes=True,
+        allow_remote_changes=True,
+        rollout_runner=lambda: rollout,
+    )
+
+    rendered = render_remote_rollout_smoke_result(result)
+
+    assert "remote rollout smoke failed: remote rollout stopped at socks5_smoke" in rendered
+    assert "- socks5_smoke: failed - socks5_smoke failed at loopback_greeting" in rendered
+    assert "  - loopback_greeting: failed returncode=1" in rendered
+    assert "    stdout: smoke stdout" in rendered
+    assert "    stderr: connection refused" in rendered
 
 
 def test_remote_rollout_smoke_fails_when_service_smoke_phase_is_missing():
