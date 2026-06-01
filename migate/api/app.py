@@ -180,12 +180,6 @@ def _home_body(
     </div>
   </section>
 
-  <section class="grid" aria-label="状态概览">
-    <div class="card"><div class="label">Xray 状态</div><div class="value warn">待接入</div></div>
-    <div class="card"><div class="label">VPNGate 出口</div><div class="value warn">待连接</div></div>
-    <div class="card"><div class="label">SOCKS5 出站</div><div class="value ok">127.0.0.1:34501</div></div>
-    <div class="card"><div class="label">HTTP 出站</div><div class="value ok">127.0.0.1:34502</div></div>
-  </section>
 
   <section class="card">
     <h2>创建节点</h2>
@@ -476,6 +470,7 @@ def _systemd_services_status_json(services: dict[str, SystemdResult]) -> dict[st
 
 def _safe_preview_actions_json() -> list[dict[str, str]]:
     return [
+        {"name": "dashboard", "method": "GET", "path": "/api/dashboard"},
         {"name": "xray_install_plan", "method": "GET", "path": "/api/xray/install-plan"},
         {"name": "xray_install_dry_run", "method": "GET", "path": "/api/xray/install/dry-run"},
         {"name": "egress_up_dry_run", "method": "GET", "path": "/api/egress/up/dry-run"},
@@ -589,6 +584,123 @@ def _remote_rollout_plan_json(plan: RemoteRolloutPlan) -> dict[str, object]:
         "commands_executed": plan.commands_executed,
         "performed_side_effects": plan.performed_side_effects,
     }
+
+
+def _dashboard_snapshot_json(
+    *,
+    nodes: list[NodeRecord],
+    runtime: XrayRuntimeStatus,
+    egress: EgressStatusReport,
+    proxy: ProxyRunResult,
+    services: dict[str, SystemdResult],
+    readiness: RemoteReadinessReport,
+    leak_check: RemoteLeakCheckReport,
+    rollout: RemoteRolloutPlan,
+) -> dict[str, object]:
+    healthy = (
+        runtime.status == "installed"
+        and all(check.status == "ok" for check in egress.checks)
+        and all(service.status == "success" for service in services.values())
+        and readiness.status == "ok"
+        and leak_check.status == "ok"
+    )
+    return {
+        "status": "ok" if healthy else "degraded",
+        "nodes": {
+            "total": len(nodes),
+            "enabled": sum(1 for node in nodes if node.enabled),
+        },
+        "cards": {
+            "xray": _xray_runtime_status_json(runtime, include_output=False),
+            "egress": _egress_status_report_json(egress),
+            "proxy": _proxy_run_result_json(proxy),
+            "systemd": {
+                "services": _systemd_services_status_json(services),
+                "systemctl_commands_executed": [],
+                "performed_side_effects": False,
+            },
+            "remote": {
+                "readiness": _remote_readiness_report_json(readiness),
+                "leak_check": _remote_leak_check_report_json(leak_check),
+                "rollout_dry_run": _remote_rollout_plan_json(rollout),
+            },
+        },
+        "actions": {
+            "safe_previews": _safe_preview_actions_json(),
+            "dangerous_actions_enabled": False,
+        },
+        "performed_side_effects": False,
+    }
+
+
+def _card_status_class(status: object) -> str:
+    return "ok" if str(status) in {"ok", "installed", "observed", "running", "dry_run", "success"} else "warn"
+
+
+def _dashboard_card_html(label: str, value: object, detail: object = "") -> str:
+    value_text = str(value)
+    detail_html = f'<div class="label">{escape(str(detail))}</div>' if detail else ""
+    return f"""
+    <div class="card">
+      <div class="label">{escape(label)}</div>
+      <div class="value {_card_status_class(value_text)}">{escape(value_text)}</div>
+      {detail_html}
+    </div>
+"""
+
+
+def _dashboard_html(snapshot: dict[str, object]) -> str:
+    cards = snapshot["cards"]
+    assert isinstance(cards, dict)
+    xray = cards["xray"]
+    egress = cards["egress"]
+    proxy = cards["proxy"]
+    systemd = cards["systemd"]
+    remote = cards["remote"]
+    assert isinstance(xray, dict)
+    assert isinstance(egress, dict)
+    assert isinstance(proxy, dict)
+    assert isinstance(systemd, dict)
+    assert isinstance(remote, dict)
+    readiness = remote["readiness"]
+    leak_check = remote["leak_check"]
+    rollout = remote["rollout_dry_run"]
+    assert isinstance(readiness, dict)
+    assert isinstance(leak_check, dict)
+    assert isinstance(rollout, dict)
+    nodes = snapshot["nodes"]
+    assert isinstance(nodes, dict)
+    actions = snapshot["actions"]
+    assert isinstance(actions, dict)
+    safe_previews = actions["safe_previews"]
+    assert isinstance(safe_previews, list)
+    action_links = "\n".join(
+        f'      <li><a href="{escape(str(action["path"]))}">{escape(str(action["name"]))}</a> <span class="label">{escape(str(action["method"]))}</span></li>'
+        for action in safe_previews
+        if isinstance(action, dict)
+    )
+    return f"""
+  <section class="card">
+    <h2>Dashboard 总览</h2>
+    <p>首屏只读取状态和 dry-run/preview 合约，不会安装、启动、停止、重启或修改远端。</p>
+    <div class="label">危险动作：{'禁用' if actions.get('dangerous_actions_enabled') is False else '启用'}</div>
+    <div class="grid" aria-label="Dashboard 总览">
+      {_dashboard_card_html('整体状态', snapshot['status'])}
+      {_dashboard_card_html('节点', f"{nodes['enabled']}/{nodes['total']} enabled")}
+      {_dashboard_card_html('Xray 状态', xray.get('status'), xray.get('version') or xray.get('message', ''))}
+      {_dashboard_card_html('VPNGate 出口', egress.get('status'), 'performed_side_effects: False')}
+      {_dashboard_card_html('SOCKS5 出站', proxy.get('serve_mode') or proxy.get('status'), proxy.get('message', ''))}
+      {_dashboard_card_html('Systemd 服务', 'tracked', ', '.join(str(name) for name in systemd.get('services', {}).keys()))}
+      {_dashboard_card_html('远端 readiness', readiness.get('status'), readiness.get('target', ''))}
+      {_dashboard_card_html('远端 leak-check', leak_check.get('status'), leak_check.get('egress_public_ip') or leak_check.get('target', ''))}
+      {_dashboard_card_html('远端 rollout dry-run', rollout.get('status'), rollout.get('message', ''))}
+    </div>
+    <h3>安全预览入口</h3>
+    <ul>
+{action_links}
+    </ul>
+  </section>
+"""
 
 
 def _egress_dry_run_result_html(title: str, result_loader: Callable[[], EgressLifecycleResult]) -> str:
@@ -861,62 +973,36 @@ def create_app(
             "performed_side_effects": False,
         }
 
+    def dashboard_snapshot() -> dict[str, object]:
+        nodes = repo.list_nodes()
+        return _dashboard_snapshot_json(
+            nodes=nodes,
+            runtime=runtime_loader(),
+            egress=egress_loader(),
+            proxy=proxy_loader(),
+            services=_load_migate_systemd_services(status_loader),
+            readiness=readiness_loader(host="166.88.232.2", port=22, user="root"),
+            leak_check=leak_check_loader(host="166.88.232.2", port=22, user="root", socks_port=34501),
+            rollout=remote_rollout_loader(
+                host="166.88.232.2",
+                port=22,
+                user="root",
+                staging_dir="/tmp/migate-install",
+                backend=None,
+            ),
+        )
+
     @app.get("/api/dashboard")
     def api_dashboard() -> dict[str, object]:
-        nodes = repo.list_nodes()
-        runtime = runtime_loader()
-        egress = egress_loader()
-        proxy = proxy_loader()
-        services = _load_migate_systemd_services(status_loader)
-        readiness = readiness_loader(host="166.88.232.2", port=22, user="root")
-        leak_check = leak_check_loader(host="166.88.232.2", port=22, user="root", socks_port=34501)
-        rollout = remote_rollout_loader(
-            host="166.88.232.2",
-            port=22,
-            user="root",
-            staging_dir="/tmp/migate-install",
-            backend=None,
-        )
-        healthy = (
-            runtime.status == "installed"
-            and all(check.status == "ok" for check in egress.checks)
-            and all(service.status == "success" for service in services.values())
-            and readiness.status == "ok"
-            and leak_check.status == "ok"
-        )
-        return {
-            "status": "ok" if healthy else "degraded",
-            "nodes": {
-                "total": len(nodes),
-                "enabled": sum(1 for node in nodes if node.enabled),
-            },
-            "cards": {
-                "xray": _xray_runtime_status_json(runtime, include_output=False),
-                "egress": _egress_status_report_json(egress),
-                "proxy": _proxy_run_result_json(proxy),
-                "systemd": {
-                    "services": _systemd_services_status_json(services),
-                    "systemctl_commands_executed": [],
-                    "performed_side_effects": False,
-                },
-                "remote": {
-                    "readiness": _remote_readiness_report_json(readiness),
-                    "leak_check": _remote_leak_check_report_json(leak_check),
-                    "rollout_dry_run": _remote_rollout_plan_json(rollout),
-                },
-            },
-            "actions": {
-                "safe_previews": _safe_preview_actions_json(),
-                "dangerous_actions_enabled": False,
-            },
-            "performed_side_effects": False,
-        }
+        return dashboard_snapshot()
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:
+        nodes = repo.list_nodes()
         return _page_shell(
             _home_body(
-                nodes=repo.list_nodes(),
+                nodes=nodes,
+                result_html=_dashboard_html(dashboard_snapshot()),
                 xray_runtime_html=_xray_runtime_html(runtime_loader),
                 xray_install_plan_html=_xray_install_plan_html(plan_loader),
                 egress_status_html=_egress_status_html(egress_loader),
