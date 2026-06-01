@@ -22,6 +22,8 @@ from migate.main import (
     run_remote_rollout_smoke_cli,
     run_setup,
     run_xray_install_cli,
+    SetupRunPhase,
+    SetupRunResult,
 )
 from migate.egress.lifecycle import EgressLifecyclePhase, EgressLifecycleResult
 from migate.egress.status import EgressStatusCheck, EgressStatusReport
@@ -152,8 +154,33 @@ def test_setup_command_rejects_real_execution_without_double_gate():
 
 
 
-def test_setup_command_real_execution_saves_panel_config_with_double_gate(tmp_path):
+def test_setup_command_real_execution_renders_injected_setup_result_without_touching_real_installer(monkeypatch, tmp_path):
     target = tmp_path / "panel.json"
+    calls = []
+
+    def fake_run_setup_cli(**kwargs):
+        calls.append(kwargs)
+        return SetupRunResult(
+            status="partial",
+            message="setup completed through install_xray; remaining privileged phases are still planned",
+            panel_bind="0.0.0.0:8787",
+            panel_url="http://203.0.113.10:8787/mg-admin",
+            admin_user="admin",
+            admin_password="[REDACTED]",
+            base_path="/mg-admin",
+            setup_config_target=str(kwargs["setup_config_target"]),
+            phases=[
+                SetupRunPhase("save_panel_config", "success", "setup panel config saved", True),
+                SetupRunPhase("install_xray", "success", "xray installed", True),
+                SetupRunPhase("save_xray_service", "planned", "write MiGate Xray systemd service", False),
+                SetupRunPhase("save_proxy_service", "planned", "write MiGate proxy systemd service", False),
+                SetupRunPhase("start_services", "planned", "enable and start MiGate services after validation", False),
+            ],
+            commands_executed=[],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(main_module, "run_setup_cli", fake_run_setup_cli)
 
     result = runner.invoke(
         app,
@@ -180,27 +207,22 @@ def test_setup_command_real_execution_saves_panel_config_with_double_gate(tmp_pa
     )
 
     assert result.exit_code == 0
+    assert calls and calls[0]["setup_config_target"] == target
+    assert calls[0]["yes"] is True
+    assert calls[0]["allow_system_changes"] is True
     assert "MiGate setup result" in result.output
     assert "status: partial" in result.output
-    assert "message: setup completed through save_panel_config; remaining privileged phases are still planned" in result.output
+    assert "message: setup completed through install_xray; remaining privileged phases are still planned" in result.output
     assert f"setup_config_target: {target}" in result.output
     assert "save_panel_config: success" in result.output
-    assert "install_xray: planned" in result.output
+    assert "install_xray: success" in result.output
     assert "save_xray_service: planned" in result.output
     assert "save_proxy_service: planned" in result.output
     assert "start_services: planned" in result.output
     assert "super-secret-password" not in result.output
     assert "password_hash" not in result.output
     assert "performed_side_effects: True" in result.output
-    saved = json.loads(target.read_text())
-    assert saved == {
-        "panel_host": "0.0.0.0",
-        "panel_port": 8787,
-        "admin_user": "admin",
-        "password_hash": "sha256:5c76fcf4400da3b4804d70b91af20703d483f2c5860cc2f8d59592a1da8d2121",
-        "base_path": "/mg-admin",
-        "public_host": "203.0.113.10",
-    }
+    assert not target.exists()
 
 
 
@@ -221,8 +243,13 @@ def test_build_setup_panel_config_stores_hash_not_plaintext_password():
 
 
 
-def test_run_setup_saves_panel_config_then_leaves_remaining_privileged_phases_planned(tmp_path):
+def test_run_setup_saves_panel_config_installs_xray_then_leaves_remaining_privileged_phases_planned(tmp_path):
     target = tmp_path / "panel.json"
+    calls = []
+
+    def xray_install_runner() -> XrayInstallResult:
+        calls.append("install_xray")
+        return XrayInstallResult(status="success", message="xray installed", steps=[], performed_side_effects=True)
 
     result = run_setup(
         setup_config_target=target,
@@ -234,21 +261,53 @@ def test_run_setup_saves_panel_config_then_leaves_remaining_privileged_phases_pl
         public_host="203.0.113.10",
         yes=True,
         allow_system_changes=True,
+        xray_install_runner=xray_install_runner,
     )
 
+    assert calls == ["install_xray"]
     assert result.status == "partial"
-    assert result.message == "setup completed through save_panel_config; remaining privileged phases are still planned"
+    assert result.message == "setup completed through install_xray; remaining privileged phases are still planned"
     assert result.admin_password == "[REDACTED]"
     assert result.setup_config_target == str(target)
     assert [(phase.name, phase.status, phase.performed_side_effects) for phase in result.phases] == [
         ("save_panel_config", "success", True),
-        ("install_xray", "planned", False),
+        ("install_xray", "success", True),
         ("save_xray_service", "planned", False),
         ("save_proxy_service", "planned", False),
         ("start_services", "planned", False),
     ]
     assert result.performed_side_effects is True
     assert "super-secret-password" not in json.dumps(result, default=lambda value: value.__dict__)
+    assert target.exists()
+
+
+
+def test_run_setup_stops_when_xray_install_fails(tmp_path):
+    target = tmp_path / "panel.json"
+
+    def xray_install_runner() -> XrayInstallResult:
+        return XrayInstallResult(status="failed", message="installer stopped at download_archive", steps=[], performed_side_effects=True)
+
+    result = run_setup(
+        setup_config_target=target,
+        panel_host="0.0.0.0",
+        panel_port=8787,
+        admin_user="admin",
+        admin_password="super-secret-password",
+        base_path="/mg-admin",
+        public_host="203.0.113.10",
+        yes=True,
+        allow_system_changes=True,
+        xray_install_runner=xray_install_runner,
+    )
+
+    assert result.status == "failed"
+    assert result.message == "setup stopped at install_xray: installer stopped at download_archive"
+    assert [(phase.name, phase.status) for phase in result.phases] == [
+        ("save_panel_config", "success"),
+        ("install_xray", "failed"),
+    ]
+    assert result.performed_side_effects is True
     assert target.exists()
 
 

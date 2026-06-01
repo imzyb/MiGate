@@ -16,7 +16,7 @@ def test_run_xray_install_plan_executes_steps_in_order_with_injected_runner():
         calls.append(command)
         return XrayInstallCommandResult(returncode=0, stdout="ok", stderr="")
 
-    result = run_xray_install_plan(plan, runner=runner)
+    result = run_xray_install_plan(plan, runner=runner, existing_binary_checker=lambda path: False)
 
     assert isinstance(result, XrayInstallResult)
     assert result.status == "success"
@@ -46,7 +46,7 @@ def test_run_xray_install_plan_stops_on_first_nonzero_returncode():
             return XrayInstallCommandResult(returncode=1, stdout="", stderr="bad zip")
         return XrayInstallCommandResult(returncode=0, stdout="ok", stderr="")
 
-    result = run_xray_install_plan(plan, runner=runner)
+    result = run_xray_install_plan(plan, runner=runner, existing_binary_checker=lambda path: False)
 
     assert result.status == "failed"
     assert result.performed_side_effects is True
@@ -64,7 +64,7 @@ def test_run_xray_install_plan_maps_filenotfound_to_structured_failure():
     def runner(command: list[str]) -> XrayInstallCommandResult:
         raise FileNotFoundError(command[0])
 
-    result = run_xray_install_plan(plan, runner=runner)
+    result = run_xray_install_plan(plan, runner=runner, existing_binary_checker=lambda path: False)
 
     assert result.status == "failed"
     assert result.performed_side_effects is True

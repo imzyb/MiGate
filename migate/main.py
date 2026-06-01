@@ -420,6 +420,7 @@ def run_setup(
     public_host: str,
     yes: bool,
     allow_system_changes: bool,
+    xray_install_runner: Callable[[], XrayInstallResult] | None = None,
 ) -> SetupRunResult:
     plan = build_setup_plan(
         panel_host=panel_host,
@@ -467,20 +468,46 @@ def run_setup(
             performed_side_effects=save_result.performed_side_effects,
         )
 
+    install_result = xray_install_runner() if xray_install_runner else run_xray_install_plan(
+        build_xray_install_cli_plan(),
+        allow_side_effects=True,
+    )
+    install_phase = SetupRunPhase(
+        name="install_xray",
+        status=install_result.status,
+        message=install_result.message,
+        performed_side_effects=install_result.performed_side_effects,
+    )
+    if install_result.status != "success":
+        return _setup_run_result_from_plan(
+            plan,
+            status="failed" if install_result.status != "rejected" else "rejected",
+            message=f"setup stopped at install_xray: {install_result.message}",
+            setup_config_target=setup_config_target,
+            phases=[save_phase, install_phase],
+            commands_executed=save_result.commands_executed,
+            performed_side_effects=save_result.performed_side_effects or install_result.performed_side_effects,
+        )
+
     remaining_phases = [
         SetupRunPhase(step.name, "planned", step.description, False)
         for step in plan.steps
-        if step.name not in {"validate_setup", "save_panel_config"}
+        if step.name not in {"validate_setup", "save_panel_config", "install_xray"}
     ]
     return _setup_run_result_from_plan(
         plan,
         status="partial",
-        message="setup completed through save_panel_config; remaining privileged phases are still planned",
+        message="setup completed through install_xray; remaining privileged phases are still planned",
         setup_config_target=setup_config_target,
-        phases=[save_phase, *remaining_phases],
+        phases=[save_phase, install_phase, *remaining_phases],
         commands_executed=save_result.commands_executed,
-        performed_side_effects=save_result.performed_side_effects,
+        performed_side_effects=save_result.performed_side_effects or install_result.performed_side_effects,
     )
+
+
+def run_setup_cli(**kwargs) -> SetupRunResult:
+    return run_setup(**kwargs)
+
 
 
 def render_setup_run_result(result: SetupRunResult) -> str:
@@ -1793,7 +1820,7 @@ def setup(
             raise typer.Exit(code=1)
         return
 
-    result = run_setup(
+    result = run_setup_cli(
         setup_config_target=setup_config_target,
         panel_host=panel_host,
         panel_port=panel_port,
