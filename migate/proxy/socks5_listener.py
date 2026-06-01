@@ -102,6 +102,10 @@ def build_socks5_listener_plan(config: MiGateConfig) -> Socks5ListenerPlan:
     )
 
 
+def socks5_serve_mode(max_clients: int) -> str:
+    return "continuous" if max_clients == 0 else "bounded"
+
+
 def summarize_socks5_serve_events(events: list[Socks5ServeEvent]) -> Socks5ServeEventSummary:
     return Socks5ServeEventSummary(
         total_events=len(events),
@@ -125,6 +129,7 @@ def socks5_serve_result_to_dict(result: Socks5ServeResult) -> dict[str, object]:
         "upstream_connections": result.upstream_connections,
         "timed_out_connections": result.timed_out_connections,
         "max_clients": result.max_clients,
+        "serve_mode": socks5_serve_mode(result.max_clients),
         "client_timeout": result.client_timeout,
         "event_summary": {
             "total_events": summary.total_events,
@@ -169,6 +174,7 @@ def render_socks5_serve_jsonl(result: Socks5ServeResult) -> str:
             "upstream_connections": result.upstream_connections,
             "timed_out_connections": result.timed_out_connections,
             "max_clients": result.max_clients,
+            "serve_mode": socks5_serve_mode(result.max_clients),
             "client_timeout": result.client_timeout,
             "total_events": summary.total_events,
             "accepted_events": summary.accepted_events,
@@ -418,6 +424,7 @@ def render_socks5_serve_result(result: Socks5ServeResult) -> str:
         f"upstream_connections: {result.upstream_connections}",
         f"timed_out_connections: {result.timed_out_connections}",
         f"max_clients: {result.max_clients}",
+        f"serve_mode: {socks5_serve_mode(result.max_clients)}",
         f"client_timeout: {result.client_timeout}",
         f"events: {len(result.events)}",
     ]

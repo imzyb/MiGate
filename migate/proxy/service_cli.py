@@ -27,7 +27,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart={migate_bin_path} proxy run
+# max_clients=0 keeps the proxy listener in continuous mode until systemd stops it
+ExecStart={migate_bin_path} proxy run --max-clients 0
 Restart=on-failure
 RestartSec=3
 User=root

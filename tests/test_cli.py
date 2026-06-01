@@ -2671,10 +2671,11 @@ def test_proxy_run_command_reports_listener_started_when_preflight_passes(monkey
     from migate.proxy.runtime import ProxyRuntimeCheck
     from migate.proxy.socks5_listener import Socks5ServeEvent
 
-    monkeypatch.setattr(
-        main_module,
-        "run_proxy",
-        lambda *args, **kwargs: ProxyRunResult(
+    calls = []
+
+    def fake_run_proxy(*args, **kwargs):
+        calls.append(kwargs)
+        return ProxyRunResult(
             status="running",
             message="SOCKS5 listener started; direct upstream relay enabled",
             checks=[ProxyRuntimeCheck("fail_policy", "ok", "fail_policy is block")],
@@ -2706,12 +2707,14 @@ def test_proxy_run_command_reports_listener_started_when_preflight_passes(monkey
                 ),
             ],
             performed_side_effects=True,
-        ),
-    )
+        )
 
-    result = runner.invoke(app, ["proxy", "run"])
+    monkeypatch.setattr(main_module, "run_proxy", fake_run_proxy)
+
+    result = runner.invoke(app, ["proxy", "run", "--max-clients", "0"])
 
     assert result.exit_code == 0
+    assert calls == [{"max_clients": 0}]
     assert "status: running" in result.output
     assert "SOCKS5 listener started; direct upstream relay enabled" in result.output
     assert "listener_started: True" in result.output
@@ -2751,6 +2754,15 @@ def test_proxy_socks5_serve_command_defaults_to_dry_run_without_listening():
     assert "performed_side_effects: False" in result.output
 
 
+def test_proxy_socks5_serve_command_accepts_continuous_max_clients_zero_in_dry_run():
+    result = runner.invoke(app, ["proxy", "socks5", "serve", "--max-clients", "0"])
+
+    assert result.exit_code == 0
+    assert "status: dry_run" in result.output
+    assert "max_clients: 0" in result.output
+    assert "serve_mode: continuous" in result.output
+
+
 def test_proxy_socks5_serve_command_outputs_json_dry_run_result():
     result = runner.invoke(app, ["proxy", "socks5", "serve", "--format", "json"])
 
@@ -2762,6 +2774,7 @@ def test_proxy_socks5_serve_command_outputs_json_dry_run_result():
     assert payload["upstream_connections"] == 0
     assert payload["timed_out_connections"] == 0
     assert payload["max_clients"] == 1
+    assert payload["serve_mode"] == "bounded"
     assert payload["client_timeout"] == 5.0
     assert payload["event_summary"] == {
         "total_events": 0,
@@ -2800,6 +2813,7 @@ def test_proxy_socks5_serve_command_outputs_jsonl_dry_run_summary_only():
             "upstream_connections": 0,
             "timed_out_connections": 0,
             "max_clients": 1,
+            "serve_mode": "bounded",
             "client_timeout": 5.0,
             "total_events": 0,
             "accepted_events": 0,

@@ -7,7 +7,8 @@ def test_preview_proxy_service_unit_renders_safe_systemd_unit_without_side_effec
     assert "[Unit]" in unit
     assert "Description=MiGate local proxy service" in unit
     assert "After=network-online.target migate-xray.service" in unit
-    assert "ExecStart=/usr/local/bin/migate proxy run" in unit
+    assert "ExecStart=/usr/local/bin/migate proxy run --max-clients 0" in unit
+    assert "# max_clients=0 keeps the proxy listener in continuous mode until systemd stops it" in unit
     assert "Restart=on-failure" in unit
     assert "WantedBy=multi-user.target" in unit
     assert "systemctl" not in unit
@@ -40,7 +41,7 @@ def test_save_proxy_service_unit_writes_unit_when_double_gate_passes(tmp_path):
     assert result.performed_side_effects is True
     assert result.systemctl_commands_executed == []
     content = target.read_text(encoding="utf-8")
-    assert "ExecStart=/usr/local/bin/migate proxy run" in content
+    assert "ExecStart=/usr/local/bin/migate proxy run --max-clients 0" in content
     assert "systemctl" not in content
 
 
@@ -50,4 +51,4 @@ def test_save_proxy_service_unit_allows_custom_migate_binary(tmp_path):
     result = save_proxy_service_unit(target, yes=True, allow_system_changes=True, migate_bin_path="/opt/migate/bin/migate")
 
     assert result.status == "saved"
-    assert "ExecStart=/opt/migate/bin/migate proxy run" in target.read_text(encoding="utf-8")
+    assert "ExecStart=/opt/migate/bin/migate proxy run --max-clients 0" in target.read_text(encoding="utf-8")

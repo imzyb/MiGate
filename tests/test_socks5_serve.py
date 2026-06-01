@@ -87,6 +87,7 @@ def test_socks5_serve_result_to_dict_includes_summary_and_events():
         "upstream_connections": 0,
         "timed_out_connections": 0,
         "max_clients": 1,
+        "serve_mode": "bounded",
         "client_timeout": 5.0,
         "event_summary": {
             "total_events": 1,
@@ -171,6 +172,7 @@ def test_render_socks5_serve_jsonl_emits_summary_then_event_rows():
             "upstream_connections": 0,
             "timed_out_connections": 1,
             "max_clients": 2,
+            "serve_mode": "bounded",
             "client_timeout": 0.5,
             "total_events": 2,
             "accepted_events": 1,
@@ -699,6 +701,7 @@ def test_render_socks5_serve_result_is_structured_and_mentions_no_upstream_conne
     assert "upstream_connections: 0" in text
     assert "timed_out_connections: 0" in text
     assert "max_clients: 1" in text
+    assert "serve_mode: bounded" in text
     assert "client_timeout: 5.0" in text
     assert "events: 1" in text
     assert "accepted_events: 1" in text

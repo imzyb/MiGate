@@ -798,6 +798,7 @@ def proxy_status(
 @proxy_app.command("run")
 def proxy_run(
     backend: str | None = typer.Option(None, "--backend", help="Override configured egress backend: openvpn or xray-tun."),
+    max_clients: int = typer.Option(0, "--max-clients", min=0, help="Number of local clients to handle before exiting; 0 serves continuously until cancelled."),
 ) -> None:
     config = _config_with_backend_override(MiGateConfig(), backend)
     try:
@@ -805,7 +806,7 @@ def proxy_run(
     except ValueError as exc:
         _echo_unsupported_egress_backend(exc)
         raise typer.Exit(code=1) from exc
-    result = run_proxy(config)
+    result = run_proxy(config, max_clients=max_clients)
     typer.echo(render_proxy_run_result(result))
     if result.status == "rejected":
         raise typer.Exit(code=1)
@@ -832,7 +833,7 @@ def proxy_socks5_serve(
         "--allow-network-listen",
         help="Actually allow opening the SOCKS5 listening socket when combined with --no-dry-run and --yes.",
     ),
-    max_clients: int = typer.Option(1, "--max-clients", min=1, help="Bounded number of local clients to handle before exiting."),
+    max_clients: int = typer.Option(1, "--max-clients", min=0, help="Number of local clients to handle before exiting; 0 serves continuously until cancelled."),
     client_timeout: float = typer.Option(5.0, "--client-timeout", min=0.001, help="Seconds to wait for each client protocol read before closing."),
     output_format: str = typer.Option("text", "--format", help="Render result as text, json, or jsonl."),
     output: str | None = typer.Option(None, "--output", help="Optional file path to write rendered serve output."),

@@ -143,6 +143,7 @@ def test_proxy_run_starts_local_socks_listener_when_preflight_passes():
     assert result.upstream_connections == 1
     assert result.timed_out_connections == 1
     assert result.max_clients == 0
+    assert result.serve_mode == "continuous"
     assert result.client_timeout == 0.25
     assert len(result.events) == 2
     assert result.events[0].status == "accepted"
@@ -162,6 +163,7 @@ def test_render_proxy_run_result_includes_runtime_counters_when_listener_runs():
         upstream_connections=1,
         timed_out_connections=1,
         max_clients=0,
+        serve_mode="continuous",
         client_timeout=0.25,
         events=[
             Socks5ServeEvent(
@@ -192,6 +194,7 @@ def test_render_proxy_run_result_includes_runtime_counters_when_listener_runs():
     assert "upstream_connections: 1" in rendered
     assert "timed_out_connections: 1" in rendered
     assert "max_clients: 0" in rendered
+    assert "serve_mode: continuous" in rendered
     assert "client_timeout: 0.25" in rendered
     assert "event[1]: client_id=1 phase=connect status=accepted target=127.0.0.1:8080 upstream_connected=True bytes_from_client=4 bytes_from_upstream=4" in rendered
     assert "event[2]: client_id=2 phase=greeting status=timed_out target=n/a upstream_connected=False bytes_from_client=0 bytes_from_upstream=0" in rendered

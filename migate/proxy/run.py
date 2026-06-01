@@ -21,6 +21,7 @@ class ProxyRunResult:
     upstream_connections: int = 0
     timed_out_connections: int = 0
     max_clients: int | None = None
+    serve_mode: str | None = None
     client_timeout: float | None = None
     events: list[Socks5ServeEvent] | None = None
     performed_side_effects: bool = False
@@ -65,6 +66,7 @@ def run_proxy(
         upstream_connections=serve_result.upstream_connections,
         timed_out_connections=serve_result.timed_out_connections,
         max_clients=serve_result.max_clients,
+        serve_mode="continuous" if serve_result.max_clients == 0 else "bounded",
         client_timeout=serve_result.client_timeout,
         events=serve_result.events,
         performed_side_effects=serve_result.performed_side_effects,
@@ -84,6 +86,8 @@ def render_proxy_run_result(result: ProxyRunResult) -> str:
     lines.append(f"timed_out_connections: {result.timed_out_connections}")
     if result.max_clients is not None:
         lines.append(f"max_clients: {result.max_clients}")
+    if result.serve_mode is not None:
+        lines.append(f"serve_mode: {result.serve_mode}")
     if result.client_timeout is not None:
         lines.append(f"client_timeout: {result.client_timeout}")
     for index, event in enumerate(result.events or [], start=1):
