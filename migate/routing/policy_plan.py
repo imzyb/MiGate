@@ -35,8 +35,9 @@ class PolicyRoutingDryRunResult:
 def build_policy_routing_plan(config: MiGateConfig) -> PolicyRoutingPlan:
     route_table = str(config.vpn.route_table)
     commands = [
+        ["ip", "rule", "del", "fwmark", config.vpn.fwmark, "table", route_table],
         ["ip", "rule", "add", "fwmark", config.vpn.fwmark, "table", route_table],
-        ["ip", "route", "add", "default", "dev", config.vpn.interface, "table", route_table],
+        ["ip", "route", "replace", "default", "dev", config.vpn.interface, "table", route_table],
     ]
     return PolicyRoutingPlan(
         tun_interface=config.vpn.interface,

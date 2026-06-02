@@ -61,10 +61,19 @@ def test_apply_policy_routing_plan_runs_commands_in_order_when_allowed():
                 stdout="ok",
                 stderr="",
             ),
+            PolicyRoutingApplyStep(
+                action="apply_policy_routing_command",
+                status="success",
+                command=plan.commands[2],
+                returncode=0,
+                stdout="ok",
+                stderr="",
+            ),
         ],
         commands_executed=[
+            "ip rule del fwmark 0x66 table 100",
             "ip rule add fwmark 0x66 table 100",
-            "ip route add default dev tun-migate table 100",
+            "ip route replace default dev tun-migate table 100",
         ],
         performed_side_effects=True,
     )
@@ -82,7 +91,7 @@ def test_apply_policy_routing_plan_stops_after_first_failed_command():
 
     assert calls == [plan.commands[0]]
     assert result.status == "failed"
-    assert result.message == "policy routing command failed: ip rule add fwmark 0x66 table 100"
+    assert result.message == "policy routing command failed: ip rule del fwmark 0x66 table 100"
     assert result.steps == [
         PolicyRoutingApplyStep(
             action="apply_policy_routing_command",
@@ -93,8 +102,30 @@ def test_apply_policy_routing_plan_stops_after_first_failed_command():
             stderr="permission denied",
         )
     ]
-    assert result.commands_executed == ["ip rule add fwmark 0x66 table 100"]
+    assert result.commands_executed == ["ip rule del fwmark 0x66 table 100"]
     assert result.performed_side_effects is True
+
+
+def test_apply_policy_routing_plan_ignores_missing_rule_delete_before_add():
+    plan = build_policy_routing_plan(MiGateConfig())
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> FakeCommandResult:
+        calls.append(argv)
+        if argv[:3] == ["ip", "rule", "del"]:
+            return FakeCommandResult(returncode=2, stdout="", stderr="RTNETLINK answers: No such file or directory")
+        return FakeCommandResult(returncode=0, stdout="ok", stderr="")
+
+    result = apply_policy_routing_plan(plan, runner=runner, allow_side_effects=True)
+
+    assert calls == plan.commands
+    assert result.status == "applied"
+    assert [step.status for step in result.steps] == ["already_absent", "success", "success"]
+    assert result.commands_executed == [
+        "ip rule del fwmark 0x66 table 100",
+        "ip rule add fwmark 0x66 table 100",
+        "ip route replace default dev tun-migate table 100",
+    ]
 
 
 def test_apply_policy_routing_plan_maps_missing_ip_command_to_structured_failure():
@@ -117,5 +148,5 @@ def test_apply_policy_routing_plan_maps_missing_ip_command_to_structured_failure
             stderr="command not found: ip",
         )
     ]
-    assert result.commands_executed == ["ip rule add fwmark 0x66 table 100"]
+    assert result.commands_executed == ["ip rule del fwmark 0x66 table 100"]
     assert result.performed_side_effects is True

@@ -2111,7 +2111,12 @@ def test_egress_up_command_runs_orchestration_only_with_double_gate(monkeypatch)
             EgressLifecyclePhase(name="openvpn_start", status="started", result=object()),
             EgressLifecyclePhase(name="policy_routing_apply", status="applied", result=object()),
         ],
-        commands_executed=["openvpn --config /var/lib/migate/runtime/active.ovpn", "ip rule add fwmark 0x66 table 100"],
+        commands_executed=[
+            "openvpn --config /var/lib/migate/runtime/active.ovpn",
+            "ip rule del fwmark 0x66 table 100",
+            "ip rule add fwmark 0x66 table 100",
+            "ip route replace default dev tun-migate table 100",
+        ],
         performed_side_effects=True,
     )
 

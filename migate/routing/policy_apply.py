@@ -43,6 +43,15 @@ def _format_command(command: list[str]) -> str:
     return " ".join(command)
 
 
+def _is_missing_rule_delete(command: list[str], command_result: PolicyRoutingCommandResult) -> bool:
+    if command[:3] != ["ip", "rule", "del"]:
+        return False
+    if command_result.returncode == 0:
+        return False
+    stderr = command_result.stderr.strip().lower()
+    return "no such file or directory" in stderr or "no such process" in stderr
+
+
 def apply_policy_routing_plan(
     plan: PolicyRoutingPlan,
     *,
@@ -87,6 +96,8 @@ def apply_policy_routing_plan(
             )
 
         step_status = "success" if command_result.returncode == 0 else "failed"
+        if _is_missing_rule_delete(command, command_result):
+            step_status = "already_absent"
         steps.append(
             PolicyRoutingApplyStep(
                 action="apply_policy_routing_command",
@@ -97,7 +108,7 @@ def apply_policy_routing_plan(
                 stderr=command_result.stderr.strip(),
             )
         )
-        if command_result.returncode != 0:
+        if command_result.returncode != 0 and step_status != "already_absent":
             return PolicyRoutingApplyResult(
                 status="failed",
                 message=f"policy routing command failed: {command_preview}",

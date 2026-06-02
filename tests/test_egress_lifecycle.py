@@ -553,8 +553,9 @@ def test_bring_up_egress_xray_tun_waits_for_interface_before_policy_routing():
     assert events == [
         "start:/etc/migate/xray/config.json",
         "ready:tun-migate",
+        "route:ip rule del fwmark 0x66 table 100",
         "route:ip rule add fwmark 0x66 table 100",
-        "route:ip route add default dev tun-migate table 100",
+        "route:ip route replace default dev tun-migate table 100",
     ]
     assert [phase.name for phase in result.phases] == ["xray_tun_apply_start", "xray_tun_interface_ready", "policy_routing_apply"]
     assert [phase.status for phase in result.phases] == ["success", "ready", "applied"]
