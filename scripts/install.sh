@@ -134,6 +134,14 @@ fetch_source() {
 
 install_python_package() {
   log 'installing MiGate Python package system-wide'
+  if [ -L "$MIGATE_BIN" ]; then
+    local link_target
+    link_target="$(readlink -f "$MIGATE_BIN" 2>/dev/null || true)"
+    if [ -z "$link_target" ] || [ "$link_target" = "$MIGATE_BIN" ]; then
+      log "removing broken symlink at $MIGATE_BIN"
+      rm -f "$MIGATE_BIN"
+    fi
+  fi
   python3 -m pip install --upgrade pip --break-system-packages
   python3 -m pip install --upgrade --force-reinstall "$MIGATE_INSTALL_DIR" --break-system-packages
   local installed_bin
