@@ -711,6 +711,18 @@ def _xray_runtime_status_json(runtime: XrayRuntimeStatus, *, include_output: boo
     return result
 
 
+def _xray_validation_result_json(result: XrayValidationResult, *, target_path: Path) -> dict[str, object]:
+    return {
+        "status": result.status,
+        "target_path": str(target_path),
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "systemctl_commands_executed": [],
+        "performed_side_effects": False,
+    }
+
+
 def _systemd_services_status_json(services: dict[str, SystemdResult]) -> dict[str, object]:
     return {
         name: {
@@ -764,6 +776,7 @@ def _safe_preview_actions_json() -> list[dict[str, str]]:
         {"name": "dashboard", "method": "GET", "path": "/api/dashboard"},
         {"name": "xray_install_plan", "method": "GET", "path": "/api/xray/install-plan"},
         {"name": "xray_install_dry_run", "method": "GET", "path": "/api/xray/install/dry-run"},
+        {"name": "xray_config_validate", "method": "GET", "path": "/api/xray/config/validate"},
         {"name": "xray_apply_dry_run", "method": "GET", "path": "/api/xray/apply/dry-run"},
         {"name": "xray_restart_dry_run", "method": "GET", "path": "/api/xray/restart/dry-run"},
         {"name": "egress_up_dry_run", "method": "GET", "path": "/api/egress/up/dry-run"},
@@ -1225,6 +1238,10 @@ def create_app(
     @app.get("/api/xray/install/dry-run")
     def api_xray_install_dry_run() -> dict[str, object]:
         return _xray_install_dry_run_json(dry_run_loader())
+
+    @app.get("/api/xray/config/validate")
+    def api_xray_config_validate() -> dict[str, object]:
+        return _xray_validation_result_json(validator(config_path), target_path=config_path)
 
     @app.get("/api/xray/apply/dry-run")
     def api_xray_apply_dry_run() -> dict[str, object]:
