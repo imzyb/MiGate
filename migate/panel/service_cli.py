@@ -22,15 +22,25 @@ class PanelServiceSaveResult:
     systemctl_commands_executed: list[str]
 
 
-def _load_panel_bind_config(config_path: str | Path = "/etc/migate/panel.json") -> tuple[str | None, int | None]:
-    """Read panel_host and panel_port from panel.json if available."""
-    try:
-        data = json.loads(Path(config_path).read_text(encoding="utf-8"))
-        host = str(data.get("panel_host")) if "panel_host" in data else None
-        port = int(data["panel_port"]) if "panel_port" in data else None
-        return host, port
-    except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError):
-        return None, None
+_PANEL_BIND_CONFIG_PATHS = (
+    Path("/etc/migate/panel.json"),
+    Path("/etc/migate/setup-panel.json"),
+)
+
+
+def _load_panel_bind_config(config_path: str | Path | None = None) -> tuple[str | None, int | None]:
+    """Read panel_host and panel_port from the first available config file."""
+    candidates = [Path(config_path)] if config_path else list(_PANEL_BIND_CONFIG_PATHS)
+    for path in candidates:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            host = str(data.get("panel_host")) if "panel_host" in data else None
+            port = int(data["panel_port"]) if "panel_port" in data else None
+            if host or port:
+                return host, port
+        except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError):
+            continue
+    return None, None
 
 
 def preview_panel_service_unit() -> str:
