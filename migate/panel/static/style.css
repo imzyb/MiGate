@@ -538,3 +538,9 @@ code {
 .text-sm { font-size: 13px; }
 .text-xs { font-size: 12px; }
 .hidden { display: none; }
+
+/* ── Toast notification (fixed) ────────────────────── */
+.toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:10px;font-size:14px;z-index:9999;opacity:0;transform:translateY(-10px);transition:all .3s;pointer-events:none}
+.toast.show{opacity:1;transform:translateY(0);pointer-events:auto}
+.toast-ok{background:var(--accent);color:#06111f}
+.toast-err{background:#ef4444;color:#fff}

@@ -90,17 +90,24 @@ document.addEventListener('click', function(e) {{
 }});
 </script>
 <script>
-function copyText(el){{ navigator.clipboard.writeText(el.dataset.text || el.textContent); el.textContent='已复制 ✓'; setTimeout(()=>el.textContent=el.dataset.orig||'复制',1500); }}
+function showToast(msg,type){{const t=document.createElement('div');t.className='toast '+(type||'toast-ok');t.textContent=msg;document.body.appendChild(t);requestAnimationFrame(()=>t.classList.add('show'));setTimeout(()=>{{t.classList.remove('show');setTimeout(()=>t.remove(),300)}},2000)}}
+function copyText(el){{ navigator.clipboard.writeText(el.dataset.text || el.textContent); showToast('已复制'); setTimeout(()=>el.textContent=el.dataset.orig||'复制',1500); }}
 document.addEventListener('submit', function(e) {{
   var form = e.target;
   if (form.action && form.action.indexOf('/delete') !== -1) {{
-    if (!confirm('确定要删除吗？')) {{ e.preventDefault(); }}
+    if (!confirm('确定要删除吗？')) {{ e.preventDefault(); return; }}
+    var fd = new FormData(form);
+    fetch(form.action, {{method:'POST', body:fd, credentials:'same-origin'}}).then(function(r) {{
+      if (r.ok) {{ showToast('已删除'); setTimeout(()=>location.reload(),800); }}
+      else {{ showToast('删除失败','toast-err'); }}
+    }}).catch(function(){{ showToast('删除失败','toast-err'); }});
+    e.preventDefault();
   }}
 }});
 document.addEventListener('change', function(e) {{
   if (e.target.classList.contains('toggle-checkbox')) {{
     var url = e.target.dataset.url;
-    if (url) {{ fetch(url, {{method:'POST',credentials:'same-origin'}}).then(function(){{ location.reload(); }}); }}
+    if (url) {{ fetch(url, {{method:'POST',credentials:'same-origin'}}).then(function(r){{ if(r.ok) showToast('状态已更新'); else showToast('操作失败','toast-err'); }}).catch(function(){{ showToast('操作失败','toast-err'); }}); }}
   }}
 }});
 </script>

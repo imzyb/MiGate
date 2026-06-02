@@ -1264,6 +1264,19 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
       {_dashboard_card_html('远端 leak-check', leak_check.get('status'), leak_check.get('egress_public_ip') or leak_check.get('target', ''))}
       {_dashboard_card_html('远端 rollout dry-run', rollout.get('status'), rollout.get('message', ''))}
     </div>
+    <h3>流量统计</h3>
+    <div class="grid" id="traffic-stats">
+      <div class="card"><div class="label">加载中...</div></div>
+    </div>
+    <script>
+    (function(){{
+      fetch('/api/stats/traffic').then(r=>r.json()).then(data=>{{
+        const el=document.getElementById('traffic-stats');
+        if(!data.stats||data.stats.length===0){{el.innerHTML='<div class="card"><div class="label">暂无流量数据</div></div>';return;}}
+        el.innerHTML=data.stats.map(s=>`<div class="card"><div class="label">${{s.name}}</div><div class="value">${{s.value>1073741824?(s.value/1073741824).toFixed(2)+' GB':s.value>1048576?(s.value/1048576).toFixed(2)+' MB':s.value>1024?(s.value/1024).toFixed(2)+' KB':s.value+' B'}}</div></div>`).join('');
+      }}).catch(()=>{{document.getElementById('traffic-stats').innerHTML='<div class="card"><div class="label">流量数据获取失败</div></div>';}});
+    }})();
+    </script>
     <h3>安全预览入口</h3>
     <ul>
 {action_links}
