@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from migate.config import MiGateConfig
-from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport, run_proxy_doctor
+from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport, relax_proxy_start_preflight_for_backend, run_proxy_doctor
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServerStarter, run_socks5_serve
 
 
@@ -36,7 +36,7 @@ def run_proxy(
     client_timeout: float = 5.0,
 ) -> ProxyRunResult:
     cfg = config or MiGateConfig()
-    doctor = (doctor_loader or run_proxy_doctor)(cfg)
+    doctor = relax_proxy_start_preflight_for_backend((doctor_loader or run_proxy_doctor)(cfg), backend=cfg.egress.backend)
     if doctor.status != "ok":
         return ProxyRunResult(
             status="rejected",

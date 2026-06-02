@@ -40,7 +40,59 @@ def test_proxy_run_rejects_when_safety_preflight_fails():
     assert server_calls == []
 
 
-def test_proxy_run_rejects_xray_tun_upstream_guard_failures_without_starting_listener():
+def test_proxy_run_xray_tun_ignores_own_listener_preflight_before_starting_listener():
+    config = MiGateConfig()
+    config.egress.backend = "xray-tun"
+    server_calls = []
+
+    def fake_server_starter(host: str, port: int, max_clients: int, client_timeout: float) -> Socks5ServeResult:
+        server_calls.append((host, port, max_clients, client_timeout))
+        return Socks5ServeResult(
+            status="stopped",
+            message="SOCKS5 listener handled one client with direct upstream relay",
+            bind_host=host,
+            bind_port=port,
+            listener_started=True,
+            accepted_connections=1,
+            upstream_connections=1,
+            timed_out_connections=0,
+            max_clients=max_clients,
+            client_timeout=client_timeout,
+            events=[],
+            performed_side_effects=True,
+        )
+
+    result = run_proxy(
+        config,
+        doctor_loader=lambda loaded_config: ProxyRuntimeReport(
+            status="failed",
+            checks=[
+                ProxyRuntimeCheck("socks_listen", "failed", "127.0.0.1:34501 state is unknown"),
+                ProxyRuntimeCheck("http_listen", "failed", "127.0.0.1:34502 is not listening"),
+                ProxyRuntimeCheck("tun_interface", "ok", "tun-migate interface exists"),
+                ProxyRuntimeCheck("fail_policy", "ok", "fail_policy is block"),
+                ProxyRuntimeCheck("leak_guard", "ok", "leak_guard is enabled"),
+                ProxyRuntimeCheck("tunnel_process", "ok", "xray-tun tunnel for tun-migate is running"),
+                ProxyRuntimeCheck(
+                    "egress_guard",
+                    "failed",
+                    "required upstream proxy 127.0.0.1:34501 state is unknown; egress blocked",
+                ),
+            ],
+            performed_side_effects=False,
+        ),
+        server_starter=fake_server_starter,
+        max_clients=1,
+        client_timeout=0.25,
+    )
+
+    assert result.status == "running"
+    assert result.listener_started is True
+    assert result.forwarding_started is True
+    assert server_calls == [("127.0.0.1", 34501, 1, 0.25)]
+
+
+def test_proxy_run_xray_tun_still_blocks_when_tunnel_prerequisites_fail():
     config = MiGateConfig()
     config.egress.backend = "xray-tun"
     server_calls = []
@@ -51,32 +103,16 @@ def test_proxy_run_rejects_xray_tun_upstream_guard_failures_without_starting_lis
             status="failed",
             checks=[
                 ProxyRuntimeCheck("socks_listen", "failed", "127.0.0.1:34501 state is unknown"),
-                ProxyRuntimeCheck(
-                    "egress_guard",
-                    "failed",
-                    "required upstream proxy 127.0.0.1:34501 state is unknown; egress blocked",
-                ),
+                ProxyRuntimeCheck("tun_interface", "failed", "tun-migate interface is missing"),
+                ProxyRuntimeCheck("tunnel_process", "failed", "xray-tun tunnel for tun-migate is not running"),
             ],
             performed_side_effects=False,
         ),
         server_starter=lambda *_args, **_kwargs: server_calls.append("started"),
     )
 
-    assert result == ProxyRunResult(
-        status="rejected",
-        message="proxy run preflight failed; listener not started",
-        checks=[
-            ProxyRuntimeCheck("socks_listen", "failed", "127.0.0.1:34501 state is unknown"),
-            ProxyRuntimeCheck(
-                "egress_guard",
-                "failed",
-                "required upstream proxy 127.0.0.1:34501 state is unknown; egress blocked",
-            ),
-        ],
-        listener_started=False,
-        forwarding_started=False,
-        performed_side_effects=False,
-    )
+    assert result.status == "rejected"
+    assert result.listener_started is False
     assert server_calls == []
 
 
