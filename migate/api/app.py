@@ -1313,7 +1313,7 @@ def create_app(
         restart_result = restarter("migate-xray.service")
         services = _load_migate_systemd_services(status_loader)
         return {
-            "status": "success",
+            "status": "success" if restart_result.status == "success" else "restart_failed",
             "target_path": str(config_path),
             "counts": {"total_nodes": len(nodes), "enabled_nodes": len(enabled_nodes)},
             "validation": _xray_validation_summary_json(validation),
