@@ -6,6 +6,37 @@ See `docs/plans/2026-05-30-migate-xray-gateway-v0.1.md` for the v0.1 implementat
 
 ## Development and test hosts
 
+### One-click install
+
+MiGate ships a curl-pipe-bash style interactive installer so a user can bootstrap the panel with one command:
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/scripts/install.sh)
+```
+
+The installer prompts for:
+
+- custom panel port;
+- admin username;
+- admin password;
+- custom web path.
+
+Then it installs baseline packages, clones or updates MiGate under `/opt/migate`, creates an isolated Python venv, links `/usr/local/bin/migate`, runs the gated `migate setup --no-dry-run --yes --allow-system-changes` flow, starts `migate-panel.service` and `migate-xray.service`, and prints the final WebUI address.
+
+For unattended installs, provide the same values through environment variables:
+
+```bash
+MIGATE_PANEL_PORT=8080 \
+MIGATE_PANEL_USER=admin \
+MIGATE_PANEL_PASSWORD='change-me' \
+MIGATE_PANEL_BASE_PATH=/migate \
+bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/scripts/install.sh)
+```
+
+Optional install overrides include `MIGATE_REF`, `MIGATE_INSTALL_DIR`, `MIGATE_BIN`, `MIGATE_PUBLIC_HOST`, and `MIGATE_SETUP_CONFIG_TARGET`.
+
+The installer is intentionally host-local. It does not embed credentials, use `sshpass`, or change SSH trust settings. Use the remote lifecycle commands for dedicated test-VPS orchestration after the local CLI is installed.
+
 - This repository host is for development and unit tests only.
 - Do not run real install/uninstall, OpenVPN, Xray, systemd, policy routing, firewall, or traffic-leak tests on the development host.
 - Full-system lifecycle tests must run on the dedicated test VPS environment.
