@@ -15,26 +15,26 @@ from migate.database.repository import InboundRecord, InboundRepository, NodeRec
 from migate.config import MiGateConfig
 from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusReport, run_egress_status
-from migate.proxy.run import ProxyRunResult, run_proxy
-from migate.proxy.service_cli import preview_proxy_service_unit
-from migate.remote.leak_check import RemoteLeakCheckReport, run_remote_leak_check
-from migate.remote.readiness import RemoteReadinessReport, run_remote_readiness
-from migate.remote.rollout_plan import RemoteRolloutPlan, RemoteRolloutStep, build_remote_rollout_dry_run_plan
-from migate.routing.policy_cleanup import build_policy_routing_cleanup_plan
-from migate.routing.policy_plan import build_policy_routing_plan
 from migate.systemd.manager import SystemdResult, daemon_reload, restart_service, service_status
 from migate.systemd.units import build_panel_unit, build_xray_unit, write_unit_file
-from migate.xray.install_executor import XrayInstallDryRunResult, dry_run_xray_install_plan
-from migate.vpn.process_plan import build_openvpn_start_plan
-from migate.vpn.process_stop import build_openvpn_stop_plan
-from migate.xray.install_plan import XrayInstallPlan, build_xray_install_plan
-from migate.xray.links import build_shadowsocks_link, build_trojan_link, build_vless_link
-from migate.xray.node_adapter import build_config_from_nodes
-from migate.xray.subscription import build_base64_subscription
 from migate.xray.runtime import XrayRuntimeStatus, detect_xray_runtime
-from migate.xray.validator import XrayValidationResult, validate_xray_config
-from migate.xray.writer import write_xray_config
-from migate.xray.stats import query_xray_stats
+
+
+# ---------------------------------------------------------------------------
+# Lazy import helper — avoids loading heavy modules at module import time.
+# Modules are cached on first call, so subsequent access is O(1).
+# ---------------------------------------------------------------------------
+_LAZY_IMPORT_CACHE: dict[str, object] = {}
+
+
+def _lazy_import(module_name: str, symbol_name: str | None = None) -> object:
+    """Import a module/symbol lazily and cache it."""
+    cache_key = f"{module_name}.{symbol_name}" if symbol_name else module_name
+    if cache_key not in _LAZY_IMPORT_CACHE:
+        import importlib
+        mod = importlib.import_module(module_name)
+        _LAZY_IMPORT_CACHE[cache_key] = getattr(mod, symbol_name) if symbol_name else mod
+    return _LAZY_IMPORT_CACHE[cache_key]
 
 DEFAULT_DB_PATH = Path("/var/lib/migate/migate.db")
 DEFAULT_XRAY_CONFIG_PATH = Path("/etc/migate/xray/config.json")
@@ -386,6 +386,7 @@ def _format_bytes(n: int) -> str:
 
 
 def _xray_config_for_nodes(nodes: list[NodeRecord]) -> dict[str, object]:
+    build_config_from_nodes = _lazy_import('migate.xray.node_adapter', 'build_config_from_nodes')
     return build_config_from_nodes(MiGateConfig(), [node for node in nodes if node.enabled])
 
 
@@ -562,6 +563,9 @@ def _credential_for_protocol(protocol: str, credential: str) -> str:
 
 
 def _build_link(protocol: str, host: str, port: int, name: str, credential: str) -> str:
+    build_shadowsocks_link = _lazy_import('migate.xray.links', 'build_shadowsocks_link')
+    build_trojan_link = _lazy_import('migate.xray.links', 'build_trojan_link')
+    build_vless_link = _lazy_import('migate.xray.links', 'build_vless_link')
     if protocol == "vless":
         return build_vless_link(uuid=credential, host=host, port=port, name=name)
     if protocol == "trojan":
@@ -648,6 +652,7 @@ def _xray_runtime_html(runtime_loader: Callable[[], XrayRuntimeStatus], *, refre
 
 
 def _xray_install_plan_json(plan: XrayInstallPlan) -> dict[str, object]:
+    XrayInstallPlan = _lazy_import('migate.xray.install_plan', 'XrayInstallPlan')
     return {
         "version": plan.version,
         "system": plan.system,
@@ -666,6 +671,7 @@ def _xray_install_plan_json(plan: XrayInstallPlan) -> dict[str, object]:
 
 
 def _xray_install_dry_run_json(result: XrayInstallDryRunResult) -> dict[str, object]:
+    XrayInstallDryRunResult = _lazy_import('migate.xray.install_executor', 'XrayInstallDryRunResult')
     return {
         "status": result.status,
         "message": result.message,
@@ -684,6 +690,7 @@ def _xray_install_dry_run_json(result: XrayInstallDryRunResult) -> dict[str, obj
 
 
 def _xray_install_plan_html(plan_loader: Callable[[], XrayInstallPlan], *, refreshed: bool = False) -> str:
+    XrayInstallPlan = _lazy_import('migate.xray.install_plan', 'XrayInstallPlan')
     plan = plan_loader()
     heading = "Xray 安装计划已刷新" if refreshed else "Xray 安装计划预览"
     steps = "\n".join(f"- {step.description}" for step in plan.steps)
@@ -717,6 +724,7 @@ def _xray_install_plan_html(plan_loader: Callable[[], XrayInstallPlan], *, refre
 
 
 def _xray_install_dry_run_html(dry_run_loader: Callable[[], XrayInstallDryRunResult]) -> str:
+    XrayInstallDryRunResult = _lazy_import('migate.xray.install_executor', 'XrayInstallDryRunResult')
     result = dry_run_loader()
     steps = "\n".join(
         f"- {step.action}: {step.status} -> {step.command_preview}" for step in result.steps
@@ -754,6 +762,7 @@ def _remote_check_rows_html(checks: object) -> str:
 
 
 def _remote_rollout_steps_html(steps: list[RemoteRolloutStep]) -> str:
+    RemoteRolloutStep = _lazy_import('migate.remote.rollout_plan', 'RemoteRolloutStep')
     return "\n".join(
         f"{step.action}: {'side_effect' if step.performs_side_effects else 'read_only'} - {step.description}"
         for step in steps
@@ -767,10 +776,13 @@ def _remote_commands_preview(commands: list[str]) -> list[str]:
 
 def _remote_status_detail_html(
     *,
-    readiness: RemoteReadinessReport,
-    leak_check: RemoteLeakCheckReport,
-    rollout: RemoteRolloutPlan,
+    readiness: "RemoteReadinessReport",
+    leak_check: "RemoteLeakCheckReport",
+    rollout: "RemoteRolloutPlan",
 ) -> str:
+    RemoteReadinessReport = _lazy_import('migate.remote.readiness', 'RemoteReadinessReport')
+    RemoteLeakCheckReport = _lazy_import('migate.remote.leak_check', 'RemoteLeakCheckReport')
+    RemoteRolloutPlan = _lazy_import('migate.remote.rollout_plan', 'RemoteRolloutPlan')
     readiness_checks = _remote_check_rows_html(readiness.checks)
     leak_checks = _remote_check_rows_html(leak_check.checks)
     rollout_steps = _remote_rollout_steps_html(rollout.steps)
@@ -873,6 +885,7 @@ def _xray_runtime_status_json(runtime: XrayRuntimeStatus, *, include_output: boo
 
 
 def _xray_validation_result_json(result: XrayValidationResult, *, target_path: Path) -> dict[str, object]:
+    XrayValidationResult = _lazy_import('migate.xray.validator', 'XrayValidationResult')
     return {
         "status": result.status,
         "target_path": str(target_path),
@@ -898,6 +911,7 @@ def _systemd_services_status_json(services: dict[str, SystemdResult]) -> dict[st
 
 
 def _xray_validation_summary_json(result: XrayValidationResult) -> dict[str, object]:
+    XrayValidationResult = _lazy_import('migate.xray.validator', 'XrayValidationResult')
     return {
         "status": result.status,
         "returncode": result.returncode,
@@ -982,6 +996,7 @@ def _egress_status_report_json(report: EgressStatusReport) -> dict[str, object]:
 
 
 def _proxy_run_result_json(result: ProxyRunResult) -> dict[str, object]:
+    ProxyRunResult = _lazy_import('migate.proxy.run', 'ProxyRunResult')
     return {
         "status": result.status,
         "message": result.message,
@@ -1023,6 +1038,7 @@ def _egress_lifecycle_result_json(result: EgressLifecycleResult) -> dict[str, ob
 
 
 def _remote_readiness_report_json(report: RemoteReadinessReport) -> dict[str, object]:
+    RemoteReadinessReport = _lazy_import('migate.remote.readiness', 'RemoteReadinessReport')
     return {
         "status": report.status,
         "target": report.target,
@@ -1036,6 +1052,7 @@ def _remote_readiness_report_json(report: RemoteReadinessReport) -> dict[str, ob
 
 
 def _remote_leak_check_report_json(report: RemoteLeakCheckReport) -> dict[str, object]:
+    RemoteLeakCheckReport = _lazy_import('migate.remote.leak_check', 'RemoteLeakCheckReport')
     return {
         "status": report.status,
         "target": report.target,
@@ -1051,6 +1068,7 @@ def _remote_leak_check_report_json(report: RemoteLeakCheckReport) -> dict[str, o
 
 
 def _remote_rollout_plan_json(plan: RemoteRolloutPlan) -> dict[str, object]:
+    RemoteRolloutPlan = _lazy_import('migate.remote.rollout_plan', 'RemoteRolloutPlan')
     return {
         "status": plan.status,
         "message": plan.message,
@@ -1245,6 +1263,8 @@ def _egress_dry_run_result_html(title: str, result_loader: Callable[[], EgressLi
 
 
 def _default_egress_up_dry_run(config: MiGateConfig) -> EgressLifecycleResult:
+    build_openvpn_start_plan = _lazy_import('migate.vpn.process_plan', 'build_openvpn_start_plan')
+    build_policy_routing_plan = _lazy_import('migate.routing.policy_plan', 'build_policy_routing_plan')
     start_plan = build_openvpn_start_plan(
         config,
         config_path=str(DEFAULT_OPENVPN_CONFIG_PATH),
@@ -1263,6 +1283,8 @@ def _default_egress_up_dry_run(config: MiGateConfig) -> EgressLifecycleResult:
 
 
 def _default_egress_down_dry_run(config: MiGateConfig) -> EgressLifecycleResult:
+    build_openvpn_stop_plan = _lazy_import('migate.vpn.process_stop', 'build_openvpn_stop_plan')
+    build_policy_routing_cleanup_plan = _lazy_import('migate.routing.policy_cleanup', 'build_policy_routing_cleanup_plan')
     cleanup_plan = build_policy_routing_cleanup_plan(config)
     stop_plan = build_openvpn_stop_plan(pid_file=DEFAULT_OPENVPN_PID_PATH)
     return EgressLifecycleResult(
@@ -1278,6 +1300,7 @@ def _default_egress_down_dry_run(config: MiGateConfig) -> EgressLifecycleResult:
 
 
 def _result_output(*parts: object) -> str:
+    XrayValidationResult = _lazy_import('migate.xray.validator', 'XrayValidationResult')
     values = []
     for part in parts:
         if isinstance(part, XrayValidationResult | SystemdResult):
@@ -1289,11 +1312,12 @@ def _result_output(*parts: object) -> str:
 
 def _xray_control_diagnostics_html(
     *,
-    validation: XrayValidationResult,
+    validation: "XrayValidationResult",
     reload_result: SystemdResult | None = None,
     restart_result: SystemdResult | None = None,
     restart_label: str = "Xray 重启",
 ) -> str:
+    XrayValidationResult = _lazy_import('migate.xray.validator', 'XrayValidationResult')
     html = f"""
     <div class="label">配置校验</div>
     <pre>{escape(_result_output(validation))}</pre>"""
@@ -1312,24 +1336,52 @@ def create_app(
     node_repository: NodeRepository | None = None,
     inbound_repository: InboundRepository | None = None,
     xray_config_path: str | Path | None = None,
-    xray_validator: Callable[[Path], XrayValidationResult] | None = None,
+    xray_validator: Callable[[Path], "XrayValidationResult"] | None = None,
     systemd_unit_dir: str | Path | None = None,
     systemd_status_loader: Callable[[str], SystemdResult] | None = None,
     systemd_daemon_reloader: Callable[[], SystemdResult] | None = None,
     systemd_restarter: Callable[[str], SystemdResult] | None = None,
     xray_runtime_loader: Callable[[], XrayRuntimeStatus] | None = None,
-    xray_install_plan_loader: Callable[[], XrayInstallPlan] | None = None,
-    xray_install_dry_run_loader: Callable[[], XrayInstallDryRunResult] | None = None,
+    xray_install_plan_loader: Callable[[], "XrayInstallPlan"] | None = None,
+    xray_install_dry_run_loader: Callable[[], "XrayInstallDryRunResult"] | None = None,
     egress_status_loader: Callable[[], EgressStatusReport] | None = None,
-    proxy_runtime_loader: Callable[[], ProxyRunResult] | None = None,
+    proxy_runtime_loader: Callable[[], "ProxyRunResult"] | None = None,
     egress_up_dry_run_loader: Callable[[], EgressLifecycleResult] | None = None,
     egress_down_dry_run_loader: Callable[[], EgressLifecycleResult] | None = None,
-    remote_readiness_loader: Callable[..., RemoteReadinessReport] | None = None,
-    remote_leak_check_loader: Callable[..., RemoteLeakCheckReport] | None = None,
-    remote_rollout_plan_loader: Callable[..., RemoteRolloutPlan] | None = None,
+    remote_readiness_loader: Callable[..., "RemoteReadinessReport"] | None = None,
+    remote_leak_check_loader: Callable[..., "RemoteLeakCheckReport"] | None = None,
+    remote_rollout_plan_loader: Callable[..., "RemoteRolloutPlan"] | None = None,
     panel_auth_config: dict[str, object] | None = None,
     panel_config_path: str | Path | None = None,
 ) -> FastAPI:
+    # Lazy imports — loaded once when the app starts, not at module import time
+    ProxyRunResult = _lazy_import('migate.proxy.run', 'ProxyRunResult')
+    run_proxy = _lazy_import('migate.proxy.run', 'run_proxy')
+    preview_proxy_service_unit = _lazy_import('migate.proxy.service_cli', 'preview_proxy_service_unit')
+    RemoteLeakCheckReport = _lazy_import('migate.remote.leak_check', 'RemoteLeakCheckReport')
+    run_remote_leak_check = _lazy_import('migate.remote.leak_check', 'run_remote_leak_check')
+    RemoteReadinessReport = _lazy_import('migate.remote.readiness', 'RemoteReadinessReport')
+    run_remote_readiness = _lazy_import('migate.remote.readiness', 'run_remote_readiness')
+    RemoteRolloutPlan = _lazy_import('migate.remote.rollout_plan', 'RemoteRolloutPlan')
+    RemoteRolloutStep = _lazy_import('migate.remote.rollout_plan', 'RemoteRolloutStep')
+    build_remote_rollout_dry_run_plan = _lazy_import('migate.remote.rollout_plan', 'build_remote_rollout_dry_run_plan')
+    build_policy_routing_cleanup_plan = _lazy_import('migate.routing.policy_cleanup', 'build_policy_routing_cleanup_plan')
+    build_policy_routing_plan = _lazy_import('migate.routing.policy_plan', 'build_policy_routing_plan')
+    XrayInstallDryRunResult = _lazy_import('migate.xray.install_executor', 'XrayInstallDryRunResult')
+    dry_run_xray_install_plan = _lazy_import('migate.xray.install_executor', 'dry_run_xray_install_plan')
+    build_openvpn_start_plan = _lazy_import('migate.vpn.process_plan', 'build_openvpn_start_plan')
+    build_openvpn_stop_plan = _lazy_import('migate.vpn.process_stop', 'build_openvpn_stop_plan')
+    XrayInstallPlan = _lazy_import('migate.xray.install_plan', 'XrayInstallPlan')
+    build_xray_install_plan = _lazy_import('migate.xray.install_plan', 'build_xray_install_plan')
+    build_shadowsocks_link = _lazy_import('migate.xray.links', 'build_shadowsocks_link')
+    build_trojan_link = _lazy_import('migate.xray.links', 'build_trojan_link')
+    build_vless_link = _lazy_import('migate.xray.links', 'build_vless_link')
+    build_config_from_nodes = _lazy_import('migate.xray.node_adapter', 'build_config_from_nodes')
+    build_base64_subscription = _lazy_import('migate.xray.subscription', 'build_base64_subscription')
+    XrayValidationResult = _lazy_import('migate.xray.validator', 'XrayValidationResult')
+    validate_xray_config = _lazy_import('migate.xray.validator', 'validate_xray_config')
+    write_xray_config = _lazy_import('migate.xray.writer', 'write_xray_config')
+    query_xray_stats = _lazy_import('migate.xray.stats', 'query_xray_stats')
     loaded_panel_auth_config = panel_auth_config if panel_auth_config is not None else load_panel_auth_config(panel_config_path)
     panel_base_path = (
         _normalize_panel_base_path((loaded_panel_auth_config or {}).get("base_path"))
@@ -1813,11 +1865,11 @@ def create_app(
         list[NodeRecord],
         XrayRuntimeStatus,
         EgressStatusReport,
-        ProxyRunResult,
+        "ProxyRunResult",
         dict[str, SystemdResult],
-        RemoteReadinessReport,
-        RemoteLeakCheckReport,
-        RemoteRolloutPlan,
+        "RemoteReadinessReport",
+        "RemoteLeakCheckReport",
+        "RemoteRolloutPlan",
     ]:
         return (
             repo.list_nodes(),

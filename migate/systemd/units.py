@@ -45,6 +45,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
+Environment=MALLOC_ARENA_MAX=2
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/local/bin/migate panel --host {bind_host} --port {bind_port}
 Restart=on-failure
 RestartSec=3s
