@@ -999,9 +999,16 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
     assert isinstance(actions, dict)
     safe_previews = actions["safe_previews"]
     assert isinstance(safe_previews, list)
+    dangerous_actions = actions.get("dangerous_actions", [])
+    assert isinstance(dangerous_actions, list)
     action_links = "\n".join(
         f'      <li><a href="{escape(str(action["path"]))}">{escape(str(action["name"]))}</a> <span class="label">{escape(str(action["method"]))}</span></li>'
         for action in safe_previews
+        if isinstance(action, dict)
+    )
+    dangerous_action_items = "\n".join(
+        f'      <li>{escape(str(action["name"]))} <span class="label">{escape(str(action["method"]))} {escape(str(action["path"]))} · disabled</span></li>'
+        for action in dangerous_actions
         if isinstance(action, dict)
     )
     return f"""
@@ -1023,6 +1030,10 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
     <h3>安全预览入口</h3>
     <ul>
 {action_links}
+    </ul>
+    <h3>危险动作发现（禁用）</h3>
+    <ul>
+{dangerous_action_items}
     </ul>
   </section>
 """
