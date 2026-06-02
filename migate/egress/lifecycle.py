@@ -153,7 +153,7 @@ def bring_up_egress(
 def _default_xray_tun_start_runner(config_path: str) -> XrayApplyResult:
     config = MiGateConfig()
     config_result = save_xray_tun_config(config, config_path, yes=True, allow_system_changes=True)
-    if config_result.status != "saved":
+    if config_result.status != "saved" and not _xray_tun_config_save_reports_busy_device(config_result):
         return XrayApplyResult(
             status="invalid_config",
             message="xray tun config bootstrap failed; service start skipped",
@@ -189,6 +189,13 @@ def _default_xray_tun_start_runner(config_path: str) -> XrayApplyResult:
 
 def _xray_apply_systemctl_commands(result: XrayApplyResult) -> list[str]:
     return [" ".join(item.command) for item in result.systemctl_results]
+
+
+def _xray_tun_config_save_reports_busy_device(result: object) -> bool:
+    stdout = getattr(result, "validation_stdout", "") or ""
+    stderr = getattr(result, "validation_stderr", "") or ""
+    output = f"{stdout}\n{stderr}".lower()
+    return getattr(result, "status", "") == "invalid" and "device or resource busy" in output
 
 
 def _default_xray_tun_interface_ready(name: str, *, timeout_seconds: float = 5.0, interval_seconds: float = 0.2) -> bool:
