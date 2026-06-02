@@ -110,6 +110,26 @@ document.addEventListener('change', function(e) {{
     if (url) {{ fetch(url, {{method:'POST',credentials:'same-origin'}}).then(function(r){{ if(r.ok) showToast('状态已更新'); else showToast('操作失败','toast-err'); }}).catch(function(){{ showToast('操作失败','toast-err'); }}); }}
   }}
 }});
+async function addClient(e,inboundId,url){{
+  e.preventDefault();
+  const form=e.target;const data=new FormData(form);
+  try{{
+    const r=await fetch(url,{{method:'POST',body:data}});
+    const j=await r.json();
+    if(j.status==='created'){{showToast('客户端已添加');setTimeout(()=>location.reload(),500);}}
+    else showToast(j.status||'添加失败','toast-err');
+  }}catch(err){{showToast('网络错误','toast-err');}}
+}}
+async function removeClient(inboundId,clientId,btn){{
+  if(!confirm('确定删除此客户端？'))return;
+  const bp=document.body.dataset.basePath||'/';
+  try{{
+    const r=await fetch(bp+'api/inbounds/'+inboundId+'/clients/'+clientId+'/remove',{{method:'POST'}});
+    const j=await r.json();
+    if(j.status==='removed'){{showToast('客户端已删除');btn.closest('.client-row').remove();}}
+    else showToast('删除失败','toast-err');
+  }}catch(err){{showToast('网络错误','toast-err');}}
+}}
 </script>
 </body>
 </html>"""

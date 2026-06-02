@@ -342,6 +342,33 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/") -> st
         traffic_up = _format_bytes(ib.up_bytes)
         traffic_down = _format_bytes(ib.down_bytes)
         protocol_selected = {p: " selected" if ib.protocol == p else "" for p in ("vless", "vmess", "trojan", "shadowsocks")}
+        # Parse clients from settings
+        try:
+            ib_clients = json.loads(ib.settings).get("clients", [])
+        except (json.JSONDecodeError, TypeError):
+            ib_clients = []
+
+        clients_html = ""
+        for cl in ib_clients:
+            cl_id = cl.get("id", "")
+            cl_email = cl.get("email", "") or cl_id[:8]
+            clients_html += f'''
+    <div class="client-row" style="display:flex;align-items:center;gap:8px;padding:4px 0;">
+      <span style="font-family:monospace;font-size:13px;">{escape(cl_email)}</span>
+      <span style="color:var(--text-muted);font-size:12px;">{escape(cl_id[:8])}...</span>
+      <button class="btn btn-sm btn-danger" onclick="removeClient('{escape(str(ib.id))}','{escape(cl_id)}',this)">删除</button>
+    </div>'''
+
+        add_client_url = f"/api/inbounds/{ib.id}/clients/add"
+        clients_section = f'''
+<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:8px;">
+  <div style="font-weight:600;margin-bottom:6px;">👤 客户端管理</div>
+  <div id="clients-{ib.id}">{clients_html if clients_html else '<div style="color:var(--text-muted);">暂无客户端</div>'}</div>
+  <form onsubmit="addClient(event,'{escape(str(ib.id))}','{escape(add_client_url)}')" style="margin-top:8px;display:flex;gap:8px;">
+    <input type="email" name="email" placeholder="客户端邮箱" required style="flex:1;">
+    <button type="submit" class="btn btn-primary btn-sm">添加</button>
+  </form>
+</div>'''
         items.append(f"""
     <article class="node">
       <div class="node-title">{escape(ib.remark)} <span class="label">#{ib.id}</span></div>
@@ -384,6 +411,7 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/") -> st
           <button type="submit">保存修改</button>
         </form>
       </details>
+      {clients_section}
     </article>
 """)
     return f"""
@@ -1654,6 +1682,45 @@ def create_app(
         if ib is None:
             return {"status": "not_found", "performed_side_effects": False}
         return {"status": "disabled", "id": ib.id, "performed_side_effects": True}
+
+    # --- Client management within inbounds ---
+    @app.get("/api/inbounds/{inbound_id}/clients")
+    def api_inbound_clients_list(inbound_id: int) -> dict[str, object]:
+        from migate.client_manager import list_clients
+        clients = list_clients(inbound_repo, inbound_id)
+        return {"clients": clients, "performed_side_effects": False}
+
+    @app.post("/api/inbounds/{inbound_id}/clients/add")
+    def api_inbound_client_add(
+        inbound_id: int,
+        email: str = Form(""),
+        flow: str = Form(""),
+    ) -> dict[str, object]:
+        from migate.client_manager import add_client_to_inbound
+        client = add_client_to_inbound(inbound_repo, inbound_id, email=email, flow=flow)
+        if client is None:
+            return {"status": "not_found", "performed_side_effects": False}
+        return {"status": "created", "client": client, "performed_side_effects": True}
+
+    @app.post("/api/inbounds/{inbound_id}/clients/{client_id}/remove")
+    def api_inbound_client_remove(inbound_id: int, client_id: str) -> dict[str, object]:
+        from migate.client_manager import remove_client_from_inbound
+        removed = remove_client_from_inbound(inbound_repo, inbound_id, client_id)
+        if not removed:
+            return {"status": "not_found", "performed_side_effects": False}
+        return {"status": "removed", "performed_side_effects": True}
+
+    @app.post("/api/inbounds/{inbound_id}/clients/{client_id}/update")
+    def api_inbound_client_update(
+        inbound_id: int,
+        client_id: str,
+        email: str = Form(""),
+    ) -> dict[str, object]:
+        from migate.client_manager import update_client_in_inbound
+        updated = update_client_in_inbound(inbound_repo, inbound_id, client_id, email=email)
+        if not updated:
+            return {"status": "not_found", "performed_side_effects": False}
+        return {"status": "updated", "performed_side_effects": True}
 
     @app.get("/api/stats/traffic")
     def api_stats_traffic() -> dict[str, object]:
