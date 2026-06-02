@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import asyncio
+import socket
 
 from migate.config import MiGateConfig
 from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport, relax_proxy_start_preflight_for_backend, run_proxy_doctor
-from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServerStarter, run_socks5_serve
+from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServerStarter, UpstreamConnector, run_socks5_serve
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,30 @@ class ProxyRunResult:
     client_timeout: float | None = None
     events: list[Socks5ServeEvent] | None = None
     performed_side_effects: bool = False
+
+
+def _upstream_connector_for_backend(
+    config: MiGateConfig,
+    *,
+    socket_factory: Callable[[int, int], socket.socket] | None = None,
+) -> UpstreamConnector | None:
+    if config.egress.backend != "xray-tun":
+        return None
+    mark = int(config.vpn.fwmark, 0)
+    factory = socket_factory or socket.socket
+
+    async def connect_with_fwmark(host: str, port: int, timeout: float) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        sock = factory(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_MARK, mark)
+            sock.setblocking(False)
+            await asyncio.wait_for(asyncio.get_running_loop().sock_connect(sock, (host, port)), timeout=timeout)
+            return await asyncio.open_connection(sock=sock)
+        except Exception:
+            sock.close()
+            raise
+
+    return connect_with_fwmark
 
 
 def run_proxy(
@@ -47,6 +73,7 @@ def run_proxy(
             performed_side_effects=False,
         )
 
+    upstream_connector = _upstream_connector_for_backend(cfg)
     serve_result = run_socks5_serve(
         cfg,
         dry_run=False,
@@ -55,6 +82,7 @@ def run_proxy(
         max_clients=max_clients,
         client_timeout=client_timeout,
         server_starter=server_starter,
+        upstream_connector=upstream_connector,
     )
     return ProxyRunResult(
         status="running" if serve_result.listener_started else serve_result.status,

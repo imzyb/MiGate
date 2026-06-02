@@ -75,6 +75,56 @@ async def test_serve_socks5_bounded_relays_bytes_to_connected_upstream():
 
 
 @pytest.mark.asyncio
+async def test_serve_socks5_bounded_uses_injected_upstream_connector_for_relay():
+    upstream_payloads: list[bytes] = []
+    connector_calls: list[tuple[str, int]] = []
+
+    async def handle_upstream(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        payload = await reader.readexactly(4)
+        upstream_payloads.append(payload)
+        writer.write(b"pong")
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    upstream_server = await asyncio.start_server(handle_upstream, "127.0.0.1", 0)
+    upstream_host, upstream_port = upstream_server.sockets[0].getsockname()[:2]
+
+    async def connector(host: str, port: int, timeout: float):
+        connector_calls.append((host, port))
+        return await asyncio.open_connection(host, port)
+
+    server_task = asyncio.create_task(
+        serve_socks5_bounded("127.0.0.1", 0, max_clients=1, upstream_connector=connector)
+    )
+    await asyncio.sleep(0)
+    server = await asyncio.wait_for(serve_socks5_bounded.current_server(), timeout=1)
+    bound_host, bound_port = server.sockets[0].getsockname()[:2]
+
+    reader, writer = await asyncio.open_connection(bound_host, bound_port)
+    writer.write(b"\x05\x01\x00")
+    await writer.drain()
+    assert await reader.readexactly(2) == b"\x05\x00"
+    writer.write(ipv4_connect_request(upstream_host, upstream_port))
+    await writer.drain()
+    assert await reader.readexactly(10) == SOCKS5_SUCCESS_REPLY
+    writer.write(b"ping")
+    await writer.drain()
+    assert await reader.readexactly(4) == b"pong"
+    assert await reader.read() == b""
+    writer.close()
+    await writer.wait_closed()
+
+    result = await asyncio.wait_for(server_task, timeout=1)
+    upstream_server.close()
+    await upstream_server.wait_closed()
+
+    assert connector_calls == [(upstream_host, upstream_port)]
+    assert upstream_payloads == [b"ping"]
+    assert result.upstream_connections == 1
+
+
+@pytest.mark.asyncio
 async def test_serve_socks5_bounded_records_rejected_greeting_and_connect_events():
     server_task = asyncio.create_task(serve_socks5_bounded("127.0.0.1", 0, max_clients=2))
     await asyncio.sleep(0)
