@@ -3101,6 +3101,10 @@ def test_panel_dashboard_api_returns_webui_bootstrap_snapshot_without_side_effec
             {"name": "proxy_service_preview", "method": "GET", "path": "/api/proxy/service/preview"},
         ],
         "dangerous_actions_enabled": False,
+        "dangerous_actions": [
+            {"name": "xray_apply", "method": "POST", "path": "/api/xray/apply", "enabled": False},
+            {"name": "xray_restart", "method": "POST", "path": "/api/xray/restart", "enabled": False},
+        ],
     }
     assert payload["performed_side_effects"] is False
     assert calls == [

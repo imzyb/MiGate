@@ -798,6 +798,13 @@ def _safe_preview_actions_json() -> list[dict[str, str]]:
     ]
 
 
+def _dangerous_actions_json() -> list[dict[str, object]]:
+    return [
+        {"name": "xray_apply", "method": "POST", "path": "/api/xray/apply", "enabled": False},
+        {"name": "xray_restart", "method": "POST", "path": "/api/xray/restart", "enabled": False},
+    ]
+
+
 def _egress_status_report_json(report: EgressStatusReport) -> dict[str, object]:
     return {
         "status": report.status,
@@ -945,6 +952,7 @@ def _dashboard_snapshot_json(
         "actions": {
             "safe_previews": _safe_preview_actions_json(),
             "dangerous_actions_enabled": False,
+            "dangerous_actions": _dangerous_actions_json(),
         },
         "performed_side_effects": False,
     }
