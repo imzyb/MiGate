@@ -365,6 +365,25 @@ tr:hover td {
 }
 
 /* ── Buttons ──────────────────────────────────────── */
+button, input[type="submit"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-sm);
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+  background: rgba(143,163,200,.08);
+  color: var(--text);
+}
+button:hover, input[type="submit"]:hover {
+  background: rgba(143,163,200,.15);
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -538,6 +557,24 @@ code {
 .text-sm { font-size: 13px; }
 .text-xs { font-size: 12px; }
 .hidden { display: none; }
+
+/* ── Details/Summary ────────────────────────────────── */
+details {
+  margin: 8px 0;
+}
+summary {
+  cursor: pointer;
+  padding: 8px 0;
+  color: var(--muted);
+  font-size: 13px;
+  user-select: none;
+}
+summary:hover {
+  color: var(--text);
+}
+details[open] summary {
+  margin-bottom: 8px;
+}
 
 /* ── Toast notification (fixed) ────────────────────── */
 .toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:10px;font-size:14px;z-index:9999;opacity:0;transform:translateY(-10px);transition:all .3s;pointer-events:none}

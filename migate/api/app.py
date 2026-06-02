@@ -216,8 +216,11 @@ def _node_create_form_html(base_path: str = "/") -> str:
       <div class="form-group"><label>服务器域名/IP<input name="host" placeholder="example.com" required></label></div>
       <div class="form-group"><label>端口<input name="port" type="number" value="443" min="1" max="65535" required></label></div>
       <div class="form-group"><label>UUID / 密码（留空自动生成）<input name="credential" placeholder="VLESS 填 UUID；Trojan/SS 填密码"></label></div>
-      <div class="form-group"><label>SOCKS5 出口主机（可选）<input name="socks5_host" placeholder="127.0.0.1"></label></div>
-      <div class="form-group"><label>SOCKS5 出口端口（可选）<input name="socks5_port" type="number" min="1" max="65535" placeholder="34501"></label></div>
+      <details style="grid-column:1/-1;">
+        <summary style="cursor:pointer;color:var(--text-muted);margin-bottom:8px;">⚙️ 高级选项（SOCKS5 出口）</summary>
+        <div class="form-group"><label>SOCKS5 出口主机<input name="socks5_host" placeholder="127.0.0.1"></label></div>
+        <div class="form-group"><label>SOCKS5 出口端口<input name="socks5_port" type="number" min="1" max="65535" placeholder="34501"></label></div>
+      </details>
       <button class="btn btn-primary btn-block" type="submit">生成并保存节点</button>
     </form>
   </section>
@@ -230,12 +233,12 @@ def _inbound_create_form_html(base_path: str = "/") -> str:
     <h3>创建入站规则</h3>
     <p class="text-muted text-sm">创建 Xray 入站代理。支持 VLESS、VMess、Trojan、Shadowsocks 协议。</p>
     <form method="post" action="{escape(_panel_url(base_path, '/inbounds/create'))}" class="form-grid">
-      <div class="form-group"><label>备注<input name="remark" placeholder="HK VLESS TLS" required></label></div>
+      <div class="form-group"><label>备注<input name="remark" placeholder="例如：HK-VLESS-443" required></label></div>
       <div class="form-group"><label>协议<select name="protocol"><option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option><option value="shadowsocks">Shadowsocks</option></select></label></div>
       <div class="form-group"><label>端口<input name="port" type="number" value="443" min="1" max="65535" required></label></div>
-      <div class="form-group"><label>监听地址<input name="listen" value="0.0.0.0" required></label></div>
-      <div class="form-group"><label>Settings (JSON)<input name="settings" placeholder='{{"clients":[{{"id":"uuid"}}]}}'></label></div>
-      <div class="form-group"><label>Stream Settings (JSON)<input name="stream_settings" placeholder='{{"network":"tcp","security":"tls"}}'></label></div>
+      <input type="hidden" name="listen" value="0.0.0.0">
+      <input type="hidden" name="settings" value="{{}}">
+      <input type="hidden" name="stream_settings" value="{{}}">
       <button class="btn btn-primary btn-block" type="submit">创建入站</button>
     </form>
   </section>
@@ -399,15 +402,9 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/") -> st
           <label>端口
             <input name="port" type="number" value="{ib.port}" min="1" max="65535" required>
           </label>
-          <label>监听地址
-            <input name="listen" value="{escape(ib.listen)}" required>
-          </label>
-          <label class="wide">Settings (JSON)
-            <input name="settings" value="{escape(ib.settings)}">
-          </label>
-          <label class="wide">Stream Settings (JSON)
-            <input name="stream_settings" value="{escape(ib.stream_settings)}">
-          </label>
+          <input type="hidden" name="listen" value="{escape(ib.listen)}">
+          <input type="hidden" name="settings" value="{escape(ib.settings)}">
+          <input type="hidden" name="stream_settings" value="{escape(ib.stream_settings)}">
           <button type="submit">保存修改</button>
         </form>
       </details>
@@ -438,39 +435,35 @@ def _xray_config_for_nodes(nodes: list[NodeRecord], *, inbounds: list[InboundRec
 
 def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/", inbounds: list[InboundRecord] | None = None) -> str:
     enabled_nodes = [node for node in nodes if node.enabled]
-    apply_form = f"""
-    <form method="post" action="{escape(_panel_url(base_path, '/xray/apply'))}">
-      <button type="submit">应用当前节点配置</button>
-    </form>
-"""
-    restart_form = f"""
-    <form method="post" action="{escape(_panel_url(base_path, '/xray/restart'))}">
-      <button type="submit">校验并重启 Xray</button>
-    </form>
-"""
     if not enabled_nodes and not inbounds:
         return f"""
   <section class="card">
-    <h2>Xray 配置预览</h2>
-    <p>暂无启用节点。创建节点后这里会显示即将写入 Xray 的配置。</p>
-    {apply_form}
-    {restart_form}
+    <h2>Xray 配置</h2>
+    <p>暂无启用节点。创建节点后这里会显示配置。</p>
   </section>
 """
     preview = json.dumps(_xray_config_for_nodes(enabled_nodes, inbounds=inbounds), indent=2, ensure_ascii=False)
     return f"""
   <section class="card">
-    <h2>Xray 配置预览</h2>
-    <p>当前仅预览，不会重载 Xray。安全约束：不生成 freedom 出站，默认路由到 MiGate SOCKS5。</p>
-    <form method="post" action="{escape(_panel_url(base_path, '/xray/config/save'))}">
-      <button type="submit">保存 Xray 配置</button>
-    </form>
-    <form method="post" action="{escape(_panel_url(base_path, '/xray/config/validate'))}">
-      <button type="submit">校验 Xray 配置</button>
-    </form>
-    {apply_form}
-    {restart_form}
-    <pre>{escape(preview)}</pre>
+    <h2>Xray 配置</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+      <form method="post" action="{escape(_panel_url(base_path, '/xray/config/save'))}">
+        <button type="submit" class="btn btn-primary btn-sm">💾 保存配置</button>
+      </form>
+      <form method="post" action="{escape(_panel_url(base_path, '/xray/config/validate'))}">
+        <button type="submit" class="btn btn-sm">✅ 校验配置</button>
+      </form>
+      <form method="post" action="{escape(_panel_url(base_path, '/xray/apply'))}">
+        <button type="submit" class="btn btn-sm">🚀 应用配置</button>
+      </form>
+      <form method="post" action="{escape(_panel_url(base_path, '/xray/restart'))}">
+        <button type="submit" class="btn btn-sm">🔄 重启 Xray</button>
+      </form>
+    </div>
+    <details>
+      <summary style="cursor:pointer;color:var(--text-muted);margin-bottom:8px;">📄 查看配置 JSON（{len(preview)} 字符）</summary>
+      <pre style="max-height:400px;overflow:auto;">{escape(preview)}</pre>
+    </details>
   </section>
 """
 
@@ -643,27 +636,35 @@ def _systemd_preview_html(config: MiGateConfig) -> str:
     panel_unit = build_panel_unit(config)
     return f"""
   <section class="card">
-    <h2>Systemd 服务文件预览</h2>
-    <p>当前仅生成并保存服务文件，不会执行服务重载、开机启用、重启或其他服务控制操作。</p>
-    <form method="post" action="/systemd/units/save">
-      <button type="submit">保存 systemd 服务文件</button>
+    <h2>服务文件</h2>
+    <form method="post" action="/systemd/units/save" style="margin-bottom:12px;">
+      <button type="submit" class="btn btn-sm">💾 保存服务文件</button>
     </form>
-    <div class="label">{escape(xray_unit.name)}</div>
-    <pre>{escape(xray_unit.content)}</pre>
-    <div class="label">{escape(panel_unit.name)}</div>
-    <pre>{escape(panel_unit.content)}</pre>
+    <details>
+      <summary style="cursor:pointer;color:var(--text-muted);margin-bottom:8px;">📄 查看 {escape(xray_unit.name)}</summary>
+      <pre>{escape(xray_unit.content)}</pre>
+    </details>
+    <details>
+      <summary style="cursor:pointer;color:var(--text-muted);margin-bottom:8px;">📄 查看 {escape(panel_unit.name)}</summary>
+      <pre>{escape(panel_unit.content)}</pre>
+    </details>
   </section>
 """
 
 
 def _service_status_row(service_name: str, result: SystemdResult) -> str:
-    output = "\n".join(part for part in [result.stdout, result.stderr] if part)
+    is_active = result.status.lower() in ("active", "running")
+    icon = "🟢" if is_active else "🔴"
+    label = "运行中" if is_active else "已停止"
+    friendly_name = service_name.replace("migate-", "").replace(".service", "")
     return f"""
-    <article class="node">
-      <div class="node-title">{escape(service_name)}</div>
-      <div class="label">状态：{escape(result.status)} ｜ 返回码：{escape(str(result.returncode))}</div>
-      <pre>{escape(output)}</pre>
-    </article>
+    <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="font-size:20px;">{icon}</span>
+      <div style="flex:1;">
+        <div style="font-weight:600;">{escape(friendly_name)}</div>
+        <div class="label">{label}</div>
+      </div>
+    </div>
 """
 
 
@@ -673,11 +674,10 @@ def _service_statuses_html(services: dict[str, SystemdResult], *, refreshed: boo
     return f"""
   <section class="card">
     <h2>{heading}</h2>
-    <p>这里只读取 MiGate 自有服务状态，不会执行重启、重载或开机启用。</p>
-    <form method="post" action="/systemd/status/refresh">
-      <button type="submit">刷新服务状态</button>
-    </form>
     {rows}
+    <form method="post" action="/systemd/status/refresh" style="margin-top:12px;">
+      <button type="submit" class="btn btn-sm">🔄 刷新状态</button>
+    </form>
   </section>
 """
 
@@ -688,24 +688,20 @@ def _service_status_html(status_loader: Callable[[str], SystemdResult], *, refre
 
 def _xray_runtime_status_html(status: XrayRuntimeStatus, *, refreshed: bool = False) -> str:
     heading = "Xray 运行时已刷新" if refreshed else "Xray 运行时"
-    version = status.version or "未识别 / 未安装"
-    guidance = ""
-    if status.status == "not_installed":
-        guidance = "<p>请先安装 xray-core，或修改 MiGate Xray bin_path。</p>"
-    output = "\n".join(part for part in [status.stdout, status.stderr] if part)
+    is_ok = status.status in ("running", "ok", "installed")
+    icon = "🟢" if is_ok else "🔴"
+    version = status.version or "未安装"
     return f"""
   <section class="card">
     <h2>{heading}</h2>
-    <p>这里只检测本机 Xray 二进制和版本，不会下载、安装或修改系统。</p>
-    <form method="post" action="/xray/runtime/refresh">
-      <button type="submit">刷新 Xray 运行时</button>
-    </form>
-    <div class="label">状态：{escape(status.status)} ｜ 返回码：{escape(str(status.returncode))}</div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-size:20px;">{icon}</span>
+      <span style="font-weight:600;">{escape(version)}</span>
+    </div>
     <div class="label">路径：{escape(status.bin_path)}</div>
-    <div class="label">版本：{escape(version)}</div>
-    <p>{escape(status.message)}</p>
-    {guidance}
-    <pre>{escape(output)}</pre>
+    <form method="post" action="/xray/runtime/refresh" style="margin-top:8px;">
+      <button type="submit" class="btn btn-sm">🔄 刷新</button>
+    </form>
   </section>
 """
 
@@ -892,23 +888,25 @@ def _remote_status_detail_html(
 
 
 def _egress_status_report_html(report: EgressStatusReport, *, refreshed: bool = False) -> str:
-    heading = "Egress 出口状态已刷新" if refreshed else "Egress 出口状态"
-    checks = "\n".join(f"{check.name}: {check.status} - {check.message}" for check in report.checks)
-    preview = "\n".join(
-        [
-            f"status: {report.status}",
-            checks,
-            f"performed_side_effects: {report.performed_side_effects}",
-        ]
-    )
+    heading = "出口状态已刷新" if refreshed else "出口状态"
+    is_ok = report.status.lower() in ("ok", "healthy", "active")
+    icon = "🟢" if is_ok else "🔴"
+    status_text = "正常" if is_ok else "异常"
+    checks_html = ""
+    for check in report.checks:
+        check_icon = "✅" if check.status.lower() in ("ok", "pass") else "⚠️"
+        checks_html += f'<div style="padding:4px 0;">{check_icon} {escape(check.name)}: {escape(check.message)}</div>'
     return f"""
   <section class="card">
     <h2>{heading}</h2>
-    <p>这里只读取隧道、OpenVPN 进程、策略路由计划和防泄漏判断；不会启动/停止 OpenVPN，也不会修改路由或防火墙。</p>
-    <form method="post" action="/egress/status/refresh">
-      <button type="submit">刷新 Egress 状态</button>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <span style="font-size:20px;">{icon}</span>
+      <span style="font-weight:600;">{status_text}</span>
+    </div>
+    {checks_html}
+    <form method="post" action="/egress/status/refresh" style="margin-top:8px;">
+      <button type="submit" class="btn btn-sm">🔄 刷新状态</button>
     </form>
-    <pre>{escape(preview)}</pre>
   </section>
 """
 
@@ -1224,75 +1222,45 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
     egress = cards["egress"]
     proxy = cards["proxy"]
     systemd = cards["systemd"]
-    remote = cards["remote"]
     assert isinstance(xray, dict)
     assert isinstance(egress, dict)
     assert isinstance(proxy, dict)
     assert isinstance(systemd, dict)
-    assert isinstance(remote, dict)
-    readiness = remote["readiness"]
-    leak_check = remote["leak_check"]
-    rollout = remote["rollout_dry_run"]
-    assert isinstance(readiness, dict)
-    assert isinstance(leak_check, dict)
-    assert isinstance(rollout, dict)
     nodes = snapshot["nodes"]
     assert isinstance(nodes, dict)
-    actions = snapshot["actions"]
-    assert isinstance(actions, dict)
-    safe_previews = actions["safe_previews"]
-    assert isinstance(safe_previews, list)
-    dangerous_actions = actions.get("dangerous_actions", [])
-    assert isinstance(dangerous_actions, list)
-    action_links = "\n".join(
-        f'      <li><a href="{escape(str(action["path"]))}">{escape(str(action["name"]))}</a> <span class="label">{escape(str(action["method"]))}</span></li>'
-        for action in safe_previews
-        if isinstance(action, dict)
-    )
-    dangerous_actions_enabled = actions.get("dangerous_actions_enabled") is True
-    if dangerous_actions_enabled:
-        dangerous_heading = "危险动作执行"
-        dangerous_action_items = "\n".join(
-            """
-      <li>
-        <form method=\"post\" action=\"{path}\">
-          <input type=\"hidden\" name=\"confirm\" value=\"{confirm}\">
-          <button type=\"submit\">执行 {name}</button>
-          <span class=\"label\">{method} {path}</span>
-        </form>
-      </li>""".format(
-                name=escape(str(action["name"])),
-                method=escape(str(action["method"])),
-                path=escape(str(action["path"])),
-                confirm=escape("APPLY" if action.get("name") == "xray_apply" else "RESTART"),
-            )
-            for action in dangerous_actions
-            if isinstance(action, dict) and action.get("enabled") is True
-        )
-    else:
-        dangerous_heading = "危险动作发现（禁用）"
-        dangerous_action_items = "\n".join(
-            f'      <li>{escape(str(action["name"]))} <span class="label">{escape(str(action["method"]))} {escape(str(action["path"]))} · disabled</span></li>'
-            for action in dangerous_actions
-            if isinstance(action, dict)
-        )
+
+    xray_ok = str(xray.get("status", "")).lower() in ("running", "ok", "active")
+    xray_icon = "🟢" if xray_ok else "🔴"
+    xray_text = "运行中" if xray_ok else "未运行"
+    xray_ver = xray.get("version") or ""
+
+    nodes_text = f"{nodes['enabled']}/{nodes['total']} 已启用"
+
+    services = systemd.get("services", {})
+    svc_ok = sum(1 for v in services.values() if isinstance(v, dict) and str(v.get("status", "")).lower() in ("active", "running"))
+    svc_total = len(services)
+
     return f"""
   <section class="card">
-    <h2>Dashboard 总览</h2>
-    <p>首屏只读取状态和 dry-run/preview 合约，不会安装、启动、停止、重启或修改远端。</p>
-    <div class="label">危险动作：{'禁用' if actions.get('dangerous_actions_enabled') is False else '启用'}</div>
-    <div class="grid" aria-label="Dashboard 总览">
-      {_dashboard_card_html('整体状态', snapshot['status'])}
-      {_dashboard_card_html('节点', f"{nodes['enabled']}/{nodes['total']} enabled")}
-      {_dashboard_card_html('Xray 状态', xray.get('status'), xray.get('version') or xray.get('message', ''))}
-      {_dashboard_card_html('VPNGate 出口', egress.get('status'), 'performed_side_effects: False')}
-      {_dashboard_card_html('SOCKS5 出站', proxy.get('serve_mode') or proxy.get('status'), proxy.get('message', ''))}
-      {_dashboard_card_html('Systemd 服务', 'tracked', ', '.join(str(name) for name in systemd.get('services', {}).keys()))}
-      {_dashboard_card_html('远端 readiness', readiness.get('status'), readiness.get('target', ''))}
-      {_dashboard_card_html('远端 leak-check', leak_check.get('status'), leak_check.get('egress_public_ip') or leak_check.get('target', ''))}
-      {_dashboard_card_html('远端 rollout dry-run', rollout.get('status'), rollout.get('message', ''))}
+    <h2>系统状态</h2>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin:16px 0;">
+      <div class="card" style="text-align:center;">
+        <div style="font-size:32px;">{xray_icon}</div>
+        <div style="font-weight:600;margin:8px 0 4px;">Xray</div>
+        <div class="label">{xray_text} {escape(xray_ver)}</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div style="font-size:32px;">🔗</div>
+        <div style="font-weight:600;margin:8px 0 4px;">节点</div>
+        <div class="label">{nodes_text}</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div style="font-size:32px;">⚙️</div>
+        <div style="font-weight:600;margin:8px 0 4px;">服务</div>
+        <div class="label">{svc_ok}/{svc_total} 正常</div>
+      </div>
     </div>
-    <h3>流量统计</h3>
+    <h3 style="margin-top:24px;">📊 流量统计</h3>
     <div class="grid" id="traffic-stats">
       <div class="card"><div class="label">加载中...</div></div>
     </div>
@@ -1306,14 +1274,6 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
   }}).catch(()=>{{document.getElementById('traffic-stats').innerHTML='<div class="card"><div class="label">流量数据获取失败</div></div>';}});
     }})();
     </script>
-    <h3>安全预览入口</h3>
-    <ul>
-{action_links}
-    </ul>
-    <h3>{escape(dangerous_heading)}</h3>
-    <ul>
-{dangerous_action_items}
-    </ul>
   </section>
 """
 
