@@ -2069,6 +2069,72 @@ def test_panel_apply_current_nodes_skips_restart_when_daemon_reload_fails(tmp_pa
     assert calls == [f"validate:{config_path}", "daemon-reload"]
 
 
+def test_panel_apply_current_nodes_reports_restart_failure_after_reload_success(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="Restart Failure Node",
+        host="restart-failure.example.com",
+        port=443,
+        credential="restart-failure-uuid",
+        share_link="vless://restart-failure-uuid@restart-failure.example.com:443#RestartFailure",
+        subscription="restart-failure-subscription",
+    )
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+    calls = []
+
+    def validator(path):
+        calls.append(f"validate:{path}")
+        assert config_path.exists()
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="success", returncode=0, stdout="daemon ok", stderr="")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="failed", returncode=1, stdout="", stderr="restart failed")
+
+    def status_loader(service_name: str):
+        calls.append(f"status:{service_name}")
+        if service_name == "migate-xray.service":
+            return SystemdResult(status="failed", returncode=3, stdout="", stderr="inactive (failed)")
+        return SystemdResult(status="success", returncode=0, stdout="support service active", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_config_path=config_path,
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+            systemd_status_loader=status_loader,
+        )
+    )
+
+    response = client.post("/xray/apply")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "当前节点配置未完全应用" in decoded
+    assert "Xray 重启失败" in decoded
+    assert "restart failed" in decoded
+    assert "当前节点配置已应用" not in decoded
+    assert "服务状态已刷新" in decoded
+    assert "inactive (failed)" in decoded
+    assert config_path.exists()
+    assert calls == [
+        f"validate:{config_path}",
+        "daemon-reload",
+        "restart:migate-xray.service",
+        "status:migate-xray.service",
+        "status:migate-panel.service",
+        "status:migate-proxy.service",
+    ]
+
+
 def test_panel_apply_current_nodes_saves_config_validates_then_restarts_xray(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     repo.initialize()
