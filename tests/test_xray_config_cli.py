@@ -12,13 +12,14 @@ def test_preview_xray_config_renders_safe_default_json_without_side_effects():
     assert data["outbounds"][0]["protocol"] == "socks"
     assert data["outbounds"][0]["settings"]["servers"][0]["address"] == "127.0.0.1"
     assert {outbound["protocol"] for outbound in data["outbounds"]} == {"socks", "blackhole"}
-    assert data["inbounds"][0]["tag"] == "vless-main"
+    assert data["inbounds"][-1]["tag"] == "vless-main"
+    assert data["inbounds"][0]["tag"] == "api"
     assert rendered.endswith("\n")
 
 
 def test_build_default_xray_config_uses_placeholder_client_values():
     config = build_default_xray_config(MiGateConfig())
-    inbound = config["inbounds"][0]
+    inbound = config["inbounds"][-1]
 
     assert inbound["protocol"] == "vless"
     assert inbound["settings"]["clients"][0]["id"] == "00000000-0000-4000-8000-000000000001"
