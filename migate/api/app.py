@@ -106,6 +106,24 @@ def _dangerous_action_confirmation_required_json(required_confirm: str) -> dict[
     }
 
 
+def _dangerous_action_rejected_html() -> str:
+    return """
+  <section class="card">
+    <h2>危险动作已禁用</h2>
+    <p>panel.json 未启用 dangerous_actions_enabled，因此不会写配置、校验或控制 systemd。</p>
+  </section>
+"""
+
+
+def _dangerous_action_confirmation_required_html(required_confirm: str) -> str:
+    return f"""
+  <section class="card">
+    <h2>危险动作需要确认</h2>
+    <p>需要确认：{escape(required_confirm)}。未匹配确认字段时，不会写配置、校验或控制 systemd。</p>
+  </section>
+"""
+
+
 def _confirm_dangerous_action(confirm: str | None, required_confirm: str) -> JSONResponse | None:
     if confirm == required_confirm:
         return None
@@ -1796,7 +1814,29 @@ def create_app(
         return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, systemd_html=_systemd_preview_html(migate_config)))
 
     @app.post(_panel_url(panel_base_path, "/xray/apply"), response_class=HTMLResponse)
-    def apply_current_nodes_to_xray() -> str:
+    def apply_current_nodes_to_xray(confirm: str = Form("")):
+        if not _dangerous_actions_enabled(loaded_panel_auth_config):
+            return HTMLResponse(
+                _page_shell(
+                    _home_body(
+                        nodes=repo.list_nodes(),
+                        result_html=_dangerous_action_rejected_html(),
+                        base_path=panel_base_path,
+                    )
+                ),
+                status_code=403,
+            )
+        if confirm != "APPLY":
+            return HTMLResponse(
+                _page_shell(
+                    _home_body(
+                        nodes=repo.list_nodes(),
+                        result_html=_dangerous_action_confirmation_required_html("APPLY"),
+                        base_path=panel_base_path,
+                    )
+                ),
+                status_code=403,
+            )
         nodes = repo.list_nodes()
         written = write_xray_config(_xray_config_for_nodes(nodes), config_path)
         validation = validator(config_path)
@@ -1859,7 +1899,29 @@ def create_app(
         )
 
     @app.post(_panel_url(panel_base_path, "/xray/restart"), response_class=HTMLResponse)
-    def restart_xray_after_validation() -> str:
+    def restart_xray_after_validation(confirm: str = Form("")):
+        if not _dangerous_actions_enabled(loaded_panel_auth_config):
+            return HTMLResponse(
+                _page_shell(
+                    _home_body(
+                        nodes=repo.list_nodes(),
+                        result_html=_dangerous_action_rejected_html(),
+                        base_path=panel_base_path,
+                    )
+                ),
+                status_code=403,
+            )
+        if confirm != "RESTART":
+            return HTMLResponse(
+                _page_shell(
+                    _home_body(
+                        nodes=repo.list_nodes(),
+                        result_html=_dangerous_action_confirmation_required_html("RESTART"),
+                        base_path=panel_base_path,
+                    )
+                ),
+                status_code=403,
+            )
         validation = validator(config_path)
         if validation.status != "valid":
             result = f"""

@@ -1838,6 +1838,105 @@ def test_panel_dangerous_xray_json_posts_are_rejected_by_default_without_side_ef
     assert calls == []
 
 
+def test_panel_dangerous_xray_html_posts_are_rejected_by_default_without_side_effects(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="Rejected Dangerous HTML Node",
+        host="rejected-dangerous-html.example.com",
+        port=443,
+        credential="rejected-dangerous-html-uuid",
+        share_link="vless://rejected-dangerous-html-uuid@rejected-dangerous-html.example.com:443#RejectedDangerousHTML",
+        subscription="rejected-dangerous-html-subscription",
+    )
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+    calls = []
+
+    def validator(path):
+        calls.append(f"validate:{path}")
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="success", returncode=0, stdout="daemon ok", stderr="")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_config_path=config_path,
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+        )
+    )
+
+    apply_response = client.post("/xray/apply")
+    restart_response = client.post("/xray/restart")
+
+    assert apply_response.status_code == 403
+    assert restart_response.status_code == 403
+    for response in [apply_response, restart_response]:
+        decoded = unescape(response.text)
+        assert "危险动作已禁用" in decoded
+        assert "不会写配置、校验或控制 systemd" in decoded
+    assert not config_path.exists()
+    assert calls == []
+
+
+def test_panel_dangerous_xray_html_posts_require_confirmation_when_enabled(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="Confirmation Required HTML Node",
+        host="confirm-required-html.example.com",
+        port=443,
+        credential="confirm-required-html-uuid",
+        share_link="vless://confirm-required-html-uuid@confirm-required-html.example.com:443#ConfirmationRequiredHTML",
+        subscription="confirm-required-html-subscription",
+    )
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+    calls = []
+
+    def validator(path):
+        calls.append(f"validate:{path}")
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="success", returncode=0, stdout="daemon ok", stderr="")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
+            xray_config_path=config_path,
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+        )
+    )
+
+    apply_response = client.post("/xray/apply")
+    restart_response = client.post("/xray/restart")
+
+    assert apply_response.status_code == 403
+    assert restart_response.status_code == 403
+    assert "需要确认：APPLY" in unescape(apply_response.text)
+    assert "需要确认：RESTART" in unescape(restart_response.text)
+    assert not config_path.exists()
+    assert calls == []
+
+
 def test_panel_dangerous_xray_json_posts_require_confirmation_when_enabled(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     repo.initialize()
@@ -2765,6 +2864,7 @@ def test_panel_xray_restart_does_not_touch_systemd_when_validation_fails(tmp_pat
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=tmp_path / "config.json",
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -2772,7 +2872,7 @@ def test_panel_xray_restart_does_not_touch_systemd_when_validation_fails(tmp_pat
         )
     )
 
-    response = client.post("/xray/restart")
+    response = client.post("/xray/restart", data={"confirm": "RESTART"})
 
     assert response.status_code == 200
     decoded = unescape(response.text)
@@ -2802,6 +2902,7 @@ def test_panel_xray_restart_skips_restart_when_daemon_reload_fails(tmp_path):
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -2809,7 +2910,7 @@ def test_panel_xray_restart_skips_restart_when_daemon_reload_fails(tmp_path):
         )
     )
 
-    response = client.post("/xray/restart")
+    response = client.post("/xray/restart", data={"confirm": "RESTART"})
 
     assert response.status_code == 200
     decoded = unescape(response.text)
@@ -2846,6 +2947,7 @@ def test_panel_xray_restart_reports_restart_failure_after_reload_success(tmp_pat
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -2854,7 +2956,7 @@ def test_panel_xray_restart_reports_restart_failure_after_reload_success(tmp_pat
         )
     )
 
-    response = client.post("/xray/restart")
+    response = client.post("/xray/restart", data={"confirm": "RESTART"})
 
     assert response.status_code == 200
     decoded = unescape(response.text)
@@ -2900,6 +3002,7 @@ def test_panel_xray_restart_runs_daemon_reload_then_restart_after_valid_config(t
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -2908,7 +3011,7 @@ def test_panel_xray_restart_runs_daemon_reload_then_restart_after_valid_config(t
         )
     )
 
-    response = client.post("/xray/restart")
+    response = client.post("/xray/restart", data={"confirm": "RESTART"})
 
     assert response.status_code == 200
     decoded = unescape(response.text)
@@ -2960,6 +3063,7 @@ def test_panel_apply_current_nodes_saves_config_but_skips_systemd_when_validatio
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -2967,7 +3071,7 @@ def test_panel_apply_current_nodes_saves_config_but_skips_systemd_when_validatio
         )
     )
 
-    response = client.post("/xray/apply")
+    response = client.post("/xray/apply", data={"confirm": "APPLY"})
 
     assert response.status_code == 200
     decoded = unescape(response.text)
@@ -3010,6 +3114,7 @@ def test_panel_apply_current_nodes_skips_restart_when_daemon_reload_fails(tmp_pa
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -3017,7 +3122,7 @@ def test_panel_apply_current_nodes_skips_restart_when_daemon_reload_fails(tmp_pa
         )
     )
 
-    response = client.post("/xray/apply")
+    response = client.post("/xray/apply", data={"confirm": "APPLY"})
 
     assert response.status_code == 200
     decoded = unescape(response.text)
@@ -3066,6 +3171,7 @@ def test_panel_apply_current_nodes_reports_restart_failure_after_reload_success(
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -3074,7 +3180,7 @@ def test_panel_apply_current_nodes_reports_restart_failure_after_reload_success(
         )
     )
 
-    response = client.post("/xray/apply")
+    response = client.post("/xray/apply", data={"confirm": "APPLY"})
 
     assert response.status_code == 200
     decoded = unescape(response.text)
@@ -3134,6 +3240,7 @@ def test_panel_apply_current_nodes_saves_config_validates_then_restarts_xray(tmp
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -3142,7 +3249,7 @@ def test_panel_apply_current_nodes_saves_config_validates_then_restarts_xray(tmp
         )
     )
 
-    response = client.post("/xray/apply")
+    response = client.post("/xray/apply", data={"confirm": "APPLY"})
 
     assert response.status_code == 200
     decoded = unescape(response.text)
