@@ -1287,6 +1287,17 @@ def create_app(
         enabled_nodes = [node for node in nodes if node.enabled]
         write_xray_config(_xray_config_for_nodes(nodes), config_path)
         validation = validator(config_path)
+        if validation.status != "valid":
+            return {
+                "status": "validation_failed",
+                "target_path": str(config_path),
+                "counts": {"total_nodes": len(nodes), "enabled_nodes": len(enabled_nodes)},
+                "validation": _xray_validation_summary_json(validation),
+                "daemon_reload": None,
+                "restart": None,
+                "services": None,
+                "performed_side_effects": True,
+            }
         reload_result = daemon_reloader()
         restart_result = restarter("migate-xray.service")
         services = _load_migate_systemd_services(status_loader)
