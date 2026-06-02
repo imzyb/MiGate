@@ -67,7 +67,7 @@ def layout(
     </nav>
     <div class="sidebar-footer">
       {"<span>" + escape(user) + "</span> · " if user else ""}
-      <a href="{escape(logout_href)}">退出登录</a>
+      <form method="post" action="{escape(logout_href)}" style="display:inline;"><button type="submit" style="background:none;border:none;color:inherit;cursor:pointer;padding:0;font:inherit;">退出登录</button></form>
     </div>
   </aside>
   <main class="main-content">

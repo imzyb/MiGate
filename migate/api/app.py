@@ -1275,6 +1275,30 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
     }})();
     </script>
   </section>
+{_dangerous_actions_html(snapshot)}
+"""
+
+
+def _dangerous_actions_html(snapshot: dict[str, object]) -> str:
+    actions = snapshot.get("actions", {})
+    assert isinstance(actions, dict)
+    enabled = actions.get("dangerous_actions_enabled", False)
+    if not enabled:
+        return ""
+    return """
+  <section class="card">
+    <div class="label">危险动作：启用</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;">
+      <form method="post" action="/api/xray/apply">
+        <input type="hidden" name="confirm" value="APPLY">
+        <button type="submit">应用 Xray 配置</button>
+      </form>
+      <form method="post" action="/api/xray/restart">
+        <input type="hidden" name="confirm" value="RESTART">
+        <button type="submit">重启 Xray</button>
+      </form>
+    </div>
+  </section>
 """
 
 
@@ -2055,7 +2079,7 @@ a {{ color:#4ecdc4; }}
         parts = collect_dashboard_parts()
         snapshot = dashboard_snapshot_from_parts(parts)
         return _page_shell(
-            _dashboard_html(snapshot),
+            _node_create_form_html(panel_base_path) + _dashboard_html(snapshot),
             active="dashboard", title="Dashboard", subtitle="系统状态总览",
             base_path=panel_base_path,
             user=str((loaded_panel_auth_config or {}).get("admin_user", "")),
