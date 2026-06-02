@@ -20,10 +20,11 @@ def test_build_remote_leak_check_command_is_read_only_batched_and_uses_local_soc
         "-o",
         "ConnectTimeout=7",
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        "StrictHostKeyChecking=yes",
         "root@166.88.232.2",
         REMOTE_LEAK_CHECK_SCRIPT.format(socks_port=34501),
     ]
+    assert "accept-new" not in command
     preview = " ".join(command).lower()
     assert "socks5-hostname 127.0.0.1:34501" in preview
     assert "sshpass" not in preview

@@ -43,7 +43,7 @@ def build_remote_ssh_probe_command(*, host: str, port: int, user: str, timeout_s
         "-o",
         f"ConnectTimeout={timeout_seconds}",
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        "StrictHostKeyChecking=yes",
         f"{user}@{host}",
         REMOTE_PROBE_SCRIPT,
     ]

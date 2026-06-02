@@ -58,7 +58,7 @@ def build_remote_leak_check_command(*, host: str, port: int, user: str, socks_po
         "-o",
         f"ConnectTimeout={timeout_seconds}",
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        "StrictHostKeyChecking=yes",
         f"{user}@{host}",
         REMOTE_LEAK_CHECK_SCRIPT.format(socks_port=socks_port),
     ]

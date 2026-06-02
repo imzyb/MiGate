@@ -70,7 +70,7 @@ def build_remote_readiness_command(*, host: str, port: int, user: str, timeout_s
         "-o",
         f"ConnectTimeout={timeout_seconds}",
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        "StrictHostKeyChecking=yes",
         f"{user}@{host}",
         REMOTE_READINESS_SCRIPT,
     ]

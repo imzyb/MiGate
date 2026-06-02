@@ -20,10 +20,11 @@ def test_build_remote_readiness_command_is_read_only_and_batched():
         "-o",
         "ConnectTimeout=7",
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        "StrictHostKeyChecking=yes",
         "root@166.88.232.2",
         REMOTE_READINESS_SCRIPT,
     ]
+    assert "accept-new" not in command
     preview = " ".join(command).lower()
     assert "sshpass" not in preview
     assert "password" not in preview

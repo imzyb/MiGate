@@ -19,10 +19,11 @@ def test_build_remote_ssh_probe_command_is_read_only_and_batched():
         "-o",
         "ConnectTimeout=7",
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        "StrictHostKeyChecking=yes",
         "root@166.88.232.2",
         "hostname && uname -srm && id -u && command -v python3 && command -v systemctl && command -v ip && command -v openvpn",
     ]
+    assert "accept-new" not in command
     assert "sshpass" not in " ".join(command).lower()
     assert "password" not in " ".join(command).lower()
 
@@ -55,7 +56,7 @@ def test_run_remote_doctor_success_maps_probe_output_to_checks():
 
     assert report.status == "ok"
     assert report.target == "root@166.88.232.2:22"
-    assert report.commands_executed == ["ssh -p 22 -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new root@166.88.232.2 hostname && uname -srm && id -u && command -v python3 && command -v systemctl && command -v ip && command -v openvpn"]
+    assert report.commands_executed == ["ssh -p 22 -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes root@166.88.232.2 hostname && uname -srm && id -u && command -v python3 && command -v systemctl && command -v ip && command -v openvpn"]
     assert report.performed_side_effects is False
     assert RemoteDoctorCheck("ssh_connectivity", "ok", "SSH probe succeeded") in report.checks
     assert RemoteDoctorCheck("remote_user", "ok", "remote id -u is 0") in report.checks
