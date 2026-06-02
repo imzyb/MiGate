@@ -4259,3 +4259,42 @@ def test_panel_create_shadowsocks_node_returns_share_link():
     assert response.status_code == 200
     assert "ss://" in response.text
     assert "example.com:8388" in response.text
+
+
+def test_global_exception_handler_returns_friendly_html_page(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    app = create_app(node_repository=NodeRepository(tmp_path / "migate.db"), panel_config_path=config_path)
+
+    # 注入一个会抛异常的路由来测试中间件
+    @app.get("/test-boom")
+    def boom():
+        raise RuntimeError("something broke")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/test-boom")
+
+    assert resp.status_code == 500
+    assert "出错了" in resp.text
+    assert "something broke" in resp.text
+    assert "返回首页" in resp.text
+
+
+def test_global_exception_handler_returns_json_for_api_routes(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    app = create_app(node_repository=NodeRepository(tmp_path / "migate.db"), panel_config_path=config_path)
+
+    @app.get("/api/test-boom")
+    def api_boom():
+        raise ValueError("api exploded")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    # 登录后再访问 API
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+    resp = client.get("/api/test-boom")
+
+    assert resp.status_code == 500
+    body = resp.json()
+    assert body["detail"] == "internal server error"
+    assert "api exploded" in body["error"]
