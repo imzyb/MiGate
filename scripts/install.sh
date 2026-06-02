@@ -142,8 +142,8 @@ install_python_package() {
       rm -f "$MIGATE_BIN"
     fi
   fi
-  python3 -m pip install --upgrade pip --break-system-packages
-  python3 -m pip install --upgrade --force-reinstall "$MIGATE_INSTALL_DIR" --break-system-packages
+  python3 -m pip install --upgrade pip --break-system-packages --root-user-action=ignore
+  python3 -m pip install --upgrade --force-reinstall "$MIGATE_INSTALL_DIR" --break-system-packages --root-user-action=ignore
   local installed_bin
   installed_bin="$(command -v migate 2>/dev/null || true)"
   if [ -n "$installed_bin" ] && [ "$installed_bin" != "$MIGATE_BIN" ]; then
