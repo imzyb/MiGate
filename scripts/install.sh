@@ -161,7 +161,7 @@ start_panel_service() {
   systemctl enable --now migate-xray.service
 }
 
-print_next_steps() {
+normalized_panel_path() {
   local normalized_path="$MIGATE_PANEL_BASE_PATH"
   if [ -z "$normalized_path" ]; then
     normalized_path='/'
@@ -173,6 +173,32 @@ print_next_steps() {
   if [ -z "$normalized_path" ]; then
     normalized_path='/'
   fi
+  printf '%s' "$normalized_path"
+}
+
+verify_webui() {
+  local normalized_path
+  normalized_path="$(normalized_panel_path)"
+  local local_url="http://127.0.0.1:${MIGATE_PANEL_PORT}${normalized_path}/"
+  log "verifying WebUI at $local_url"
+
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if curl -fsS --max-time 5 "$local_url" >/dev/null; then
+      log 'WebUI is reachable locally'
+      return 0
+    fi
+    sleep 1
+  done
+
+  printf 'MiGate WebUI did not become reachable at %s\n' "$local_url" >&2
+  systemctl status migate-panel.service --no-pager >&2 || true
+  exit 1
+}
+
+print_next_steps() {
+  local normalized_path
+  normalized_path="$(normalized_panel_path)"
 
   printf '\nMiGate install finished.\n\n'
   printf 'Web UI: http://%s:%s%s/\n' "$MIGATE_PUBLIC_HOST" "$MIGATE_PANEL_PORT" "$normalized_path"
@@ -197,6 +223,7 @@ main() {
   run_setup
   save_runtime_units
   start_panel_service
+  verify_webui
   print_next_steps
 }
 

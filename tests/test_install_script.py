@@ -43,6 +43,15 @@ def test_one_click_install_script_has_preflight_and_secret_hygiene_guards():
     assert "token" not in script.lower()
 
 
+def test_one_click_install_script_verifies_webui_after_starting_services():
+    script = INSTALL_SCRIPT.read_text(encoding="utf-8")
+
+    assert "verify_webui" in script
+    assert "curl -fsS" in script
+    assert "http://127.0.0.1:${MIGATE_PANEL_PORT}" in script
+    assert script.index("start_panel_service") < script.index("verify_webui") < script.index("print_next_steps")
+
+
 def test_one_click_install_script_writes_services_and_prints_next_steps():
     script = INSTALL_SCRIPT.read_text(encoding="utf-8")
 
