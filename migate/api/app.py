@@ -1299,6 +1299,17 @@ def create_app(
                 "performed_side_effects": True,
             }
         reload_result = daemon_reloader()
+        if reload_result.status != "success":
+            return {
+                "status": "daemon_reload_failed",
+                "target_path": str(config_path),
+                "counts": {"total_nodes": len(nodes), "enabled_nodes": len(enabled_nodes)},
+                "validation": _xray_validation_summary_json(validation),
+                "daemon_reload": _systemd_result_json(reload_result),
+                "restart": None,
+                "services": None,
+                "performed_side_effects": True,
+            }
         restart_result = restarter("migate-xray.service")
         services = _load_migate_systemd_services(status_loader)
         return {
