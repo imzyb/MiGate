@@ -105,7 +105,6 @@ install_os_packages() {
       openvpn \
       python3 \
       python3-pip \
-      python3-venv \
       rsync \
       unzip
   else
@@ -126,11 +125,10 @@ fetch_source() {
 }
 
 install_python_package() {
-  log 'creating isolated Python environment'
-  python3 -m venv "$MIGATE_INSTALL_DIR/.venv"
-  "$MIGATE_INSTALL_DIR/.venv/bin/python" -m pip install --upgrade pip
-  "$MIGATE_INSTALL_DIR/.venv/bin/python" -m pip install "$MIGATE_INSTALL_DIR"
-  ln -sfn "$MIGATE_INSTALL_DIR/.venv/bin/migate" "$MIGATE_BIN"
+  log 'installing MiGate Python package system-wide'
+  python3 -m pip install --upgrade pip --break-system-packages
+  python3 -m pip install --upgrade --force-reinstall "$MIGATE_INSTALL_DIR" --break-system-packages
+  ln -sfn "$(command -v migate)" "$MIGATE_BIN"
 }
 
 run_setup() {

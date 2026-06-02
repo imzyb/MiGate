@@ -27,6 +27,18 @@ def test_one_click_install_script_supports_curl_pipe_style_interactive_setup():
     assert "Web UI:" in script
 
 
+def test_one_click_install_script_installs_without_venv_like_binary_style_installer():
+    script = INSTALL_SCRIPT.read_text(encoding="utf-8")
+
+    assert "python3 -m venv" not in script
+    assert "python3-venv" not in script
+    assert ".venv" not in script
+    assert "--break-system-packages" in script
+    assert "python3 -m pip install" in script
+    assert "ln -sfn" in script
+    assert "/usr/local/bin/migate" in script
+
+
 def test_one_click_install_script_is_executable():
     assert INSTALL_SCRIPT.stat().st_mode & 0o111
 
