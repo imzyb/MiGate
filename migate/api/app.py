@@ -305,6 +305,85 @@ def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
 """
 
 
+def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/") -> str:
+    if not inbounds:
+        return """
+  <section class="card">
+    <h2>入站规则</h2>
+    <p>还没有入站规则。使用下方表单创建第一个入站。</p>
+  </section>
+"""
+
+    items = []
+    for ib in inbounds:
+        toggle_action = _panel_url(base_path, f"/inbounds/{ib.id}/disable" if ib.enabled else f"/inbounds/{ib.id}/enable")
+        toggle_label = "禁用" if ib.enabled else "启用"
+        delete_action = _panel_url(base_path, f"/inbounds/{ib.id}/delete")
+        edit_action = _panel_url(base_path, f"/inbounds/{ib.id}/edit")
+        traffic_up = _format_bytes(ib.up_bytes)
+        traffic_down = _format_bytes(ib.down_bytes)
+        protocol_selected = {p: " selected" if ib.protocol == p else "" for p in ("vless", "vmess", "trojan", "shadowsocks")}
+        items.append(f"""
+    <article class="node">
+      <div class="node-title">{escape(ib.remark)} <span class="label">#{ib.id}</span></div>
+      <div class="label">协议：{escape(ib.protocol)} ｜ 端口：{ib.port} ｜ 监听：{escape(ib.listen)} ｜ 状态：{'启用' if ib.enabled else '禁用'}</div>
+      <div class="label">流量：↑ {traffic_up} ｜ ↓ {traffic_down}</div>
+      <div class="actions">
+        <form method="post" action="{escape(toggle_action)}">
+          <button type="submit">{toggle_label}</button>
+        </form>
+        <form method="post" action="{escape(delete_action)}">
+          <button type="submit">删除</button>
+        </form>
+      </div>
+      <details>
+        <summary>编辑入站</summary>
+        <form method="post" action="{escape(edit_action)}">
+          <label>备注
+            <input name="remark" value="{escape(ib.remark)}" required>
+          </label>
+          <label>协议
+            <select name="protocol">
+              <option value="vless"{protocol_selected['vless']}>VLESS</option>
+              <option value="vmess"{protocol_selected['vmess']}>VMess</option>
+              <option value="trojan"{protocol_selected['trojan']}>Trojan</option>
+              <option value="shadowsocks"{protocol_selected['shadowsocks']}>Shadowsocks</option>
+            </select>
+          </label>
+          <label>端口
+            <input name="port" type="number" value="{ib.port}" min="1" max="65535" required>
+          </label>
+          <label>监听地址
+            <input name="listen" value="{escape(ib.listen)}" required>
+          </label>
+          <label class="wide">Settings (JSON)
+            <input name="settings" value="{escape(ib.settings)}">
+          </label>
+          <label class="wide">Stream Settings (JSON)
+            <input name="stream_settings" value="{escape(ib.stream_settings)}">
+          </label>
+          <button type="submit">保存修改</button>
+        </form>
+      </details>
+    </article>
+""")
+    return f"""
+  <section class="card">
+    <h2>入站规则</h2>
+    {''.join(items)}
+  </section>
+"""
+
+
+def _format_bytes(n: int) -> str:
+    value = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(value) < 1024:
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} PB"
+
+
 def _xray_config_for_nodes(nodes: list[NodeRecord]) -> dict[str, object]:
     return build_config_from_nodes(MiGateConfig(), [node for node in nodes if node.enabled])
 
@@ -368,6 +447,7 @@ def _rewrite_panel_actions(html: str, *, base_path: str) -> str:
 def _home_body(
     *,
     nodes: list[NodeRecord] | None = None,
+    inbounds: list[InboundRecord] | None = None,
     result_html: str = "",
     auth_html: str = "",
     base_path: str = "/",
@@ -381,6 +461,7 @@ def _home_body(
 ) -> str:
     current_nodes = nodes or []
     nodes_html = _nodes_html(current_nodes, base_path=base_path)
+    inbounds_html = _inbounds_html(inbounds or [], base_path=base_path)
     preview_html = _xray_preview_html(current_nodes, base_path=base_path)
     html = f"""
   <section class="hero">
@@ -425,6 +506,37 @@ def _home_body(
     </form>
   </section>
 
+  <section class="card">
+    <h2>创建入站规则</h2>
+    <p>创建 Xray 入站代理。支持 VLESS、VMess、Trojan、Shadowsocks 协议。</p>
+    <form method="post" action="{escape(_panel_url(base_path, '/inbounds/create'))}">
+      <label>备注
+        <input name="remark" placeholder="HK VLESS TLS" required>
+      </label>
+      <label>协议
+        <select name="protocol">
+          <option value="vless">VLESS</option>
+          <option value="vmess">VMess</option>
+          <option value="trojan">Trojan</option>
+          <option value="shadowsocks">Shadowsocks</option>
+        </select>
+      </label>
+      <label>端口
+        <input name="port" type="number" value="443" min="1" max="65535" required>
+      </label>
+      <label>监听地址
+        <input name="listen" value="0.0.0.0" required>
+      </label>
+      <label class="wide">Settings (JSON)
+        <input name="settings" placeholder='{"clients":[{"id":"uuid"}]}'>
+      </label>
+      <label class="wide">Stream Settings (JSON)
+        <input name="stream_settings" placeholder='{"network":"tcp","security":"tls"}'>
+      </label>
+      <button type="submit">创建入站</button>
+    </form>
+  </section>
+
   {result_html}
   {xray_runtime_html}
   {xray_install_plan_html}
@@ -432,6 +544,7 @@ def _home_body(
   {egress_status_html}
   {egress_dry_run_html}
   {service_status_html}
+  {inbounds_html}
   {nodes_html}
   {preview_html}
   {systemd_html}
@@ -1743,6 +1856,7 @@ def create_app(
         return _page_shell(
             _home_body(
                 nodes=nodes,
+                inbounds=inbound_repo.list_inbounds(),
                 result_html=_dashboard_html(snapshot),
                 auth_html=_logout_html(base_path=panel_base_path) if _panel_auth_enabled(loaded_panel_auth_config) else "",
                 base_path=panel_base_path,
@@ -1885,6 +1999,70 @@ def create_app(
         if node is None:
             return _node_action_result("节点不存在", f"节点 #{node_id} 不存在。")
         return _node_action_result("节点已删除", f"节点 {node.name} 已删除。")
+
+    def _inbound_action_result(title: str, message: str) -> str:
+        result = f"""
+  <section class="card">
+    <h2>{escape(title)}</h2>
+    <p>{escape(message)}</p>
+  </section>
+"""
+        return _page_shell(_home_body(nodes=repo.list_nodes(), inbounds=inbound_repo.list_inbounds(), result_html=result, base_path=panel_base_path))
+
+    @app.post(_panel_url(panel_base_path, "/inbounds/create"), response_class=HTMLResponse)
+    def create_inbound(
+        remark: str = Form(...),
+        protocol: str = Form(...),
+        port: int = Form(...),
+        listen: str = Form("0.0.0.0"),
+        settings: str = Form("{}"),
+        stream_settings: str = Form("{}"),
+    ) -> str:
+        ib = inbound_repo.create_inbound(
+            remark=remark, protocol=protocol, port=port, listen=listen,
+            settings=settings, stream_settings=stream_settings,
+        )
+        return _inbound_action_result("入站已创建", f"入站 #{ib.id} ({ib.remark}) 已创建，端口 {ib.port}。")
+
+    @app.post(_panel_url(panel_base_path, "/inbounds/{inbound_id}/edit"), response_class=HTMLResponse)
+    def edit_inbound(
+        inbound_id: int,
+        remark: str = Form(...),
+        protocol: str = Form(...),
+        port: int = Form(...),
+        listen: str = Form("0.0.0.0"),
+        settings: str = Form("{}"),
+        stream_settings: str = Form("{}"),
+    ) -> str:
+        ib = inbound_repo.update_inbound(
+            inbound_id, remark=remark, protocol=protocol, port=port, listen=listen,
+            settings=settings, stream_settings=stream_settings,
+        )
+        if ib is None:
+            return _inbound_action_result("入站不存在", f"入站 #{inbound_id} 不存在。")
+        return _inbound_action_result("入站已更新", f"入站 #{ib.id} ({ib.remark}) 已更新。")
+
+    @app.post(_panel_url(panel_base_path, "/inbounds/{inbound_id}/enable"), response_class=HTMLResponse)
+    def enable_inbound(inbound_id: int) -> str:
+        ib = inbound_repo.set_inbound_enabled(inbound_id, enabled=True)
+        if ib is None:
+            return _inbound_action_result("入站不存在", f"入站 #{inbound_id} 不存在。")
+        return _inbound_action_result("入站已启用", f"入站 #{ib.id} ({ib.remark}) 已启用。")
+
+    @app.post(_panel_url(panel_base_path, "/inbounds/{inbound_id}/disable"), response_class=HTMLResponse)
+    def disable_inbound(inbound_id: int) -> str:
+        ib = inbound_repo.set_inbound_enabled(inbound_id, enabled=False)
+        if ib is None:
+            return _inbound_action_result("入站不存在", f"入站 #{inbound_id} 不存在。")
+        return _inbound_action_result("入站已禁用", f"入站 #{ib.id} ({ib.remark}) 已禁用。")
+
+    @app.post(_panel_url(panel_base_path, "/inbounds/{inbound_id}/delete"), response_class=HTMLResponse)
+    def delete_inbound(inbound_id: int) -> str:
+        ib = inbound_repo.get_inbound(inbound_id)
+        if ib is None:
+            return _inbound_action_result("入站不存在", f"入站 #{inbound_id} 不存在。")
+        inbound_repo.delete_inbound(inbound_id)
+        return _inbound_action_result("入站已删除", f"入站 #{ib.id} ({ib.remark}) 已删除。")
 
     @app.post(_panel_url(panel_base_path, "/xray/config/save"), response_class=HTMLResponse)
     def save_xray_config() -> str:
