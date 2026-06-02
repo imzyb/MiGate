@@ -8,6 +8,7 @@ from pathlib import Path
 
 DEFAULT_MIGATE_BINARY_PATH = "/usr/local/bin/migate"
 DEFAULT_PROXY_SERVICE_PATH = "/etc/systemd/system/migate-proxy.service"
+DEFAULT_PROXY_SERVICE_BACKEND = "xray-tun"
 
 
 @dataclass(frozen=True)
@@ -19,7 +20,11 @@ class ProxyServiceSaveResult:
     systemctl_commands_executed: list[list[str]] | None = None
 
 
-def preview_proxy_service_unit(*, migate_bin_path: str = DEFAULT_MIGATE_BINARY_PATH) -> str:
+def preview_proxy_service_unit(
+    *,
+    migate_bin_path: str = DEFAULT_MIGATE_BINARY_PATH,
+    backend: str = DEFAULT_PROXY_SERVICE_BACKEND,
+) -> str:
     return f"""[Unit]
 Description=MiGate local proxy service
 After=network-online.target migate-xray.service
@@ -28,7 +33,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 # max_clients=0 keeps the proxy listener in continuous mode until systemd stops it
-ExecStart={migate_bin_path} proxy run --max-clients 0
+ExecStart={migate_bin_path} proxy run --backend {backend} --max-clients 0
 # Preflight failures are terminal until the operator fixes VPN/TUN/listener prerequisites.
 Restart=no
 User=root
@@ -45,6 +50,7 @@ def save_proxy_service_unit(
     yes: bool,
     allow_system_changes: bool,
     migate_bin_path: str = DEFAULT_MIGATE_BINARY_PATH,
+    backend: str = DEFAULT_PROXY_SERVICE_BACKEND,
 ) -> ProxyServiceSaveResult:
     target_path = Path(target)
     if not yes or not allow_system_changes:
@@ -57,7 +63,7 @@ def save_proxy_service_unit(
         )
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    target_path.write_text(preview_proxy_service_unit(migate_bin_path=migate_bin_path), encoding="utf-8")
+    target_path.write_text(preview_proxy_service_unit(migate_bin_path=migate_bin_path, backend=backend), encoding="utf-8")
     return ProxyServiceSaveResult(
         status="saved",
         message="proxy service unit saved; daemon-reload not run",

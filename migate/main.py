@@ -1430,10 +1430,11 @@ def render_proxy_service_start_result(result: ProxyServiceStartResult) -> str:
 
 @proxy_service_app.command("start")
 def proxy_service_start(
+    backend: str | None = typer.Option(None, "--backend", help="Override configured egress backend: openvpn or xray-tun."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge that starting proxy service changes systemd state."),
     allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually start proxy service when combined with --yes."),
 ) -> None:
-    result = run_proxy_service_start(yes=yes, allow_system_changes=allow_system_changes)
+    result = run_proxy_service_start(yes=yes, allow_system_changes=allow_system_changes, backend=backend)
     typer.echo(render_proxy_service_start_result(result))
     if result.status != "success":
         raise typer.Exit(code=1)

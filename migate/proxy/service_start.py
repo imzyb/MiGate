@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import subprocess
 
+from migate.config import MiGateConfig
 from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport, run_proxy_doctor
 
 MIGATE_PROXY_SERVICE_NAME = "migate-proxy.service"
@@ -37,8 +38,11 @@ def _default_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, capture_output=True, text=True, check=False)
 
 
-def _default_preflight_runner() -> ProxyRuntimeReport:
-    return run_proxy_doctor()
+def _default_preflight_runner(backend: str | None = None) -> ProxyRuntimeReport:
+    config = MiGateConfig()
+    if backend is not None:
+        config = config.model_copy(update={"egress": config.egress.model_copy(update={"backend": backend})})
+    return run_proxy_doctor(config)
 
 
 def run_proxy_service_start(
@@ -47,6 +51,7 @@ def run_proxy_service_start(
     allow_system_changes: bool,
     preflight_runner: Callable[[], ProxyRuntimeReport] | None = None,
     runner: Callable[[list[str]], subprocess.CompletedProcess[str]] = _default_runner,
+    backend: str | None = None,
 ) -> ProxyServiceStartResult:
     if not yes or not allow_system_changes:
         return ProxyServiceStartResult(
@@ -59,7 +64,7 @@ def run_proxy_service_start(
             performed_side_effects=False,
         )
 
-    preflight = (preflight_runner or _default_preflight_runner)()
+    preflight = preflight_runner() if preflight_runner is not None else _default_preflight_runner(backend)
     if preflight.status != "ok":
         return ProxyServiceStartResult(
             status="preflight_failed",

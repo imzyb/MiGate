@@ -789,7 +789,7 @@ def test_remote_rollout_command_defaults_to_dry_run_without_remote_side_effects(
     assert "migate remote egress up --host 166.88.232.2 --port 22 --user root --backend xray-tun" in result.output
     assert "migate xray tun-service save --yes --allow-system-changes" in result.output
     assert "migate xray apply tun-start --yes --allow-system-changes" in result.output
-    assert "migate proxy service save --yes --allow-system-changes" in result.output
+    assert "migate proxy service save --backend xray-tun --yes --allow-system-changes" in result.output
     assert "python3 - <<\"PY\"" in result.output
     assert "migate remote leak-check --host 166.88.232.2 --port 22 --user root" in result.output
     assert "sshpass" not in result.output.lower()
@@ -3840,7 +3840,8 @@ def test_proxy_service_start_command_requires_double_gate_without_touching_syste
 
 
 def test_proxy_service_start_command_renders_gated_start_result(monkeypatch):
-    def fake_start(*, yes: bool, allow_system_changes: bool):
+    def fake_start(*, backend: str | None = None, yes: bool, allow_system_changes: bool):
+        assert backend is None
         assert yes is True
         assert allow_system_changes is True
         return ProxyServiceStartResult(

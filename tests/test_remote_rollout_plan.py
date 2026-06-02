@@ -97,7 +97,7 @@ def test_remote_rollout_plan_threads_backend_override_into_remote_egress_and_ser
     assert plan.steps[1].command_preview == "migate remote readiness --host 166.88.232.2 --port 22 --user root"
     assert plan.steps[2].command_preview == "migate remote egress up --host 166.88.232.2 --port 22 --user root --backend xray-tun --no-dry-run --yes --allow-remote-changes"
     assert plan.steps[3].action == "service_apply"
-    assert plan.steps[3].command_preview == "ssh -p 22 root@166.88.232.2 -- 'migate xray tun-service save --yes --allow-system-changes && migate proxy service save --yes --allow-system-changes && migate xray apply tun-start --yes --allow-system-changes && migate proxy service start --yes --allow-system-changes'"
+    assert plan.steps[3].command_preview == "ssh -p 22 root@166.88.232.2 -- 'migate xray tun-service save --yes --allow-system-changes && migate proxy service save --backend xray-tun --yes --allow-system-changes && migate xray apply tun-start --yes --allow-system-changes && migate proxy service start --backend xray-tun --yes --allow-system-changes'"
     assert plan.steps[4].action == "socks5_smoke"
     assert plan.steps[5].command_preview == "migate remote leak-check --host 166.88.232.2 --port 22 --user root"
 

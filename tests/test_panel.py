@@ -3839,7 +3839,7 @@ def test_panel_proxy_service_preview_api_returns_readonly_continuous_unit(tmp_pa
     assert payload["name"] == "migate-proxy.service"
     assert payload["target_path"] == str(unit_dir / "migate-proxy.service")
     assert "Description=MiGate local proxy service" in payload["content"]
-    assert "ExecStart=/usr/local/bin/migate proxy run --max-clients 0" in payload["content"]
+    assert "ExecStart=/usr/local/bin/migate proxy run --backend xray-tun --max-clients 0" in payload["content"]
     assert "# max_clients=0 keeps the proxy listener in continuous mode until systemd stops it" in payload["content"]
     assert payload["systemctl_commands_executed"] == []
     assert payload["performed_side_effects"] is False
@@ -4216,7 +4216,7 @@ def test_panel_systemd_units_preview_api_returns_readonly_unit_contract(tmp_path
     assert "ExecStart=/usr/local/bin/migate panel --host 127.0.0.1 --port 8787" in payload["units"][1]["content"]
     assert payload["units"][2]["name"] == "migate-proxy.service"
     assert payload["units"][2]["target_path"] == str(unit_dir / "migate-proxy.service")
-    assert "ExecStart=/usr/local/bin/migate proxy run --max-clients 0" in payload["units"][2]["content"]
+    assert "ExecStart=/usr/local/bin/migate proxy run --backend xray-tun --max-clients 0" in payload["units"][2]["content"]
     assert not unit_dir.exists()
 
 

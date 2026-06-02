@@ -1,5 +1,6 @@
 import subprocess
 
+import migate.proxy.service_start as service_start_module
 from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport
 from migate.proxy.service_start import run_proxy_service_start
 
@@ -49,6 +50,26 @@ def test_run_proxy_service_start_rejects_when_preflight_is_not_ok_and_skips_syst
     assert result.commands_executed == []
     assert result.performed_side_effects is False
     assert calls == ["preflight"]
+
+
+def test_run_proxy_service_start_passes_backend_to_default_preflight_runner(monkeypatch):
+    seen: list[str | None] = []
+
+    def fake_doctor(config=None, **_kwargs):
+        seen.append(None if config is None else config.egress.backend)
+        return ProxyRuntimeReport(status="ok", checks=[], performed_side_effects=False)
+
+    monkeypatch.setattr(service_start_module, "run_proxy_doctor", fake_doctor)
+
+    result = run_proxy_service_start(
+        yes=True,
+        allow_system_changes=True,
+        backend="xray-tun",
+        runner=lambda command: subprocess.CompletedProcess(command, 0, stdout="active\n" if "is-active" in command else "", stderr=""),
+    )
+
+    assert result.status == "success"
+    assert seen == ["xray-tun"]
 
 
 def test_run_proxy_service_start_runs_daemon_reload_enable_and_verify_when_preflight_ok():
