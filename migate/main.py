@@ -2031,14 +2031,25 @@ def setup_config_save(
         raise typer.Exit(code=1)
 
 
+def _resolve_panel_config_path(explicit: Path | None) -> Path:
+    """Return the first existing panel config path, or explicit if given."""
+    if explicit is not None:
+        return explicit
+    for candidate in (Path("/etc/migate/panel.json"), Path("/etc/migate/setup-panel.json")):
+        if candidate.exists():
+            return candidate
+    return Path("/etc/migate/panel.json")
+
+
 @app.command()
 def panel(
     host: str = typer.Option(MiGateConfig().security.web_bind, help="Panel bind host."),
     port: int = typer.Option(MiGateConfig().security.web_port, help="Panel bind port."),
-    panel_config: Path = typer.Option(Path("/etc/migate/panel.json"), "--panel-config", help="Panel setup config produced by setup-config-save."),
+    panel_config: Path = typer.Option(None, "--panel-config", help="Panel setup config produced by setup-config-save."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print server settings without starting uvicorn."),
 ) -> None:
-    server = build_panel_server_config(host=host, port=port, panel_config_path=panel_config)
+    resolved_config = _resolve_panel_config_path(panel_config)
+    server = build_panel_server_config(host=host, port=port, panel_config_path=resolved_config)
     if dry_run:
         typer.echo(
             f"MiGate panel: uvicorn {server.app} --factory --host {server.host} --port {server.port} "
@@ -2047,7 +2058,7 @@ def panel(
         return
     from migate.api.app import create_app
 
-    uvicorn.run(lambda: create_app(panel_config_path=panel_config), host=server.host, port=server.port, factory=True)
+    uvicorn.run(lambda: create_app(panel_config_path=resolved_config), host=server.host, port=server.port, factory=True)
 
 
 def run() -> None:
