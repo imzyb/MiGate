@@ -1667,6 +1667,49 @@ def test_panel_xray_restart_dry_run_api_previews_steps_without_side_effects(tmp_
     assert calls == []
 
 
+def test_panel_xray_config_validate_api_returns_structured_result_without_systemd(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+    calls = []
+
+    def validator(path):
+        calls.append(f"validate:{path}")
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="success", returncode=0, stdout="daemon ok", stderr="")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_config_path=config_path,
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+        )
+    )
+
+    response = client.get("/api/xray/config/validate")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "status": "valid",
+        "target_path": str(config_path),
+        "returncode": 0,
+        "stdout": "config ok",
+        "stderr": "",
+        "systemctl_commands_executed": [],
+        "performed_side_effects": False,
+    }
+    assert calls == [f"validate:{config_path}"]
+
+
 def test_panel_service_status_refresh_shows_structured_results(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
 
@@ -2502,6 +2545,7 @@ def test_panel_dashboard_api_returns_webui_bootstrap_snapshot_without_side_effec
             {"name": "dashboard", "method": "GET", "path": "/api/dashboard"},
             {"name": "xray_install_plan", "method": "GET", "path": "/api/xray/install-plan"},
             {"name": "xray_install_dry_run", "method": "GET", "path": "/api/xray/install/dry-run"},
+            {"name": "xray_config_validate", "method": "GET", "path": "/api/xray/config/validate"},
             {"name": "xray_apply_dry_run", "method": "GET", "path": "/api/xray/apply/dry-run"},
             {"name": "xray_restart_dry_run", "method": "GET", "path": "/api/xray/restart/dry-run"},
             {"name": "egress_up_dry_run", "method": "GET", "path": "/api/egress/up/dry-run"},
