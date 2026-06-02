@@ -30,6 +30,7 @@ def test_build_panel_unit_uses_migate_panel_cli_and_binds_to_localhost():
     assert "--host 127.0.0.1" in unit.content
     assert "--port 8787" in unit.content
     assert "Restart=on-failure" in unit.content
+    assert "WorkingDirectory" not in unit.content
 
 
 def test_write_unit_file_creates_target_directory_and_writes_content(tmp_path):

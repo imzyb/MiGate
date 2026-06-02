@@ -43,7 +43,6 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/root/projects/MiGate
 ExecStart=/usr/local/bin/migate panel --host {config.security.web_bind} --port {config.security.web_port}
 Restart=on-failure
 RestartSec=3s
