@@ -136,7 +136,11 @@ install_python_package() {
   log 'installing MiGate Python package system-wide'
   python3 -m pip install --upgrade pip --break-system-packages
   python3 -m pip install --upgrade --force-reinstall "$MIGATE_INSTALL_DIR" --break-system-packages
-  ln -sfn "$(command -v migate)" "$MIGATE_BIN"
+  local installed_bin
+  installed_bin="$(command -v migate 2>/dev/null || true)"
+  if [ -n "$installed_bin" ] && [ "$installed_bin" != "$MIGATE_BIN" ]; then
+    ln -sfn "$installed_bin" "$MIGATE_BIN"
+  fi
 }
 
 run_setup() {
