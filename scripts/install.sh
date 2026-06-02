@@ -198,15 +198,37 @@ verify_webui() {
   done
 
   printf 'MiGate WebUI did not become reachable at %s\n' "$local_url" >&2
-  systemctl status migate-panel.service --no-pager >&2 || true
+  install_failure_diagnostics
   exit 1
+}
+
+install_failure_diagnostics() {
+  printf '\nMiGate install failure diagnostics:\n' >&2
+  printf '  Panel service status:\n' >&2
+  systemctl is-active migate-panel.service 2>/dev/null || true
+  systemctl status migate-panel.service --no-pager -n 20 >&2 || true
+  printf '  Recent panel logs:\n' >&2
+  journalctl -u migate-panel.service -n 30 --no-pager >&2 || true
+  printf '  Xray service status:\n' >&2
+  systemctl is-active migate-xray.service 2>/dev/null || true
+  systemctl status migate-xray.service --no-pager -n 20 >&2 || true
+  printf '  Recent xray logs:\n' >&2
+  journalctl -u migate-xray.service -n 30 --no-pager >&2 || true
 }
 
 print_next_steps() {
   local normalized_path
   normalized_path="$(normalized_panel_path)"
 
+  local panel_status xray_status
+  panel_status="$(systemctl is-active migate-panel.service 2>/dev/null || echo 'unknown')"
+  xray_status="$(systemctl is-active migate-xray.service 2>/dev/null || echo 'unknown')"
+
   printf '\nMiGate install finished.\n\n'
+  printf 'Service status:\n'
+  printf '  Panel: %s (%s)\n' "$panel_status" "migate-panel.service"
+  printf '  Xray:  %s (%s)\n' "$xray_status" "migate-xray.service"
+  printf '\n'
   printf 'Web UI: http://%s:%s%s/\n' "$MIGATE_PUBLIC_HOST" "$MIGATE_PANEL_PORT" "$normalized_path"
   printf 'Username: %s\n' "$MIGATE_PANEL_USER"
   printf 'Config saved to: %s\n\n' "$MIGATE_SETUP_CONFIG_TARGET"

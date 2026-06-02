@@ -74,6 +74,23 @@ def test_one_click_install_script_verifies_webui_after_starting_services():
     assert script.index("start_panel_service") < script.index("verify_webui") < script.index("print_next_steps")
 
 
+def test_one_click_install_script_enhances_failure_diagnostics_and_service_summary():
+    script = INSTALL_SCRIPT.read_text(encoding="utf-8")
+
+    # failure diagnostics: show journalctl on WebUI verify failure
+    assert "install_failure_diagnostics" in script
+    assert "journalctl" in script
+    assert "migate-panel.service" in script
+    assert script.index("verify_webui") > script.index("install_failure_diagnostics") or \
+           "install_failure_diagnostics" in script
+
+    # success summary: show service status in final output
+    assert "systemctl is-active migate-panel.service" in script or \
+           "systemctl status migate-panel" in script or \
+           "is_active_status" in script
+    assert "Panel:" in script or "panel service:" in script.lower() or "Service status" in script
+
+
 def test_one_click_install_script_writes_services_and_prints_next_steps():
     script = INSTALL_SCRIPT.read_text(encoding="utf-8")
 
