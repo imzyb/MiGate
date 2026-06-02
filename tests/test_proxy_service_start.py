@@ -72,6 +72,69 @@ def test_run_proxy_service_start_passes_backend_to_default_preflight_runner(monk
     assert seen == ["xray-tun"]
 
 
+def test_run_proxy_service_start_xray_tun_does_not_require_proxy_listener_ports_before_start(monkeypatch):
+    seen = []
+
+    def fake_doctor(config=None, **_kwargs):
+        seen.append(None if config is None else config.egress.backend)
+        return ProxyRuntimeReport(
+            status="failed",
+            checks=[
+                ProxyRuntimeCheck("socks_listen", "failed", "127.0.0.1:34501 is not listening"),
+                ProxyRuntimeCheck("http_listen", "failed", "127.0.0.1:34502 is not listening"),
+                ProxyRuntimeCheck("tun_interface", "ok", "tun-migate interface exists"),
+                ProxyRuntimeCheck("fail_policy", "ok", "fail_policy is block"),
+                ProxyRuntimeCheck("leak_guard", "ok", "leak_guard is enabled"),
+                ProxyRuntimeCheck("tunnel_process", "ok", "xray-tun tunnel for tun-migate is running"),
+                ProxyRuntimeCheck("egress_guard", "failed", "required upstream proxy 127.0.0.1:34501 is unavailable; egress blocked"),
+            ],
+            performed_side_effects=False,
+        )
+
+    monkeypatch.setattr(service_start_module, "run_proxy_doctor", fake_doctor)
+
+    result = run_proxy_service_start(
+        yes=True,
+        allow_system_changes=True,
+        backend="xray-tun",
+        runner=lambda command: subprocess.CompletedProcess(command, 0, stdout="active\n" if "is-active" in command else "", stderr=""),
+    )
+
+    assert result.status == "success"
+    assert result.preflight_status == "ok"
+    assert seen == ["xray-tun"]
+    assert [step.name for step in result.systemctl_results] == ["daemon_reload", "enable_proxy_service", "verify_proxy_active"]
+
+
+def test_run_proxy_service_start_xray_tun_still_blocks_when_tunnel_prerequisites_fail(monkeypatch):
+    def fake_doctor(config=None, **_kwargs):
+        return ProxyRuntimeReport(
+            status="failed",
+            checks=[
+                ProxyRuntimeCheck("socks_listen", "failed", "127.0.0.1:34501 is not listening"),
+                ProxyRuntimeCheck("tun_interface", "failed", "tun-migate interface is missing"),
+                ProxyRuntimeCheck("fail_policy", "ok", "fail_policy is block"),
+                ProxyRuntimeCheck("leak_guard", "ok", "leak_guard is enabled"),
+                ProxyRuntimeCheck("tunnel_process", "failed", "xray-tun tunnel for tun-migate is not running"),
+                ProxyRuntimeCheck("egress_guard", "failed", "tun-migate interface is missing; egress blocked"),
+            ],
+            performed_side_effects=False,
+        )
+
+    monkeypatch.setattr(service_start_module, "run_proxy_doctor", fake_doctor)
+
+    result = run_proxy_service_start(
+        yes=True,
+        allow_system_changes=True,
+        backend="xray-tun",
+        runner=lambda command: subprocess.CompletedProcess(command, 0, stdout="", stderr=""),
+    )
+
+    assert result.status == "preflight_failed"
+    assert result.commands_executed == []
+    assert result.performed_side_effects is False
+
+
 def test_run_proxy_service_start_runs_daemon_reload_enable_and_verify_when_preflight_ok():
     calls = []
 

@@ -42,7 +42,26 @@ def _default_preflight_runner(backend: str | None = None) -> ProxyRuntimeReport:
     config = MiGateConfig()
     if backend is not None:
         config = config.model_copy(update={"egress": config.egress.model_copy(update={"backend": backend})})
-    return run_proxy_doctor(config)
+    return _proxy_service_start_preflight_report(run_proxy_doctor(config), backend=backend)
+
+
+def _proxy_service_start_preflight_report(report: ProxyRuntimeReport, *, backend: str | None) -> ProxyRuntimeReport:
+    if backend != "xray-tun":
+        return report
+
+    ignored_names = {"socks_listen", "http_listen"}
+    allowed_egress_guard_messages = {
+        "required upstream proxy 127.0.0.1:34501 is unavailable; egress blocked",
+        "required upstream proxy 127.0.0.1:34501 state is unknown; egress blocked",
+    }
+    effective_checks = [
+        check
+        for check in report.checks
+        if check.name not in ignored_names
+        and not (check.name == "egress_guard" and check.message in allowed_egress_guard_messages)
+    ]
+    status = "ok" if all(check.status == "ok" for check in effective_checks) else "failed"
+    return ProxyRuntimeReport(status=status, checks=report.checks, performed_side_effects=report.performed_side_effects)
 
 
 def run_proxy_service_start(
