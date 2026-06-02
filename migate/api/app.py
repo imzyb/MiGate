@@ -1270,11 +1270,12 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
     </div>
     <script>
     (function(){{
-      fetch('/api/stats/traffic').then(r=>r.json()).then(data=>{{
-        const el=document.getElementById('traffic-stats');
-        if(!data.stats||data.stats.length===0){{el.innerHTML='<div class="card"><div class="label">暂无流量数据</div></div>';return;}}
-        el.innerHTML=data.stats.map(s=>`<div class="card"><div class="label">${{s.name}}</div><div class="value">${{s.value>1073741824?(s.value/1073741824).toFixed(2)+' GB':s.value>1048576?(s.value/1048576).toFixed(2)+' MB':s.value>1024?(s.value/1024).toFixed(2)+' KB':s.value+' B'}}</div></div>`).join('');
-      }}).catch(()=>{{document.getElementById('traffic-stats').innerHTML='<div class="card"><div class="label">流量数据获取失败</div></div>';}});
+      function fmt(v){{if(v>1073741824)return(v/1073741824).toFixed(2)+' GB';if(v>1048576)return(v/1048576).toFixed(2)+' MB';if(v>1024)return(v/1024).toFixed(2)+' KB';return v+' B';}}
+  fetch('/api/stats/traffic').then(r=>r.json()).then(data=>{{
+    const el=document.getElementById('traffic-stats');
+    if(!data.inbounds||data.inbounds.length===0){{el.innerHTML='<div class="card"><div class="label">暂无流量数据</div></div>';return;}}
+    el.innerHTML=data.inbounds.map(s=>`<div class="card"><div class="label">${{s.remark}} (${{s.protocol}}:${{s.port}})</div><div class="value">↑ ${{fmt(s.up_bytes)}} ↓ ${{fmt(s.down_bytes)}}</div><div class="label">总计 ${{fmt(s.total_bytes)}}</div></div>`).join('');
+  }}).catch(()=>{{document.getElementById('traffic-stats').innerHTML='<div class="card"><div class="label">流量数据获取失败</div></div>';}});
     }})();
     </script>
     <h3>安全预览入口</h3>
