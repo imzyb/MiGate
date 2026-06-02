@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import shlex
 
 from migate.remote.lifecycle_plan import contains_embedded_credentials
 
@@ -51,29 +52,32 @@ def build_remote_egress_dry_run_plan(*, host: str, port: int, user: str, action:
         return _reject(action, "embedded credentials are not allowed in remote egress targets")
 
     target = _target(host, port, user)
-    backend_arg = f" --backend {backend}" if backend else ""
+    q_host = shlex.quote(host)
+    q_port = shlex.quote(str(port))
+    q_user = shlex.quote(user)
+    backend_arg = f" --backend {shlex.quote(backend)}" if backend else ""
     if action == "up":
         steps = [
-            RemoteEgressStep("doctor", "run read-only remote doctor before egress up", f"migate remote doctor --host {host} --port {port} --user {user}", False),
+            RemoteEgressStep("doctor", "run read-only remote doctor before egress up", f"migate remote doctor --host {q_host} --port {q_port} --user {q_user}", False),
             RemoteEgressStep(
                 "egress_up",
                 "start remote OpenVPN egress and policy routing through MiGate gates",
-                f"ssh -p {port} {user}@{host} -- migate egress up{backend_arg} --no-dry-run --yes --allow-system-changes",
+                f"ssh -p {q_port} {q_user}@{q_host} -- migate egress up{backend_arg} --no-dry-run --yes --allow-system-changes",
                 True,
             ),
-            RemoteEgressStep("post_up_status", "read remote egress status after up preview", f"ssh -p {port} {user}@{host} -- migate egress status{backend_arg}", False),
+            RemoteEgressStep("post_up_status", "read remote egress status after up preview", f"ssh -p {q_port} {q_user}@{q_host} -- migate egress status{backend_arg}", False),
         ]
         message = "remote egress up dry-run only; no SSH or system changes performed"
     else:
         steps = [
-            RemoteEgressStep("doctor", "run read-only remote doctor before egress down", f"migate remote doctor --host {host} --port {port} --user {user}", False),
+            RemoteEgressStep("doctor", "run read-only remote doctor before egress down", f"migate remote doctor --host {q_host} --port {q_port} --user {q_user}", False),
             RemoteEgressStep(
                 "egress_down",
                 "stop remote OpenVPN egress and cleanup policy routing through MiGate gates",
-                f"ssh -p {port} {user}@{host} -- migate egress down{backend_arg} --no-dry-run --yes --allow-system-changes",
+                f"ssh -p {q_port} {q_user}@{q_host} -- migate egress down{backend_arg} --no-dry-run --yes --allow-system-changes",
                 True,
             ),
-            RemoteEgressStep("post_down_status", "read remote egress status after down preview", f"ssh -p {port} {user}@{host} -- migate egress status{backend_arg}", False),
+            RemoteEgressStep("post_down_status", "read remote egress status after down preview", f"ssh -p {q_port} {q_user}@{q_host} -- migate egress status{backend_arg}", False),
         ]
         message = "remote egress down dry-run only; no SSH or system changes performed"
 

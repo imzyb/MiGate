@@ -7,6 +7,7 @@ It never SSHs, writes files, runs package managers, or stores credentials.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import shlex
 
 from migate.remote.lifecycle_plan import contains_embedded_credentials
 
@@ -63,8 +64,12 @@ def build_remote_install_dry_run_plan(
     target = _target(host, port, user)
     ssh_target = f"{user}@{host}"
     remote_migate = "migate"
+    q_host = shlex.quote(host)
+    q_port = shlex.quote(str(port))
+    q_user = shlex.quote(user)
+    q_staging = shlex.quote(staging_dir)
     install_remote_script = (
-        f"cd {staging_dir} && "
+        f"cd {q_staging} && "
         "python3 -m pip install --break-system-packages --root-user-action=ignore ."
     )
     service_preview_remote_script = f"{remote_migate} xray service preview && {remote_migate} proxy service preview"
@@ -73,37 +78,37 @@ def build_remote_install_dry_run_plan(
         RemoteInstallStep(
             "doctor",
             "run migate remote doctor before install",
-            f"migate remote doctor --host {host} --port {port} --user {user}",
+            f"migate remote doctor --host {q_host} --port {q_port} --user {q_user}",
             False,
         ),
         RemoteInstallStep(
             "sync_project",
             "sync project to remote staging directory",
-            f"rsync -az --delete ./ {user}@{host}:{staging_dir}/",
+            f"rsync -az --delete ./ {q_user}@{q_host}:{q_staging}/",
             True,
         ),
         RemoteInstallStep(
             "install_python_package",
             "install MiGate package system-wide on remote host",
-            f"ssh -p {port} {ssh_target} -- '{install_remote_script}'",
+            f"ssh -p {q_port} {q_user}@{q_host} -- {shlex.quote(install_remote_script)}",
             True,
         ),
         RemoteInstallStep(
             "install_xray",
             "install xray-core through MiGate gated installer",
-            f"ssh -p {port} {ssh_target} -- migate xray install --yes --allow-system-changes",
+            f"ssh -p {q_port} {q_user}@{q_host} -- migate xray install --yes --allow-system-changes",
             True,
         ),
         RemoteInstallStep(
             "write_services",
             "preview service units only; real service writes stay gated",
-            f"ssh -p {port} {ssh_target} -- '{service_preview_remote_script}'",
+            f"ssh -p {q_port} {q_user}@{q_host} -- {shlex.quote(service_preview_remote_script)}",
             False,
         ),
         RemoteInstallStep(
             "post_install_doctor",
             "run read-only remote doctor after install preview",
-            f"migate remote doctor --host {host} --port {port} --user {user}",
+            f"migate remote doctor --host {q_host} --port {q_port} --user {q_user}",
             False,
         ),
     ]

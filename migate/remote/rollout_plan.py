@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import shlex
 
 from migate.remote.lifecycle_plan import contains_embedded_credentials
 
@@ -50,8 +51,12 @@ def build_remote_rollout_dry_run_plan(*, host: str, port: int, user: str, stagin
     if not staging_dir.startswith("/tmp/"):
         return _reject("staging_dir must be under /tmp/ for dry-run rollout planning")
 
-    backend_arg = f" --backend {backend}" if backend else ""
+    backend_arg = f" --backend {shlex.quote(backend)}" if backend else ""
     ssh_target = f"{user}@{host}"
+    q_host = shlex.quote(host)
+    q_port = shlex.quote(str(port))
+    q_user = shlex.quote(user)
+    q_staging = shlex.quote(staging_dir)
     if backend == "xray-tun":
         xray_service_save_command = "migate xray tun-service save --yes --allow-system-changes"
         xray_apply_command = "migate xray apply tun-start --yes --allow-system-changes"
@@ -103,7 +108,7 @@ def build_remote_rollout_dry_run_plan(*, host: str, port: int, user: str, stagin
             action="install",
             description="run gated remote install shell",
             command_preview=(
-                f"migate remote install --host {host} --port {port} --user {user} --staging-dir {staging_dir} "
+                f"migate remote install --host {q_host} --port {q_port} --user {q_user} --staging-dir {q_staging} "
                 "--no-dry-run --yes --allow-remote-changes"
             ),
             performs_side_effects=True,
@@ -111,31 +116,31 @@ def build_remote_rollout_dry_run_plan(*, host: str, port: int, user: str, stagin
         RemoteRolloutStep(
             action="readiness",
             description="run read-only post-install readiness probe",
-            command_preview=f"migate remote readiness --host {host} --port {port} --user {user}",
+            command_preview=f"migate remote readiness --host {q_host} --port {q_port} --user {q_user}",
             performs_side_effects=False,
         ),
         RemoteRolloutStep(
             action="egress_up",
             description="start remote egress through gated remote egress shell",
-            command_preview=f"migate remote egress up --host {host} --port {port} --user {user}{backend_arg} --no-dry-run --yes --allow-remote-changes",
+            command_preview=f"migate remote egress up --host {q_host} --port {q_port} --user {q_user}{backend_arg} --no-dry-run --yes --allow-remote-changes",
             performs_side_effects=True,
         ),
         RemoteRolloutStep(
             action="service_apply",
             description="save MiGate services and start proxy through validation-gated CLI on remote host",
-            command_preview=f"ssh -p {port} {ssh_target} -- '{service_apply_remote_script}'",
+            command_preview=f"ssh -p {q_port} {q_user}@{q_host} -- {shlex.quote(service_apply_remote_script)}",
             performs_side_effects=True,
         ),
         RemoteRolloutStep(
             action="socks5_smoke",
             description="run read-only remote SOCKS5 loopback smoke check after proxy service starts",
-            command_preview=f"ssh -p {port} {ssh_target} -- '{socks5_smoke_remote_script}'",
+            command_preview=f"ssh -p {q_port} {q_user}@{q_host} -- {shlex.quote(socks5_smoke_remote_script)}",
             performs_side_effects=False,
         ),
         RemoteRolloutStep(
             action="leak_check",
             description="run read-only remote public-IP leak check and fail closed on unverified egress",
-            command_preview=f"migate remote leak-check --host {host} --port {port} --user {user}",
+            command_preview=f"migate remote leak-check --host {q_host} --port {q_port} --user {q_user}",
             performs_side_effects=False,
         ),
     ]
