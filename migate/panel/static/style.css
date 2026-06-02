@@ -195,9 +195,9 @@ body {
 /* ── Status badges ────────────────────────────────── */
 .badge {
   display: inline-block;
-  padding: 3px 10px;
-  border-radius: 20px;
-  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -205,6 +205,87 @@ body {
 .badge-warn { background: rgba(255,209,102,.15); color: var(--warn); }
 .badge-error { background: rgba(255,122,144,.15); color: var(--danger); }
 .badge-muted { background: rgba(143,163,200,.1); color: var(--muted); }
+.badge-off { background: rgba(143,163,200,.1); color: var(--muted); }
+.badge-traffic { background: rgba(99,164,255,.15); color: #63a4ff; }
+
+/* ── Copy button ─────────────────────────────────── */
+.copy-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #06111f;
+  cursor: pointer;
+  display: inline-block;
+  margin: 4px 0;
+  border: 0;
+  font-weight: 700;
+  transition: opacity .15s;
+}
+
+.copy-btn:hover { opacity: .85; }
+
+/* ── Code block with copy ────────────────────────── */
+.code-block {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #080d1c;
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  border: 1px solid rgba(143,163,200,.12);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+.code-block code {
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Toggle switch ───────────────────────────────── */
+.toggle-wrap {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.toggle-checkbox {
+  display: none;
+}
+
+.toggle-btn {
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  background: rgba(143,163,200,.3);
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  transition: background .2s;
+}
+
+.toggle-btn::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform .2s;
+}
+
+.toggle-checkbox:checked + .toggle-btn {
+  background: var(--accent);
+}
+
+.toggle-checkbox:checked + .toggle-btn::after {
+  transform: translateX(16px);
+}
 
 /* ── Tables ───────────────────────────────────────── */
 .table-wrap {

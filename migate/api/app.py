@@ -267,16 +267,17 @@ def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
             f"""
     <article class="node">
       <div class="node-title">{escape(node.name)} <span class="label">#{node.id}</span></div>
-      <div class="label">协议：{escape(node.protocol)} ｜ 地址：{address} ｜ 状态：{'启用' if node.enabled else '禁用'}</div>
+      <div class="label">协议：{escape(node.protocol)} ｜ 地址：{address} ｜ 状态：{'启用' if node.enabled else '禁用'} <span class="badge badge-traffic">↑ {_format_bytes(node.up_bytes if hasattr(node,'up_bytes') else 0)} ↓ {_format_bytes(node.down_bytes if hasattr(node,'down_bytes') else 0)}</span></div>
       {socks5}
       <div class="label">分享链接</div>
-      <pre>{escape(node.share_link)}</pre>
+      <div class="code-block"><code>{escape(node.share_link)}</code><button class="copy-btn" onclick="copyText(this)" data-text="{escape(node.share_link)}" data-orig="复制">复制</button></div>
       <div class="label">订阅内容</div>
-      <pre>{escape(node.subscription)}</pre>
+      <div class="code-block"><code>{escape(node.subscription)}</code><button class="copy-btn" onclick="copyText(this)" data-text="{escape(node.subscription)}" data-orig="复制">复制</button></div>
       <div class="actions">
-        <form method="post" action="{escape(toggle_action)}">
-          <button type="submit">{toggle_label}</button>
-        </form>
+        <div class="toggle-wrap">
+          <input type="checkbox" id="node-toggle-{node.id}" class="toggle-checkbox"{' checked' if node.enabled else ''} data-url="{escape(toggle_action)}">
+          <label for="node-toggle-{node.id}" class="toggle-btn"></label>
+        </div>
         <form method="post" action="{escape(delete_action)}">
           <button type="submit">删除节点</button>
         </form>
@@ -344,12 +345,12 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/") -> st
         items.append(f"""
     <article class="node">
       <div class="node-title">{escape(ib.remark)} <span class="label">#{ib.id}</span></div>
-      <div class="label">协议：{escape(ib.protocol)} ｜ 端口：{ib.port} ｜ 监听：{escape(ib.listen)} ｜ 状态：{'启用' if ib.enabled else '禁用'}</div>
-      <div class="label">流量：↑ {traffic_up} ｜ ↓ {traffic_down}</div>
+      <div class="label">协议：{escape(ib.protocol)} ｜ 端口：{ib.port} ｜ 监听：{escape(ib.listen)} ｜ 状态：{'启用' if ib.enabled else '禁用'} <span class="badge badge-traffic">↑ {traffic_up} ↓ {traffic_down}</span></div>
       <div class="actions">
-        <form method="post" action="{escape(toggle_action)}">
-          <button type="submit">{toggle_label}</button>
-        </form>
+        <div class="toggle-wrap">
+          <input type="checkbox" id="inbound-toggle-{ib.id}" class="toggle-checkbox"{' checked' if ib.enabled else ''} data-url="{escape(toggle_action)}">
+          <label for="inbound-toggle-{ib.id}" class="toggle-btn"></label>
+        </div>
         <form method="post" action="{escape(delete_action)}">
           <button type="submit">删除</button>
         </form>
