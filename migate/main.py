@@ -657,7 +657,7 @@ def build_remote_egress_cli_plan(
     host: str = "166.88.232.2",
     port: int = 22,
     user: str = "root",
-    backend: str | None = None,
+    backend: str | None = "xray-tun",
 ):
     return build_remote_egress_dry_run_plan(host=host, port=port, user=user, action=action, backend=backend)
 
@@ -668,7 +668,7 @@ def build_remote_rollout_cli_plan(
     port: int = 22,
     user: str = "root",
     staging_dir: str = "/tmp/migate-install",
-    backend: str | None = None,
+    backend: str | None = "xray-tun",
 ):
     return build_remote_rollout_dry_run_plan(host=host, port=port, user=user, staging_dir=staging_dir, backend=backend)
 
@@ -696,7 +696,7 @@ def run_remote_egress_cli(
     dry_run: bool,
     yes: bool,
     allow_remote_changes: bool,
-    backend: str | None = None,
+    backend: str | None = "xray-tun",
     command_runner: Callable[[str], RemoteEgressCommandResult] | None = None,
 ) -> RemoteEgressRunResult:
     plan = build_remote_egress_cli_plan(action=action, host=host, port=port, user=user, backend=backend)
@@ -749,7 +749,7 @@ def run_remote_rollout_cli(
     dry_run: bool,
     yes: bool,
     allow_remote_changes: bool,
-    backend: str | None = None,
+    backend: str | None = "xray-tun",
     install_runner: Callable[[], PhaseResultLike] | None = None,
     readiness_runner: Callable[[], RemoteReadinessReport] | None = None,
     egress_up_runner: Callable[[], PhaseResultLike] | None = None,
@@ -785,7 +785,7 @@ def run_remote_rollout_smoke_cli(
     dry_run: bool,
     yes: bool,
     allow_remote_changes: bool,
-    backend: str | None = None,
+    backend: str | None = "xray-tun",
     rollout_runner: Callable[[], RemoteRolloutRunResult] | None = None,
 ) -> RemoteRolloutSmokeResult:
     plan = build_remote_rollout_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir, backend=backend)
@@ -819,7 +819,7 @@ def run_remote_acceptance_cli(
     dry_run: bool,
     yes: bool,
     allow_remote_changes: bool,
-    backend: str | None = None,
+    backend: str | None = "xray-tun",
     doctor_runner: Callable[[], object] | None = None,
     rollout_smoke_runner: Callable[[], RemoteRolloutSmokeResult] | None = None,
 ) -> RemoteAcceptanceResult:
@@ -1071,7 +1071,7 @@ def remote_egress_up(
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge remote egress command execution."),
     allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote egress runner shell."),
-    backend: str | None = typer.Option(None, "--backend", help="Remote egress backend override passed to migate egress up/status."),
+    backend: str | None = typer.Option("xray-tun", "--backend", help="Remote egress backend override passed to migate egress up/status."),
 ) -> None:
     _echo_remote_egress("up", host, port, user, dry_run, yes, allow_remote_changes, backend)
 
@@ -1084,7 +1084,7 @@ def remote_egress_down(
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge remote egress command execution."),
     allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote egress runner shell."),
-    backend: str | None = typer.Option(None, "--backend", help="Remote egress backend override passed to migate egress down/status."),
+    backend: str | None = typer.Option("xray-tun", "--backend", help="Remote egress backend override passed to migate egress down/status."),
 ) -> None:
     _echo_remote_egress("down", host, port, user, dry_run, yes, allow_remote_changes, backend)
 
@@ -1098,7 +1098,7 @@ def remote_rollout(
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge remote rollout phase execution."),
     allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote rollout runner shell."),
-    backend: str | None = typer.Option(None, "--backend", help="Remote egress backend override passed through rollout egress phase."),
+    backend: str | None = typer.Option("xray-tun", "--backend", help="Remote egress backend override passed through rollout egress phase."),
 ) -> None:
     if dry_run:
         plan = build_remote_rollout_cli_plan(host=host, port=port, user=user, staging_dir=staging_dir, backend=backend)
@@ -1131,7 +1131,7 @@ def remote_rollout_smoke(
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge remote rollout smoke execution."),
     allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote rollout smoke shell."),
-    backend: str | None = typer.Option(None, "--backend", help="Remote egress backend override passed through rollout smoke."),
+    backend: str | None = typer.Option("xray-tun", "--backend", help="Remote egress backend override passed through rollout smoke."),
 ) -> None:
     result = run_remote_rollout_smoke_cli(
         host=host,
@@ -1157,7 +1157,7 @@ def remote_acceptance(
     dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; --no-dry-run requires --yes and --allow-remote-changes."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge remote acceptance execution."),
     allow_remote_changes: bool = typer.Option(False, "--allow-remote-changes", help="Allow the gated remote acceptance workflow."),
-    backend: str | None = typer.Option(None, "--backend", help="Remote egress backend override passed through acceptance rollout smoke."),
+    backend: str | None = typer.Option("xray-tun", "--backend", help="Remote egress backend override passed through acceptance rollout smoke."),
 ) -> None:
     result = run_remote_acceptance_cli(
         host=host,
