@@ -402,12 +402,12 @@ def _format_bytes(n: int) -> str:
     return f"{value:.1f} PB"
 
 
-def _xray_config_for_nodes(nodes: list[NodeRecord]) -> dict[str, object]:
-    build_config_from_nodes = _lazy_import('migate.xray.node_adapter', 'build_config_from_nodes')
-    return build_config_from_nodes(MiGateConfig(), [node for node in nodes if node.enabled])
+def _xray_config_for_nodes(nodes: list[NodeRecord], *, inbounds: list[InboundRecord] | None = None) -> dict[str, object]:
+    build_combined = _lazy_import('migate.xray.node_adapter', 'build_config_from_nodes_and_inbounds')
+    return build_combined(MiGateConfig(), nodes=[n for n in nodes if n.enabled], inbounds=inbounds or [])
 
 
-def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
+def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/", inbounds: list[InboundRecord] | None = None) -> str:
     enabled_nodes = [node for node in nodes if node.enabled]
     apply_form = f"""
     <form method="post" action="{escape(_panel_url(base_path, '/xray/apply'))}">
@@ -419,7 +419,7 @@ def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
       <button type="submit">校验并重启 Xray</button>
     </form>
 """
-    if not enabled_nodes:
+    if not enabled_nodes and not inbounds:
         return f"""
   <section class="card">
     <h2>Xray 配置预览</h2>
@@ -428,7 +428,7 @@ def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
     {restart_form}
   </section>
 """
-    preview = json.dumps(_xray_config_for_nodes(enabled_nodes), indent=2, ensure_ascii=False)
+    preview = json.dumps(_xray_config_for_nodes(enabled_nodes, inbounds=inbounds), indent=2, ensure_ascii=False)
     return f"""
   <section class="card">
     <h2>Xray 配置预览</h2>
@@ -2017,7 +2017,7 @@ def create_app(
         nodes = repo.list_nodes()
         runtime = runtime_loader()
         return _page_shell(
-            _xray_preview_html(nodes, base_path=panel_base_path)
+            _xray_preview_html(nodes, base_path=panel_base_path, inbounds=inbound_repo.list_inbounds())
             + _xray_runtime_status_html(runtime)
             + _xray_install_plan_html(plan_loader),
             active="xray", title="Xray 配置", subtitle="预览、校验和管理 Xray 配置",
@@ -2234,7 +2234,7 @@ def create_app(
     @app.post(_panel_url(panel_base_path, "/xray/config/save"), response_class=HTMLResponse)
     def save_xray_config() -> str:
         nodes = repo.list_nodes()
-        written = write_xray_config(_xray_config_for_nodes(nodes), config_path)
+        written = write_xray_config(_xray_config_for_nodes(nodes, inbounds=inbound_repo.list_inbounds()), config_path)
         result = f"""
   <section class="card">
     <h2>Xray 配置已保存</h2>
@@ -2271,7 +2271,7 @@ def create_app(
                 status_code=403,
             )
         nodes = repo.list_nodes()
-        written = write_xray_config(_xray_config_for_nodes(nodes), config_path)
+        written = write_xray_config(_xray_config_for_nodes(nodes, inbounds=inbound_repo.list_inbounds()), config_path)
         validation = validator(config_path)
         if validation.status != "valid":
             result = f"""
@@ -2384,11 +2384,15 @@ def create_app(
 
     @app.post(_panel_url(panel_base_path, "/systemd/status/refresh"), response_class=HTMLResponse)
     def refresh_systemd_status() -> str:
-        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
+        services = {n: status_loader(n) for n in MIGATE_SYSTEMD_SERVICES}
+        result = _service_statuses_html(services, refreshed=True) + _systemd_preview_html(migate_config)
+        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/egress/status/refresh"), response_class=HTMLResponse)
     def refresh_egress_status() -> str:
-        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
+        egress = egress_loader()
+        result = _egress_status_report_html(egress, refreshed=True) + _systemd_preview_html(migate_config)
+        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
 
     @app.get("/api/egress/status")
     def api_egress_status() -> dict[str, object]:
@@ -2404,22 +2408,27 @@ def create_app(
 
     @app.post(_panel_url(panel_base_path, "/egress/up/dry-run"), response_class=HTMLResponse)
     def dry_run_egress_up() -> str:
-        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
+        result = _egress_status_report_html(egress_loader()) + _egress_dry_run_result_html("Egress Up dry-run 结果", egress_up_loader)
+        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/egress/down/dry-run"), response_class=HTMLResponse)
     def dry_run_egress_down() -> str:
-        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
+        result = _egress_status_report_html(egress_loader()) + _egress_dry_run_result_html("Egress Down dry-run 结果", egress_down_loader)
+        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/xray/runtime/refresh"), response_class=HTMLResponse)
     def refresh_xray_runtime() -> str:
-        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
+        result = _xray_runtime_status_html(runtime_loader(), refreshed=True)
+        return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/xray/install-plan/refresh"), response_class=HTMLResponse)
     def refresh_xray_install_plan() -> str:
-        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
+        result = _xray_install_plan_html(plan_loader, refreshed=True)
+        return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/xray/install/dry-run"), response_class=HTMLResponse)
     def dry_run_xray_install() -> str:
-        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
+        result = _xray_install_dry_run_html(dry_run_loader)
+        return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
 
     return app
