@@ -46,7 +46,7 @@ prompt_secret() {
   local value=""
   while true; do
     read -r -s -p "$prompt: " value
-    printf '\n'
+    printf '\n' >/dev/tty
     if [ -n "$value" ]; then
       printf '%s' "$value"
       return 0
