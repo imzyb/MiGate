@@ -96,6 +96,14 @@ def build_blackhole_outbound(tag: str = "blocked") -> XrayObject:
     }
 
 
+def build_marked_freedom_outbound(tag: str) -> XrayObject:
+    return {
+        "tag": tag,
+        "protocol": "freedom",
+        "settings": {},
+    }
+
+
 def build_full_config(config: MiGateConfig, *, inbounds: list[XrayObject]) -> XrayObject:
     inbound_tags = [inbound["tag"] for inbound in inbounds]
     return {

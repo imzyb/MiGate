@@ -10,7 +10,7 @@ from migate.xray.tun_config import (
 )
 
 
-def test_build_xray_tun_config_routes_tun_inbound_to_safe_socks_without_freedom():
+def test_build_xray_tun_config_routes_tun_inbound_to_marked_freedom_without_proxy_loop():
     cfg = MiGateConfig(vpn=VPNConfig(interface="tun-migate"))
 
     config = build_xray_tun_config(cfg)
@@ -28,11 +28,9 @@ def test_build_xray_tun_config_routes_tun_inbound_to_safe_socks_without_freedom(
         }
     ]
     protocols = {outbound["protocol"] for outbound in config["outbounds"]}
-    assert protocols == {"socks", "blackhole"}
-    assert "freedom" not in protocols
-    safe_outbound = config["outbounds"][0]
-    assert safe_outbound["tag"] == "migate-vpngate"
-    assert safe_outbound["settings"]["servers"] == [{"address": "127.0.0.1", "port": 34501}]
+    assert protocols == {"freedom", "blackhole"}
+    direct_outbound = config["outbounds"][0]
+    assert direct_outbound == {"tag": "migate-vpngate", "protocol": "freedom", "settings": {}}
     assert config["routing"]["domainStrategy"] == "IPIfNonMatch"
     assert config["routing"]["rules"] == [
         {"type": "field", "inboundTag": ["migate-tun-in"], "outboundTag": "migate-vpngate"},
@@ -46,8 +44,8 @@ def test_render_xray_tun_config_is_stable_json_and_side_effect_free():
     parsed = json.loads(rendered)
     assert parsed == build_xray_tun_config(MiGateConfig())
     assert rendered.endswith("\n")
-    assert '"freedom"' not in rendered
-    assert '"direct"' not in rendered.lower()
+    assert '"protocol": "freedom"' in rendered
+    assert '"protocol": "socks"' not in rendered
     assert '"performed_side_effects"' not in rendered
 
 
@@ -103,7 +101,7 @@ def test_save_xray_tun_config_writes_tmp_validates_then_replaces_without_systemc
     assert result.systemctl_commands_executed == []
     saved = json.loads(target.read_text(encoding="utf-8"))
     assert saved["inbounds"][0]["protocol"] == "tun"
-    assert {outbound["protocol"] for outbound in saved["outbounds"]} == {"socks", "blackhole"}
+    assert {outbound["protocol"] for outbound in saved["outbounds"]} == {"freedom", "blackhole"}
     assert calls == [["xray", "test", "-config", str(target.with_name("tun.tmp.json"))]]
 
 

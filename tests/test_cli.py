@@ -2632,7 +2632,8 @@ def test_xray_tun_config_preview_command_prints_json_without_saving():
     assert result.exit_code == 0
     assert '"protocol": "tun"' in result.output
     assert '"name": "tun-migate"' in result.output
-    assert '"protocol": "freedom"' not in result.output
+    assert '"protocol": "freedom"' in result.output
+    assert '"protocol": "socks"' not in result.output
     assert "performed_side_effects: False" in result.output
 
 

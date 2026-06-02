@@ -9,7 +9,7 @@ import subprocess
 from typing import Any
 
 from migate.config import MiGateConfig
-from migate.xray.config_builder import build_blackhole_outbound, build_migate_socks_outbound
+from migate.xray.config_builder import build_blackhole_outbound, build_marked_freedom_outbound
 from migate.xray.validator import validate_xray_config
 from migate.xray.writer import write_xray_config
 
@@ -48,7 +48,7 @@ def build_xray_tun_config(config: MiGateConfig) -> XrayTunObject:
         "log": {"loglevel": "warning"},
         "inbounds": [tun_inbound],
         "outbounds": [
-            build_migate_socks_outbound(config),
+            build_marked_freedom_outbound(config.xray.default_outbound_tag),
             build_blackhole_outbound(),
         ],
         "routing": {
