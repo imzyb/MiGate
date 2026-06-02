@@ -1697,6 +1697,78 @@ def test_panel_xray_apply_dry_run_api_previews_steps_without_side_effects(tmp_pa
     assert calls == []
 
 
+def test_panel_xray_apply_api_writes_validates_reloads_restarts_and_returns_json(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="Apply API Node",
+        host="apply-api.example.com",
+        port=443,
+        credential="apply-api-uuid",
+        share_link="vless://apply-api-uuid@apply-api.example.com:443#ApplyAPI",
+        subscription="apply-api-subscription",
+    )
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+    calls = []
+
+    def validator(path):
+        calls.append(f"validate:{path}")
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="success", returncode=0, stdout="daemon ok", stderr="")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
+
+    def status_loader(service_name: str):
+        calls.append(f"status:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout=f"{service_name} active", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_config_path=config_path,
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+            systemd_status_loader=status_loader,
+        )
+    )
+
+    response = client.post("/api/xray/apply")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    payload = response.json()
+    assert payload == {
+        "status": "success",
+        "target_path": str(config_path),
+        "counts": {"total_nodes": 1, "enabled_nodes": 1},
+        "validation": {"status": "valid", "returncode": 0, "stdout": "config ok", "stderr": ""},
+        "daemon_reload": {"status": "success", "returncode": 0, "stdout": "daemon ok", "stderr": ""},
+        "restart": {"service": "migate-xray.service", "status": "success", "returncode": 0, "stdout": "restart ok", "stderr": ""},
+        "services": {
+            "migate-xray.service": {"status": "success", "returncode": 0, "stdout": "migate-xray.service active", "stderr": ""},
+            "migate-panel.service": {"status": "success", "returncode": 0, "stdout": "migate-panel.service active", "stderr": ""},
+            "migate-proxy.service": {"status": "success", "returncode": 0, "stdout": "migate-proxy.service active", "stderr": ""},
+        },
+        "performed_side_effects": True,
+    }
+    assert config_path.exists()
+    assert calls == [
+        f"validate:{config_path}",
+        "daemon-reload",
+        "restart:migate-xray.service",
+        "status:migate-xray.service",
+        "status:migate-panel.service",
+        "status:migate-proxy.service",
+    ]
+
+
 def test_panel_xray_restart_dry_run_api_previews_steps_without_side_effects(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"

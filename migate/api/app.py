@@ -723,15 +723,25 @@ def _xray_validation_result_json(result: XrayValidationResult, *, target_path: P
     }
 
 
-def _systemd_services_status_json(services: dict[str, SystemdResult]) -> dict[str, object]:
+def _systemd_result_json(result: SystemdResult) -> dict[str, object]:
     return {
-        name: {
-            "status": result.status,
-            "returncode": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-        }
-        for name, result in services.items()
+        "status": result.status,
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
+
+def _systemd_services_status_json(services: dict[str, SystemdResult]) -> dict[str, object]:
+    return {name: _systemd_result_json(result) for name, result in services.items()}
+
+
+def _xray_validation_summary_json(result: XrayValidationResult) -> dict[str, object]:
+    return {
+        "status": result.status,
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
     }
 
 
@@ -1270,6 +1280,26 @@ def create_app(
         nodes = repo.list_nodes()
         enabled_nodes = [node for node in nodes if node.enabled]
         return build_xray_apply_dry_run_plan(nodes=nodes, enabled_nodes=enabled_nodes, config_path=config_path)
+
+    @app.post("/api/xray/apply")
+    def api_xray_apply() -> dict[str, object]:
+        nodes = repo.list_nodes()
+        enabled_nodes = [node for node in nodes if node.enabled]
+        write_xray_config(_xray_config_for_nodes(nodes), config_path)
+        validation = validator(config_path)
+        reload_result = daemon_reloader()
+        restart_result = restarter("migate-xray.service")
+        services = _load_migate_systemd_services(status_loader)
+        return {
+            "status": "success",
+            "target_path": str(config_path),
+            "counts": {"total_nodes": len(nodes), "enabled_nodes": len(enabled_nodes)},
+            "validation": _xray_validation_summary_json(validation),
+            "daemon_reload": _systemd_result_json(reload_result),
+            "restart": {"service": "migate-xray.service", **_systemd_result_json(restart_result)},
+            "services": _systemd_services_status_json(services),
+            "performed_side_effects": True,
+        }
 
     @app.get("/api/xray/restart/dry-run")
     def api_xray_restart_dry_run() -> dict[str, object]:
