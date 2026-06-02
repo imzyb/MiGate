@@ -1,8 +1,64 @@
 from migate.config import MiGateConfig
+import asyncio
 import migate.proxy.run as proxy_run_module
 from migate.proxy.run import ProxyRunResult, render_proxy_run_result, run_proxy
 from migate.proxy.runtime import ProxyRuntimeCheck, ProxyRuntimeReport
 from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
+
+
+def test_upstream_connector_for_default_backend_uses_direct_relay():
+    config = MiGateConfig()
+    config.egress.backend = "openvpn"
+
+    assert proxy_run_module._upstream_connector_for_backend(config) is None
+
+
+def test_upstream_connector_for_xray_tun_sets_socket_mark(monkeypatch):
+    config = MiGateConfig()
+    config.egress.backend = "xray-tun"
+    config.vpn.fwmark = "0x66"
+    calls = []
+
+    class FakeSocket:
+        def __init__(self, family, sock_type):
+            calls.append(("socket", family, sock_type))
+
+        def setsockopt(self, level, optname, value):
+            calls.append(("setsockopt", level, optname, value))
+
+        def setblocking(self, value):
+            calls.append(("setblocking", value))
+
+        def close(self):
+            calls.append(("close",))
+
+    fake_reader = object()
+    fake_writer = object()
+
+    class FakeLoop:
+        async def sock_connect(self, sock, address):
+            calls.append(("sock_connect", sock, address))
+
+    async def fake_wait_for(awaitable, *, timeout):
+        calls.append(("wait_for", timeout))
+        return await awaitable
+
+    async def fake_open_connection(*, sock):
+        calls.append(("open_connection", sock))
+        return fake_reader, fake_writer
+
+    monkeypatch.setattr(proxy_run_module.asyncio, "get_running_loop", lambda: FakeLoop())
+    monkeypatch.setattr(proxy_run_module.asyncio, "wait_for", fake_wait_for)
+    monkeypatch.setattr(proxy_run_module.asyncio, "open_connection", fake_open_connection)
+
+    connector = proxy_run_module._upstream_connector_for_backend(config, socket_factory=FakeSocket)
+    assert connector is not None
+    reader, writer = asyncio.run(connector("203.0.113.10", 443, 0.5))
+
+    assert reader is fake_reader
+    assert writer is fake_writer
+    assert ("setsockopt", proxy_run_module.socket.SOL_SOCKET, proxy_run_module.socket.SO_MARK, 0x66) in calls
+    assert any(call[0] == "sock_connect" and call[2] == ("203.0.113.10", 443) for call in calls)
 
 
 def test_proxy_run_no_longer_exports_placeholder_alias():
@@ -114,6 +170,52 @@ def test_proxy_run_xray_tun_still_blocks_when_tunnel_prerequisites_fail():
     assert result.status == "rejected"
     assert result.listener_started is False
     assert server_calls == []
+
+
+def test_proxy_run_xray_tun_passes_marked_upstream_connector_to_socks5_runtime(monkeypatch):
+    config = MiGateConfig()
+    config.egress.backend = "xray-tun"
+    calls = []
+
+    def fake_serve(config_arg, **kwargs):
+        calls.append((config_arg, kwargs))
+        return Socks5ServeResult(
+            status="stopped",
+            message="SOCKS5 listener handled one client with marked upstream relay",
+            bind_host=config_arg.proxy.socks_host,
+            bind_port=config_arg.proxy.socks_port,
+            listener_started=True,
+            accepted_connections=1,
+            upstream_connections=1,
+            timed_out_connections=0,
+            max_clients=kwargs["max_clients"],
+            client_timeout=kwargs["client_timeout"],
+            events=[],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(proxy_run_module, "run_socks5_serve", fake_serve)
+
+    result = run_proxy(
+        config,
+        doctor_loader=lambda loaded_config: ProxyRuntimeReport(
+            status="ok",
+            checks=[
+                ProxyRuntimeCheck("tun_interface", "ok", "tun-migate interface exists"),
+                ProxyRuntimeCheck("fail_policy", "ok", "fail_policy is block"),
+                ProxyRuntimeCheck("leak_guard", "ok", "leak_guard is enabled"),
+                ProxyRuntimeCheck("tunnel_process", "ok", "xray-tun tunnel for tun-migate is running"),
+            ],
+            performed_side_effects=False,
+        ),
+        max_clients=1,
+        client_timeout=0.25,
+    )
+
+    assert result.status == "running"
+    assert len(calls) == 1
+    assert calls[0][1]["upstream_connector"] is not None
+    assert calls[0][1]["upstream_connector"].__name__ == "connect_with_fwmark"
 
 
 def test_proxy_run_starts_local_socks_listener_when_preflight_passes():

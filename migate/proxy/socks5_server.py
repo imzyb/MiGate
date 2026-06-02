@@ -14,7 +14,7 @@ import asyncio
 from typing import Any
 
 from migate.proxy.socks5_connection import Socks5Connection
-from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult
+from migate.proxy.socks5_listener import Socks5ServeEvent, Socks5ServeResult, UpstreamConnector
 from migate.proxy.socks5_session import SOCKS5_GENERAL_FAILURE_REPLY
 
 _current_server: asyncio.AbstractServer | None = None
@@ -81,6 +81,7 @@ async def _handle_socks5_client(
     *,
     client_id: int,
     client_timeout: float,
+    upstream_connector: UpstreamConnector | None = None,
 ) -> None:
     connection = Socks5Connection()
     try:
@@ -110,9 +111,10 @@ async def _handle_socks5_client(
         target_port = connect_event.request_address.port if connect_event.request_address is not None else None
         upstream_connected = False
         if connect_event.should_connect and target_host is not None and target_port is not None:
+            connector = upstream_connector or _open_direct_upstream_connection
             try:
                 upstream_reader, upstream_writer = await asyncio.wait_for(
-                    asyncio.open_connection(target_host, target_port),
+                    connector(target_host, target_port, client_timeout),
                     timeout=client_timeout,
                 )
             except OSError:
@@ -179,12 +181,21 @@ async def _handle_socks5_client(
         await writer.wait_closed()
 
 
+async def _open_direct_upstream_connection(
+    host: str,
+    port: int,
+    timeout: float,
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    return await asyncio.open_connection(host, port)
+
+
 async def serve_socks5_bounded(
     bind_host: str,
     bind_port: int,
     *,
     max_clients: int = 1,
     client_timeout: float = 5.0,
+    upstream_connector: UpstreamConnector | None = None,
 ) -> Socks5ServeResult:
     """Serve SOCKS5 clients; max_clients=0 keeps serving until cancelled.
 
@@ -198,7 +209,15 @@ async def serve_socks5_bounded(
     async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         client_id = stats["accepted_connections"] + 1
         try:
-            await _handle_socks5_client(reader, writer, stats, events, client_id=client_id, client_timeout=client_timeout)
+            await _handle_socks5_client(
+                reader,
+                writer,
+                stats,
+                events,
+                client_id=client_id,
+                client_timeout=client_timeout,
+                upstream_connector=upstream_connector,
+            )
         finally:
             if max_clients > 0 and stats["accepted_connections"] >= max_clients:
                 all_clients_done.set()
