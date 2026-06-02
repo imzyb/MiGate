@@ -106,6 +106,16 @@ def build_marked_freedom_outbound(tag: str) -> XrayObject:
 
 def build_full_config(config: MiGateConfig, *, inbounds: list[XrayObject]) -> XrayObject:
     inbound_tags = [inbound["tag"] for inbound in inbounds]
+    api_inbound = {
+        "tag": "api",
+        "listen": config.xray.api_host,
+        "port": config.xray.api_port,
+        "protocol": "dokodemo-door",
+        "settings": {
+            "address": config.xray.api_host,
+        },
+    }
+    all_inbounds = [api_inbound] + list(inbounds)
     return {
         "log": {
             "loglevel": "warning",
@@ -123,7 +133,7 @@ def build_full_config(config: MiGateConfig, *, inbounds: list[XrayObject]) -> Xr
                 }
             }
         },
-        "inbounds": inbounds,
+        "inbounds": all_inbounds,
         "outbounds": [
             build_migate_socks_outbound(config),
             build_blackhole_outbound(),

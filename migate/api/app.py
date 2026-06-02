@@ -34,6 +34,7 @@ from migate.xray.subscription import build_base64_subscription
 from migate.xray.runtime import XrayRuntimeStatus, detect_xray_runtime
 from migate.xray.validator import XrayValidationResult, validate_xray_config
 from migate.xray.writer import write_xray_config
+from migate.xray.stats import query_xray_stats
 
 DEFAULT_DB_PATH = Path("/var/lib/migate/migate.db")
 DEFAULT_XRAY_CONFIG_PATH = Path("/etc/migate/xray/config.json")
@@ -1541,6 +1542,33 @@ def create_app(
         if ib is None:
             return {"status": "not_found", "performed_side_effects": False}
         return {"status": "disabled", "id": ib.id, "performed_side_effects": True}
+
+    @app.get("/api/stats/traffic")
+    def api_stats_traffic() -> dict[str, object]:
+        stats = query_xray_stats(pattern="inbound>>>", reset=False)
+        inbounds = inbound_repo.list_inbounds()
+        result = []
+        for ib in inbounds:
+            up, down = stats.inbound_traffic(ib.remark)
+            result.append({
+                "id": ib.id,
+                "remark": ib.remark,
+                "protocol": ib.protocol,
+                "port": ib.port,
+                "enabled": ib.enabled,
+                "up_bytes": up,
+                "down_bytes": down,
+                "total_bytes": up + down,
+            })
+        return {
+            "inbounds": result,
+            "performed_side_effects": False,
+        }
+
+    @app.get("/api/stats/traffic/reset")
+    def api_stats_traffic_reset() -> dict[str, object]:
+        query_xray_stats(pattern="inbound>>>", reset=True)
+        return {"status": "reset", "performed_side_effects": True}
 
     @app.get("/api/xray/config/preview")
     def api_xray_config_preview() -> dict[str, object]:
