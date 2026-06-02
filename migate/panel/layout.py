@@ -89,5 +89,20 @@ document.addEventListener('click', function(e) {{
   }}
 }});
 </script>
+<script>
+function copyText(el){{ navigator.clipboard.writeText(el.dataset.text || el.textContent); el.textContent='已复制 ✓'; setTimeout(()=>el.textContent=el.dataset.orig||'复制',1500); }}
+document.addEventListener('submit', function(e) {{
+  var form = e.target;
+  if (form.action && form.action.indexOf('/delete') !== -1) {{
+    if (!confirm('确定要删除吗？')) {{ e.preventDefault(); }}
+  }}
+}});
+document.addEventListener('change', function(e) {{
+  if (e.target.classList.contains('toggle-checkbox')) {{
+    var url = e.target.dataset.url;
+    if (url) {{ fetch(url, {{method:'POST',credentials:'same-origin'}}).then(function(){{ location.reload(); }}); }}
+  }}
+}});
+</script>
 </body>
 </html>"""
