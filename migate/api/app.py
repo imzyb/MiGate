@@ -1678,6 +1678,27 @@ def create_app(
                 )
             )
         restart_result = restarter("migate-xray.service")
+        if restart_result.status != "success":
+            result = f"""
+  <section class="card">
+    <h2>Xray 未重启</h2>
+    <p>配置校验和 systemd daemon-reload 已通过，但 Xray 重启失败。</p>
+    <div class="label">配置校验</div>
+    <pre>{escape(_result_output(validation))}</pre>
+    <div class="label">服务重载：{escape(reload_result.status)}</div>
+    <pre>{escape(_result_output(reload_result))}</pre>
+    <div class="label">Xray 重启失败：{escape(restart_result.status)}</div>
+    <pre>{escape(_result_output(restart_result))}</pre>
+  </section>
+"""
+            return _page_shell(
+                _home_body(
+                    nodes=repo.list_nodes(),
+                    result_html=result,
+                    service_status_html=_service_status_html(status_loader, refreshed=True),
+                    systemd_html=_systemd_preview_html(migate_config),
+                )
+            )
         result = f"""
   <section class="card">
     <h2>Xray 重启已执行</h2>
