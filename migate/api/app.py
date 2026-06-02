@@ -776,6 +776,7 @@ def _safe_preview_actions_json() -> list[dict[str, str]]:
         {"name": "dashboard", "method": "GET", "path": "/api/dashboard"},
         {"name": "xray_install_plan", "method": "GET", "path": "/api/xray/install-plan"},
         {"name": "xray_install_dry_run", "method": "GET", "path": "/api/xray/install/dry-run"},
+        {"name": "xray_config_preview", "method": "GET", "path": "/api/xray/config/preview"},
         {"name": "xray_config_validate", "method": "GET", "path": "/api/xray/config/validate"},
         {"name": "xray_apply_dry_run", "method": "GET", "path": "/api/xray/apply/dry-run"},
         {"name": "xray_restart_dry_run", "method": "GET", "path": "/api/xray/restart/dry-run"},
