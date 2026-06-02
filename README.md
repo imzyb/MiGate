@@ -21,7 +21,7 @@ The installer prompts for:
 - admin password;
 - custom web path.
 
-Then it installs baseline packages, clones or updates MiGate under `/opt/migate`, creates an isolated Python venv, links `/usr/local/bin/migate`, runs the gated `migate setup --no-dry-run --yes --allow-system-changes` flow, starts `migate-panel.service` and `migate-xray.service`, and prints the final WebUI address.
+Then it installs baseline packages, clones or updates MiGate under `/opt/migate`, installs the MiGate Python package system-wide, links `/usr/local/bin/migate`, runs the gated `migate setup --no-dry-run --yes --allow-system-changes` flow, starts `migate-panel.service` and `migate-xray.service`, and prints the final WebUI address.
 
 For unattended installs, provide the same values through environment variables:
 
