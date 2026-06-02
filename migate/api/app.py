@@ -11,7 +11,7 @@ from uuid import uuid4
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from migate.database.repository import NodeRecord, NodeRepository
+from migate.database.repository import InboundRecord, InboundRepository, NodeRecord, NodeRepository
 from migate.config import MiGateConfig
 from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusReport, run_egress_status
@@ -1196,6 +1196,7 @@ def _xray_control_diagnostics_html(
 
 def create_app(
     node_repository: NodeRepository | None = None,
+    inbound_repository: InboundRepository | None = None,
     xray_config_path: str | Path | None = None,
     xray_validator: Callable[[Path], XrayValidationResult] | None = None,
     systemd_unit_dir: str | Path | None = None,
@@ -1222,6 +1223,7 @@ def create_app(
         else "/"
     )
     repo = node_repository or NodeRepository(DEFAULT_DB_PATH)
+    inbound_repo = inbound_repository or InboundRepository(DEFAULT_DB_PATH)
     config_path = Path(xray_config_path) if xray_config_path is not None else DEFAULT_XRAY_CONFIG_PATH
     unit_dir = Path(systemd_unit_dir) if systemd_unit_dir is not None else DEFAULT_SYSTEMD_UNIT_DIR
     validator = xray_validator or validate_xray_config
@@ -1246,6 +1248,7 @@ def create_app(
     leak_check_loader = remote_leak_check_loader or run_remote_leak_check
     remote_rollout_loader = remote_rollout_plan_loader or build_remote_rollout_dry_run_plan
     repo.initialize()
+    inbound_repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
     @app.middleware("http")
@@ -1328,6 +1331,103 @@ def create_app(
             },
             "performed_side_effects": False,
         }
+
+    @app.get("/api/inbounds")
+    def api_inbounds_list() -> dict[str, object]:
+        inbounds = inbound_repo.list_inbounds()
+        return {
+            "inbounds": [
+                {
+                    "id": ib.id,
+                    "remark": ib.remark,
+                    "protocol": ib.protocol,
+                    "port": ib.port,
+                    "listen": ib.listen,
+                    "settings": ib.settings,
+                    "stream_settings": ib.stream_settings,
+                    "enabled": ib.enabled,
+                    "up_bytes": ib.up_bytes,
+                    "down_bytes": ib.down_bytes,
+                    "created_at": ib.created_at,
+                }
+                for ib in inbounds
+            ],
+            "performed_side_effects": False,
+        }
+
+    @app.get("/api/inbounds/{inbound_id}")
+    def api_inbound_get(inbound_id: int) -> dict[str, object]:
+        ib = inbound_repo.get_inbound(inbound_id)
+        if ib is None:
+            return {"status": "not_found", "performed_side_effects": False}
+        return {
+            "id": ib.id,
+            "remark": ib.remark,
+            "protocol": ib.protocol,
+            "port": ib.port,
+            "listen": ib.listen,
+            "settings": ib.settings,
+            "stream_settings": ib.stream_settings,
+            "enabled": ib.enabled,
+            "up_bytes": ib.up_bytes,
+            "down_bytes": ib.down_bytes,
+            "created_at": ib.created_at,
+            "performed_side_effects": False,
+        }
+
+    @app.post("/api/inbounds")
+    def api_inbound_create(
+        remark: str = Form(...),
+        protocol: str = Form(...),
+        port: int = Form(...),
+        listen: str = Form("0.0.0.0"),
+        settings: str = Form("{}"),
+        stream_settings: str = Form("{}"),
+    ) -> dict[str, object]:
+        ib = inbound_repo.create_inbound(
+            remark=remark, protocol=protocol, port=port, listen=listen,
+            settings=settings, stream_settings=stream_settings,
+        )
+        return {"status": "created", "id": ib.id, "performed_side_effects": True}
+
+    @app.post("/api/inbounds/{inbound_id}/update")
+    def api_inbound_update(
+        inbound_id: int,
+        remark: str = Form(...),
+        protocol: str = Form(...),
+        port: int = Form(...),
+        listen: str = Form("0.0.0.0"),
+        settings: str = Form("{}"),
+        stream_settings: str = Form("{}"),
+    ) -> dict[str, object]:
+        ib = inbound_repo.update_inbound(
+            inbound_id, remark=remark, protocol=protocol, port=port, listen=listen,
+            settings=settings, stream_settings=stream_settings,
+        )
+        if ib is None:
+            return {"status": "not_found", "performed_side_effects": False}
+        return {"status": "updated", "id": ib.id, "performed_side_effects": True}
+
+    @app.post("/api/inbounds/{inbound_id}/delete")
+    def api_inbound_delete(inbound_id: int) -> dict[str, object]:
+        deleted = inbound_repo.delete_inbound(inbound_id)
+        if not deleted:
+            return {"status": "not_found", "performed_side_effects": False}
+        return {"status": "deleted", "performed_side_effects": True}
+
+    @app.post("/api/inbounds/{inbound_id}/enable")
+    def api_inbound_enable(inbound_id: int) -> dict[str, object]:
+        ib = inbound_repo.set_inbound_enabled(inbound_id, enabled=True)
+        if ib is None:
+            return {"status": "not_found", "performed_side_effects": False}
+        return {"status": "enabled", "id": ib.id, "performed_side_effects": True}
+
+    @app.post("/api/inbounds/{inbound_id}/disable")
+    def api_inbound_disable(inbound_id: int) -> dict[str, object]:
+        ib = inbound_repo.set_inbound_enabled(inbound_id, enabled=False)
+        if ib is None:
+            return {"status": "not_found", "performed_side_effects": False}
+        return {"status": "disabled", "id": ib.id, "performed_side_effects": True}
 
     @app.get("/api/xray/config/preview")
     def api_xray_config_preview() -> dict[str, object]:
