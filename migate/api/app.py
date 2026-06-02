@@ -1073,6 +1073,27 @@ def _result_output(*parts: object) -> str:
     return "\n".join(value for value in values if value)
 
 
+def _xray_control_diagnostics_html(
+    *,
+    validation: XrayValidationResult,
+    reload_result: SystemdResult | None = None,
+    restart_result: SystemdResult | None = None,
+    restart_label: str = "Xray 重启",
+) -> str:
+    html = f"""
+    <div class="label">配置校验</div>
+    <pre>{escape(_result_output(validation))}</pre>"""
+    if reload_result is not None:
+        html += f"""
+    <div class="label">服务重载：{escape(reload_result.status)}</div>
+    <pre>{escape(_result_output(reload_result))}</pre>"""
+    if restart_result is not None:
+        html += f"""
+    <div class="label">{escape(restart_label)}：{escape(restart_result.status)}</div>
+    <pre>{escape(_result_output(restart_result))}</pre>"""
+    return html
+
+
 def create_app(
     node_repository: NodeRepository | None = None,
     xray_config_path: str | Path | None = None,
@@ -1626,10 +1647,7 @@ def create_app(
     <h2>当前节点配置未完全应用</h2>
     <p>已生成并保存 Xray 配置：{escape(str(written))}</p>
     <p>配置校验通过，但 systemd daemon-reload 失败，Xray 重启已跳过。</p>
-    <div class="label">配置校验</div>
-    <pre>{escape(_result_output(validation))}</pre>
-    <div class="label">服务重载：{escape(reload_result.status)}</div>
-    <pre>{escape(_result_output(reload_result))}</pre>
+{_xray_control_diagnostics_html(validation=validation, reload_result=reload_result)}
   </section>
 """
             return _page_shell(_home_body(nodes=nodes, result_html=result, base_path=panel_base_path))
@@ -1640,12 +1658,7 @@ def create_app(
     <h2>当前节点配置未完全应用</h2>
     <p>已生成并保存 Xray 配置：{escape(str(written))}</p>
     <p>配置校验和 systemd daemon-reload 已通过，但 Xray 重启失败。</p>
-    <div class="label">配置校验</div>
-    <pre>{escape(_result_output(validation))}</pre>
-    <div class="label">服务重载：{escape(reload_result.status)}</div>
-    <pre>{escape(_result_output(reload_result))}</pre>
-    <div class="label">Xray 重启失败：{escape(restart_result.status)}</div>
-    <pre>{escape(_result_output(restart_result))}</pre>
+{_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result, restart_label="Xray 重启失败")}
   </section>
 """
             return _page_shell(
@@ -1661,12 +1674,7 @@ def create_app(
   <section class="card">
     <h2>当前节点配置已应用</h2>
     <p>生成并保存 Xray 配置：{escape(str(written))}</p>
-    <div class="label">配置校验</div>
-    <pre>{escape(_result_output(validation))}</pre>
-    <div class="label">服务重载：{escape(reload_result.status)}</div>
-    <pre>{escape(_result_output(reload_result))}</pre>
-    <div class="label">Xray 重启：{escape(restart_result.status)}</div>
-    <pre>{escape(_result_output(restart_result))}</pre>
+{_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result)}
   </section>
 """
         return _page_shell(
@@ -1706,10 +1714,7 @@ def create_app(
   <section class="card">
     <h2>Xray 未重启</h2>
     <p>配置校验通过，但 daemon-reload 失败，未执行 Xray 重启。</p>
-    <div class="label">配置校验</div>
-    <pre>{escape(_result_output(validation))}</pre>
-    <div class="label">服务重载：{escape(reload_result.status)}</div>
-    <pre>{escape(_result_output(reload_result))}</pre>
+{_xray_control_diagnostics_html(validation=validation, reload_result=reload_result)}
   </section>
 """
             return _page_shell(
@@ -1726,12 +1731,7 @@ def create_app(
   <section class="card">
     <h2>Xray 未重启</h2>
     <p>配置校验和 systemd daemon-reload 已通过，但 Xray 重启失败。</p>
-    <div class="label">配置校验</div>
-    <pre>{escape(_result_output(validation))}</pre>
-    <div class="label">服务重载：{escape(reload_result.status)}</div>
-    <pre>{escape(_result_output(reload_result))}</pre>
-    <div class="label">Xray 重启失败：{escape(restart_result.status)}</div>
-    <pre>{escape(_result_output(restart_result))}</pre>
+{_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result, restart_label="Xray 重启失败")}
   </section>
 """
             return _page_shell(
@@ -1746,12 +1746,7 @@ def create_app(
   <section class="card">
     <h2>Xray 重启已执行</h2>
     <p>配置校验通过后，已执行服务重载并重启 migate-xray.service。</p>
-    <div class="label">配置校验</div>
-    <pre>{escape(_result_output(validation))}</pre>
-    <div class="label">服务重载：{escape(reload_result.status)}</div>
-    <pre>{escape(_result_output(reload_result))}</pre>
-    <div class="label">Xray 重启：{escape(restart_result.status)}</div>
-    <pre>{escape(_result_output(restart_result))}</pre>
+{_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result)}
   </section>
 """
         return _page_shell(

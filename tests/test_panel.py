@@ -3,7 +3,12 @@ from html import unescape
 
 from fastapi.testclient import TestClient
 
-from migate.api.app import build_xray_apply_dry_run_plan, build_xray_restart_dry_run_plan, create_app
+from migate.api.app import (
+    _xray_control_diagnostics_html,
+    build_xray_apply_dry_run_plan,
+    build_xray_restart_dry_run_plan,
+    create_app,
+)
 from migate.database.repository import NodeRepository
 from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusCheck, EgressStatusReport
@@ -1513,6 +1518,32 @@ def test_panel_xray_install_apis_return_webui_ready_json_without_side_effects(tm
         "performed_side_effects": False,
     }
     assert calls == ["plan", "dry-run"]
+
+
+def test_xray_control_diagnostics_html_renders_present_results_only():
+    validation = XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+    reload_result = SystemdResult(status="success", returncode=0, stdout="daemon ok", stderr="")
+    restart_result = SystemdResult(status="failed", returncode=1, stdout="", stderr="restart failed")
+
+    validation_only = unescape(_xray_control_diagnostics_html(validation=validation))
+    full = unescape(
+        _xray_control_diagnostics_html(
+            validation=validation,
+            reload_result=reload_result,
+            restart_result=restart_result,
+            restart_label="Xray 重启失败",
+        )
+    )
+
+    assert "配置校验" in validation_only
+    assert "config ok" in validation_only
+    assert "服务重载" not in validation_only
+    assert "Xray 重启" not in validation_only
+    assert "配置校验" in full
+    assert "服务重载：success" in full
+    assert "daemon ok" in full
+    assert "Xray 重启失败：failed" in full
+    assert "restart failed" in full
 
 
 def test_build_xray_apply_and_restart_dry_run_plans_are_pure(tmp_path):
