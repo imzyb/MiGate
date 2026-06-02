@@ -1895,6 +1895,44 @@ def test_panel_xray_restart_does_not_touch_systemd_when_validation_fails(tmp_pat
     assert calls == []
 
 
+def test_panel_xray_restart_skips_restart_when_daemon_reload_fails(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    config_path = tmp_path / "config.json"
+    calls = []
+
+    def validator(path):
+        calls.append(f"validate:{path}")
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="failed", returncode=1, stdout="", stderr="daemon reload failed")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_config_path=config_path,
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+        )
+    )
+
+    response = client.post("/xray/restart")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "Xray 未重启" in decoded
+    assert "daemon-reload 失败" in decoded
+    assert "daemon reload failed" in decoded
+    assert "restart ok" not in decoded
+    assert calls == [f"validate:{config_path}", "daemon-reload"]
+
+
 def test_panel_xray_restart_runs_daemon_reload_then_restart_after_valid_config(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     calls = []
@@ -1979,6 +2017,56 @@ def test_panel_apply_current_nodes_saves_config_but_skips_systemd_when_validatio
     assert "invalid generated config" in decoded
     assert config_path.exists()
     assert calls == [f"validate:{config_path}"]
+
+
+def test_panel_apply_current_nodes_skips_restart_when_daemon_reload_fails(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="Reload Failure Node",
+        host="reload-failure.example.com",
+        port=443,
+        credential="reload-failure-uuid",
+        share_link="vless://reload-failure-uuid@reload-failure.example.com:443#ReloadFailure",
+        subscription="reload-failure-subscription",
+    )
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+    calls = []
+
+    def validator(path):
+        calls.append(f"validate:{path}")
+        assert config_path.exists()
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="failed", returncode=1, stdout="", stderr="daemon reload failed")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_config_path=config_path,
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+        )
+    )
+
+    response = client.post("/xray/apply")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "当前节点配置未完全应用" in decoded
+    assert "daemon reload failed" in decoded
+    assert "Xray 重启已跳过" in decoded
+    assert "restart ok" not in decoded
+    assert config_path.exists()
+    assert calls == [f"validate:{config_path}", "daemon-reload"]
 
 
 def test_panel_apply_current_nodes_saves_config_validates_then_restarts_xray(tmp_path):

@@ -1577,6 +1577,19 @@ def create_app(
 """
             return _page_shell(_home_body(nodes=nodes, result_html=result, base_path=panel_base_path))
         reload_result = daemon_reloader()
+        if reload_result.status != "success":
+            result = f"""
+  <section class="card">
+    <h2>当前节点配置未完全应用</h2>
+    <p>已生成并保存 Xray 配置：{escape(str(written))}</p>
+    <p>配置校验通过，但 systemd daemon-reload 失败，Xray 重启已跳过。</p>
+    <div class="label">配置校验</div>
+    <pre>{escape(_result_output(validation))}</pre>
+    <div class="label">服务重载：{escape(reload_result.status)}</div>
+    <pre>{escape(_result_output(reload_result))}</pre>
+  </section>
+"""
+            return _page_shell(_home_body(nodes=nodes, result_html=result, base_path=panel_base_path))
         restart_result = restarter("migate-xray.service")
         result = f"""
   <section class="card">
@@ -1622,6 +1635,25 @@ def create_app(
             )
 
         reload_result = daemon_reloader()
+        if reload_result.status != "success":
+            result = f"""
+  <section class="card">
+    <h2>Xray 未重启</h2>
+    <p>配置校验通过，但 daemon-reload 失败，未执行 Xray 重启。</p>
+    <div class="label">配置校验</div>
+    <pre>{escape(_result_output(validation))}</pre>
+    <div class="label">服务重载：{escape(reload_result.status)}</div>
+    <pre>{escape(_result_output(reload_result))}</pre>
+  </section>
+"""
+            return _page_shell(
+                _home_body(
+                    nodes=repo.list_nodes(),
+                    result_html=result,
+                    service_status_html=_service_status_html(status_loader),
+                    systemd_html=_systemd_preview_html(migate_config),
+                )
+            )
         restart_result = restarter("migate-xray.service")
         result = f"""
   <section class="card">
