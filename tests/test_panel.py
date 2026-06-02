@@ -1989,9 +1989,11 @@ def test_panel_xray_restart_reports_restart_failure_after_reload_success(tmp_pat
 
 def test_panel_xray_restart_runs_daemon_reload_then_restart_after_valid_config(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
+    config_path = tmp_path / "config.json"
     calls = []
 
     def validator(path):
+        calls.append(f"validate:{path}")
         return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
 
     def daemon_reloader():
@@ -2002,13 +2004,20 @@ def test_panel_xray_restart_runs_daemon_reload_then_restart_after_valid_config(t
         calls.append(f"restart:{service_name}")
         return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
 
+    def status_loader(service_name: str):
+        calls.append(f"status:{service_name}")
+        if service_name == "migate-xray.service":
+            return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
+        return SystemdResult(status="success", returncode=0, stdout="support service active", stderr="")
+
     client = TestClient(
         create_app(
             node_repository=repo,
-            xray_config_path=tmp_path / "config.json",
+            xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
             systemd_restarter=restarter,
+            systemd_status_loader=status_loader,
         )
     )
 
@@ -2020,7 +2029,17 @@ def test_panel_xray_restart_runs_daemon_reload_then_restart_after_valid_config(t
     assert "config ok" in decoded
     assert "daemon ok" in decoded
     assert "restart ok" in decoded
-    assert calls == ["daemon-reload", "restart:migate-xray.service"]
+    assert "服务状态已刷新" in decoded
+    assert "migate-xray.service" in decoded
+    assert "active (running)" in decoded
+    assert calls == [
+        f"validate:{config_path}",
+        "daemon-reload",
+        "restart:migate-xray.service",
+        "status:migate-xray.service",
+        "status:migate-panel.service",
+        "status:migate-proxy.service",
+    ]
 
 
 def test_panel_apply_current_nodes_saves_config_but_skips_systemd_when_validation_fails(tmp_path):
