@@ -723,6 +723,42 @@ def _systemd_services_status_json(services: dict[str, SystemdResult]) -> dict[st
     }
 
 
+def build_xray_apply_dry_run_plan(*, nodes: Sized, enabled_nodes: Sized, config_path: Path) -> dict[str, object]:
+    return {
+        "status": "dry_run",
+        "message": "planned only; no config write, validation, or service control executed",
+        "target_path": str(config_path),
+        "counts": {"total_nodes": len(nodes), "enabled_nodes": len(enabled_nodes)},
+        "steps": [
+            {"action": "generate_config", "status": "planned", "performs_side_effects": False},
+            {"action": "write_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": True},
+            {"action": "validate_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": False},
+            {"action": "daemon_reload", "status": "planned", "service": None, "performs_side_effects": True},
+            {"action": "restart_service", "status": "planned", "service": "migate-xray.service", "performs_side_effects": True},
+        ],
+        "commands_executed": [],
+        "systemctl_commands_executed": [],
+        "performed_side_effects": False,
+    }
+
+
+def build_xray_restart_dry_run_plan(*, config_path: Path) -> dict[str, object]:
+    return {
+        "status": "dry_run",
+        "message": "planned only; no validation or service control executed",
+        "target_path": str(config_path),
+        "steps": [
+            {"action": "validate_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": False},
+            {"action": "daemon_reload", "status": "planned", "service": None, "performs_side_effects": True},
+            {"action": "restart_service", "status": "planned", "service": "migate-xray.service", "performs_side_effects": True},
+            {"action": "refresh_service_status", "status": "planned", "service": "migate-xray.service", "performs_side_effects": False},
+        ],
+        "commands_executed": [],
+        "systemctl_commands_executed": [],
+        "performed_side_effects": False,
+    }
+
+
 def _safe_preview_actions_json() -> list[dict[str, str]]:
     return [
         {"name": "dashboard", "method": "GET", "path": "/api/dashboard"},
@@ -1194,39 +1230,11 @@ def create_app(
     def api_xray_apply_dry_run() -> dict[str, object]:
         nodes = repo.list_nodes()
         enabled_nodes = [node for node in nodes if node.enabled]
-        return {
-            "status": "dry_run",
-            "message": "planned only; no config write, validation, or service control executed",
-            "target_path": str(config_path),
-            "counts": {"total_nodes": len(nodes), "enabled_nodes": len(enabled_nodes)},
-            "steps": [
-                {"action": "generate_config", "status": "planned", "performs_side_effects": False},
-                {"action": "write_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": True},
-                {"action": "validate_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": False},
-                {"action": "daemon_reload", "status": "planned", "service": None, "performs_side_effects": True},
-                {"action": "restart_service", "status": "planned", "service": "migate-xray.service", "performs_side_effects": True},
-            ],
-            "commands_executed": [],
-            "systemctl_commands_executed": [],
-            "performed_side_effects": False,
-        }
+        return build_xray_apply_dry_run_plan(nodes=nodes, enabled_nodes=enabled_nodes, config_path=config_path)
 
     @app.get("/api/xray/restart/dry-run")
     def api_xray_restart_dry_run() -> dict[str, object]:
-        return {
-            "status": "dry_run",
-            "message": "planned only; no validation or service control executed",
-            "target_path": str(config_path),
-            "steps": [
-                {"action": "validate_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": False},
-                {"action": "daemon_reload", "status": "planned", "service": None, "performs_side_effects": True},
-                {"action": "restart_service", "status": "planned", "service": "migate-xray.service", "performs_side_effects": True},
-                {"action": "refresh_service_status", "status": "planned", "service": "migate-xray.service", "performs_side_effects": False},
-            ],
-            "commands_executed": [],
-            "systemctl_commands_executed": [],
-            "performed_side_effects": False,
-        }
+        return build_xray_restart_dry_run_plan(config_path=config_path)
 
     @app.get("/api/proxy/runtime")
     def api_proxy_runtime() -> dict[str, object]:

@@ -3,7 +3,7 @@ from html import unescape
 
 from fastapi.testclient import TestClient
 
-from migate.api.app import create_app
+from migate.api.app import build_xray_apply_dry_run_plan, build_xray_restart_dry_run_plan, create_app
 from migate.database.repository import NodeRepository
 from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusCheck, EgressStatusReport
@@ -1513,6 +1513,45 @@ def test_panel_xray_install_apis_return_webui_ready_json_without_side_effects(tm
         "performed_side_effects": False,
     }
     assert calls == ["plan", "dry-run"]
+
+
+def test_build_xray_apply_and_restart_dry_run_plans_are_pure(tmp_path):
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+
+    apply_plan = build_xray_apply_dry_run_plan(nodes=[object(), object()], enabled_nodes=[object()], config_path=config_path)
+    restart_plan = build_xray_restart_dry_run_plan(config_path=config_path)
+
+    assert apply_plan == {
+        "status": "dry_run",
+        "message": "planned only; no config write, validation, or service control executed",
+        "target_path": str(config_path),
+        "counts": {"total_nodes": 2, "enabled_nodes": 1},
+        "steps": [
+            {"action": "generate_config", "status": "planned", "performs_side_effects": False},
+            {"action": "write_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": True},
+            {"action": "validate_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": False},
+            {"action": "daemon_reload", "status": "planned", "service": None, "performs_side_effects": True},
+            {"action": "restart_service", "status": "planned", "service": "migate-xray.service", "performs_side_effects": True},
+        ],
+        "commands_executed": [],
+        "systemctl_commands_executed": [],
+        "performed_side_effects": False,
+    }
+    assert restart_plan == {
+        "status": "dry_run",
+        "message": "planned only; no validation or service control executed",
+        "target_path": str(config_path),
+        "steps": [
+            {"action": "validate_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": False},
+            {"action": "daemon_reload", "status": "planned", "service": None, "performs_side_effects": True},
+            {"action": "restart_service", "status": "planned", "service": "migate-xray.service", "performs_side_effects": True},
+            {"action": "refresh_service_status", "status": "planned", "service": "migate-xray.service", "performs_side_effects": False},
+        ],
+        "commands_executed": [],
+        "systemctl_commands_executed": [],
+        "performed_side_effects": False,
+    }
+    assert not config_path.exists()
 
 
 def test_panel_xray_apply_dry_run_api_previews_steps_without_side_effects(tmp_path):
