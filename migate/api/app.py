@@ -270,9 +270,9 @@ def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
       <div class="label">协议：{escape(node.protocol)} ｜ 地址：{address} ｜ 状态：{'启用' if node.enabled else '禁用'} <span class="badge badge-traffic">↑ {_format_bytes(node.up_bytes if hasattr(node,'up_bytes') else 0)} ↓ {_format_bytes(node.down_bytes if hasattr(node,'down_bytes') else 0)}</span></div>
       {socks5}
       <div class="label">分享链接</div>
-      <div class="code-block"><code>{escape(node.share_link)}</code><button class="copy-btn" onclick="copyText(this)" data-text="{escape(node.share_link)}" data-orig="复制">复制</button></div>
+      <div class="code-block"><code>{escape(node.share_link)}</code><button class="copy-btn" onclick="copyText(this)" data-text="{escape(node.share_link)}" data-orig="复制">复制</button><button class="copy-btn" onclick="showQR(this.dataset.text)" data-text="{escape(node.share_link)}">QR 码</button></div>
       <div class="label">订阅内容</div>
-      <div class="code-block"><code>{escape(node.subscription)}</code><button class="copy-btn" onclick="copyText(this)" data-text="{escape(node.subscription)}" data-orig="复制">复制</button></div>
+      <div class="code-block"><code>{escape(node.subscription)}</code><button class="copy-btn" onclick="copyText(this)" data-text="{escape(node.subscription)}" data-orig="复制">复制</button><button class="copy-btn" onclick="showQR(this.dataset.text)" data-text="{escape(node.subscription)}">QR 码</button></div>
       <div class="actions">
         <div class="toggle-wrap">
           <input type="checkbox" id="node-toggle-{node.id}" class="toggle-checkbox"{' checked' if node.enabled else ''} data-url="{escape(toggle_action)}">
