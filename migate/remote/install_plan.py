@@ -65,9 +65,7 @@ def build_remote_install_dry_run_plan(
     remote_migate = "migate"
     install_remote_script = (
         f"cd {staging_dir} && "
-        "python3 -m venv .venv && "
-        ".venv/bin/python -m pip install . && "
-        f"ln -sf {staging_dir}/.venv/bin/migate /usr/local/bin/migate"
+        "python3 -m pip install --break-system-packages --root-user-action=ignore ."
     )
     service_preview_remote_script = f"{remote_migate} xray service preview && {remote_migate} proxy service preview"
 
@@ -86,7 +84,7 @@ def build_remote_install_dry_run_plan(
         ),
         RemoteInstallStep(
             "install_python_package",
-            "install MiGate package in an isolated remote venv",
+            "install MiGate package system-wide on remote host",
             f"ssh -p {port} {ssh_target} -- '{install_remote_script}'",
             True,
         ),

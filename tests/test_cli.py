@@ -1692,7 +1692,7 @@ def test_remote_install_command_accepts_custom_target_and_staging_dir():
     assert result.exit_code == 0
     assert "target: ubuntu@203.0.113.10:62422" in result.output
     assert "rsync -az --delete ./ ubuntu@203.0.113.10:/tmp/migate-custom/" in result.output
-    assert "ssh -p 62422 ubuntu@203.0.113.10 -- 'cd /tmp/migate-custom && python3 -m venv .venv && .venv/bin/python -m pip install . && ln -sf /tmp/migate-custom/.venv/bin/migate /usr/local/bin/migate'" in result.output
+    assert "ssh -p 62422 ubuntu@203.0.113.10 -- 'cd /tmp/migate-custom && python3 -m pip install --break-system-packages --root-user-action=ignore .'" in result.output
     assert "performed_side_effects: False" in result.output
 
 
