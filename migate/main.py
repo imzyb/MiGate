@@ -1394,10 +1394,11 @@ def proxy_socks5_serve(
 @proxy_service_app.command("save")
 def proxy_service_save(
     target: str = typer.Option(DEFAULT_PROXY_SERVICE_PATH, "--target", help="Target systemd unit path."),
+    backend: str | None = typer.Option(None, "--backend", help="Override proxy service egress backend: openvpn or xray-tun."),
     yes: bool = typer.Option(False, "--yes", help="Acknowledge that saving proxy service writes to disk."),
     allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually write service unit when combined with --yes."),
 ) -> None:
-    result = save_proxy_service_unit(target, yes=yes, allow_system_changes=allow_system_changes)
+    result = save_proxy_service_unit(target, yes=yes, allow_system_changes=allow_system_changes, backend=backend)
     typer.echo(f"status: {result.status}")
     typer.echo(f"message: {result.message}")
     typer.echo(f"target: {result.target}")

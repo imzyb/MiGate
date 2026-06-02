@@ -3828,6 +3828,44 @@ def test_proxy_service_save_command_requires_double_gate():
     assert "performed_side_effects: False" in result.output
 
 
+def test_proxy_service_save_command_passes_backend_override(monkeypatch, tmp_path):
+    target = tmp_path / "migate-proxy.service"
+
+    def fake_save(target_path, *, backend: str | None = None, yes: bool, allow_system_changes: bool):
+        assert target_path == str(target)
+        assert backend == "xray-tun"
+        assert yes is True
+        assert allow_system_changes is True
+        return ProxyServiceSaveResult(
+            status="saved",
+            message="proxy service unit saved; daemon-reload not run",
+            target=target,
+            performed_side_effects=True,
+            systemctl_commands_executed=[],
+        )
+
+    monkeypatch.setattr(main_module, "save_proxy_service_unit", fake_save)
+
+    result = runner.invoke(
+        app,
+        [
+            "proxy",
+            "service",
+            "save",
+            "--target",
+            str(target),
+            "--backend",
+            "xray-tun",
+            "--yes",
+            "--allow-system-changes",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "status: saved" in result.output
+    assert "performed_side_effects: True" in result.output
+
+
 def test_proxy_service_start_command_requires_double_gate_without_touching_systemctl():
     result = runner.invoke(app, ["proxy", "service", "start"])
 
