@@ -786,8 +786,9 @@ def test_remote_rollout_command_defaults_to_dry_run_without_remote_side_effects(
     assert "- leak_check: planned read-only" in result.output
     assert "migate remote install --host 166.88.232.2 --port 22 --user root" in result.output
     assert "migate remote readiness --host 166.88.232.2 --port 22 --user root" in result.output
-    assert "migate remote egress up --host 166.88.232.2 --port 22 --user root" in result.output
-    assert "migate xray service save --yes --allow-system-changes" in result.output
+    assert "migate remote egress up --host 166.88.232.2 --port 22 --user root --backend xray-tun" in result.output
+    assert "migate xray tun-service save --yes --allow-system-changes" in result.output
+    assert "migate xray apply tun-start --yes --allow-system-changes" in result.output
     assert "migate proxy service save --yes --allow-system-changes" in result.output
     assert "python3 - <<\"PY\"" in result.output
     assert "migate remote leak-check --host 166.88.232.2 --port 22 --user root" in result.output
@@ -1219,7 +1220,8 @@ def test_remote_acceptance_command_defaults_to_dry_run_without_remote_side_effec
     assert "commands_executed: []" in result.output
     assert "performed_side_effects: False" in result.output
     assert "Remote rollout dry-run" in result.output
-    assert "migate remote egress up --host 166.88.232.2 --port 22 --user root --no-dry-run --yes --allow-remote-changes" in result.output
+    assert "backend: xray-tun" in result.output
+    assert "migate remote egress up --host 166.88.232.2 --port 22 --user root --backend xray-tun --no-dry-run --yes --allow-remote-changes" in result.output
     assert "sshpass" not in result.output.lower()
     assert "password" not in result.output.lower()
 
@@ -1372,7 +1374,7 @@ def test_remote_egress_up_command_defaults_to_dry_run_without_ssh_or_side_effect
     assert "performed_side_effects: False" in result.output
     assert "- doctor: planned read-only" in result.output
     assert "- egress_up: planned side-effect" in result.output
-    assert "ssh -p 22 root@166.88.232.2 -- migate egress up --no-dry-run --yes --allow-system-changes" in result.output
+    assert "ssh -p 22 root@166.88.232.2 -- migate egress up --backend xray-tun --no-dry-run --yes --allow-system-changes" in result.output
     assert "sshpass" not in result.output.lower()
     assert "password" not in result.output.lower()
 
@@ -1383,7 +1385,7 @@ def test_remote_egress_down_command_accepts_custom_target_without_side_effects()
     assert result.exit_code == 0
     assert "Remote egress down dry-run" in result.output
     assert "target: ubuntu@203.0.113.10:62422" in result.output
-    assert "ssh -p 62422 ubuntu@203.0.113.10 -- migate egress down --no-dry-run --yes --allow-system-changes" in result.output
+    assert "ssh -p 62422 ubuntu@203.0.113.10 -- migate egress down --backend xray-tun --no-dry-run --yes --allow-system-changes" in result.output
     assert "performed_side_effects: False" in result.output
 
 
