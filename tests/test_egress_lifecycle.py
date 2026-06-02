@@ -389,6 +389,56 @@ def test_bootstrap_xray_tun_start_runner_stops_when_config_save_fails(monkeypatc
     assert calls == ["save_config"]
 
 
+def test_bootstrap_xray_tun_start_runner_continues_when_config_save_reports_busy_tun_device(monkeypatch):
+    calls: list[str] = []
+
+    def fake_save_config(config, target, *, yes, allow_system_changes):
+        calls.append("save_config")
+        return XrayTunConfigSaveResult(
+            status="invalid",
+            message="xray tun config validation failed; restored previous config",
+            target=Path(target),
+            validation_status="invalid",
+            performed_side_effects=True,
+            rollback_performed=True,
+            validation_stdout="Failed to start: main: failed to create server > device or resource busy\n",
+        )
+
+    def fake_save_service(target, *, yes, allow_system_changes, config_path):
+        calls.append("save_service")
+        return XrayServiceSaveResult(
+            status="saved",
+            message="xray tun service unit saved; daemon-reload not run",
+            target=Path(target),
+            performed_side_effects=True,
+            systemctl_commands_executed=[],
+        )
+
+    def fake_apply(config_path, *, yes, allow_system_changes):
+        calls.append("apply_start")
+        return XrayApplyResult(
+            status="success",
+            message="xray tun config busy-validated and service restarted",
+            config_path=str(config_path),
+            validation=XrayValidationResult("invalid", 23, "device or resource busy", ""),
+            systemctl_results=[
+                SystemctlActionResult("success", "daemon-reload", ALLOWED_XRAY_TUN_SERVICE_NAME, ["systemctl", "daemon-reload"], 0, "reload ok", "", True),
+                SystemctlActionResult("success", "restart", ALLOWED_XRAY_TUN_SERVICE_NAME, ["systemctl", "restart", ALLOWED_XRAY_TUN_SERVICE_NAME], 0, "restart ok", "", True),
+            ],
+            performed_side_effects=True,
+        )
+
+    monkeypatch.setattr(lifecycle_module, "save_xray_tun_config", fake_save_config)
+    monkeypatch.setattr(lifecycle_module, "save_xray_tun_service_unit", fake_save_service)
+    monkeypatch.setattr(lifecycle_module, "apply_validated_xray_tun_start", fake_apply)
+
+    result = lifecycle_module._default_xray_tun_start_runner("/etc/migate/xray/config.json")
+
+    assert result.status == "success"
+    assert result.message == "xray tun config busy-validated and service restarted"
+    assert calls == ["save_config", "save_service", "apply_start"]
+
+
 def test_bootstrap_xray_tun_start_runner_stops_when_service_save_fails(monkeypatch):
     calls: list[str] = []
 
