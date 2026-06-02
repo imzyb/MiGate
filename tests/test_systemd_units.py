@@ -41,3 +41,28 @@ def test_write_unit_file_creates_target_directory_and_writes_content(tmp_path):
 
     assert written == target_dir / "migate-xray.service"
     assert written.read_text(encoding="utf-8") == unit.content
+
+
+def test_load_panel_bind_config_falls_back_to_setup_panel_json(tmp_path):
+    """panel-service save must read from setup-panel.json when panel.json is absent."""
+    from migate.panel.service_cli import _load_panel_bind_config
+
+    # Only setup-panel.json exists (like after a fresh install)
+    setup_json = tmp_path / "setup-panel.json"
+    setup_json.write_text('{"panel_host": "0.0.0.0", "panel_port": 9999}', encoding="utf-8")
+
+    host, port = _load_panel_bind_config(config_path=setup_json)
+    assert host == "0.0.0.0"
+    assert port == 9999
+
+
+def test_load_panel_bind_config_prefers_panel_json_over_setup_panel_json(tmp_path):
+    """panel.json takes priority over setup-panel.json."""
+    from migate.panel.service_cli import _load_panel_bind_config
+
+    panel_json = tmp_path / "panel.json"
+    panel_json.write_text('{"panel_host": "10.0.0.1", "panel_port": 3000}', encoding="utf-8")
+
+    host, port = _load_panel_bind_config(config_path=panel_json)
+    assert host == "10.0.0.1"
+    assert port == 3000
