@@ -18,7 +18,7 @@ def test_build_remote_install_dry_run_plan_lists_remote_command_previews_without
         steps=[
             RemoteInstallStep("doctor", "run migate remote doctor before install", "migate remote doctor --host 166.88.232.2 --port 22 --user root", performs_side_effects=False),
             RemoteInstallStep("sync_project", "sync project to remote staging directory", "rsync -az --delete ./ root@166.88.232.2:/tmp/migate-install/", performs_side_effects=True),
-            RemoteInstallStep("install_python_package", "install MiGate package in an isolated remote venv", "ssh -p 22 root@166.88.232.2 -- 'cd /tmp/migate-install && python3 -m venv .venv && .venv/bin/python -m pip install . && ln -sf /tmp/migate-install/.venv/bin/migate /usr/local/bin/migate'", performs_side_effects=True),
+            RemoteInstallStep("install_python_package", "install MiGate package system-wide on remote host", "ssh -p 22 root@166.88.232.2 -- 'cd /tmp/migate-install && python3 -m pip install --break-system-packages --root-user-action=ignore .'", performs_side_effects=True),
             RemoteInstallStep("install_xray", "install xray-core through MiGate gated installer", "ssh -p 22 root@166.88.232.2 -- migate xray install --yes --allow-system-changes", performs_side_effects=True),
             RemoteInstallStep("write_services", "preview service units only; real service writes stay gated", "ssh -p 22 root@166.88.232.2 -- 'migate xray service preview && migate proxy service preview'", performs_side_effects=False),
             RemoteInstallStep("post_install_doctor", "run read-only remote doctor after install preview", "migate remote doctor --host 166.88.232.2 --port 22 --user root", performs_side_effects=False),

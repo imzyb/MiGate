@@ -91,7 +91,7 @@ def test_run_remote_install_plan_stops_on_first_failed_step():
 
     def runner(command: str) -> RemoteInstallCommandResult:
         calls.append(command)
-        if ".venv/bin/python -m pip install" in command:
+        if "pip install" in command and "migate-install" in command:
             return RemoteInstallCommandResult(returncode=1, stdout="", stderr="pip failed")
         return RemoteInstallCommandResult(returncode=0, stdout="ok", stderr="")
 
@@ -109,9 +109,9 @@ def test_run_remote_install_plan_stops_on_first_failed_step():
     assert len(result.steps) == 3
     assert result.steps[-1] == RemoteInstallStepResult(
         action="install_python_package",
-        description="install MiGate package in an isolated remote venv",
+        description="install MiGate package system-wide on remote host",
         status="failed",
-        command="ssh -p 22 root@166.88.232.2 -- 'cd /tmp/migate-install && python3 -m venv .venv && .venv/bin/python -m pip install . && ln -sf /tmp/migate-install/.venv/bin/migate /usr/local/bin/migate'",
+        command="ssh -p 22 root@166.88.232.2 -- 'cd /tmp/migate-install && python3 -m pip install --break-system-packages --root-user-action=ignore .'",
         returncode=1,
         stdout="",
         stderr="pip failed",
