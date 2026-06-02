@@ -27,6 +27,16 @@ def test_one_click_install_script_supports_curl_pipe_style_interactive_setup():
     assert "Web UI:" in script
 
 
+def test_one_click_install_script_rejects_occupied_panel_port_before_installing():
+    script = INSTALL_SCRIPT.read_text(encoding="utf-8")
+
+    assert "ensure_panel_port_available" in script
+    assert "ss -ltn" in script
+    assert "already in use" in script
+    assert "Choose another port" in script
+    assert script.index("collect_panel_inputs") < script.index("ensure_panel_port_available") < script.index("install_os_packages")
+
+
 def test_one_click_install_script_installs_without_venv_like_binary_style_installer():
     script = INSTALL_SCRIPT.read_text(encoding="utf-8")
 

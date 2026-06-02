@@ -93,6 +93,14 @@ collect_panel_inputs() {
   MIGATE_PUBLIC_HOST="$(detect_public_host)"
 }
 
+ensure_panel_port_available() {
+  require_command ss
+  if ss -ltn | awk '{print $4}' | grep -Eq "(^|:)${MIGATE_PANEL_PORT}$"; then
+    printf 'MiGate panel port %s is already in use. Choose another port or stop the existing service.\n' "$MIGATE_PANEL_PORT" >&2
+    exit 1
+  fi
+}
+
 install_os_packages() {
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
@@ -212,6 +220,7 @@ main() {
   require_command python3
   require_command curl
   collect_panel_inputs
+  ensure_panel_port_available
   install_os_packages
   require_command git
   require_command python3
