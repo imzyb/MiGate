@@ -1303,13 +1303,22 @@ def test_remote_acceptance_command_real_path_accepts_backend_xray_tun(monkeypatc
 
 
 def test_run_remote_acceptance_cli_threads_backend_to_default_rollout_smoke_runner(monkeypatch):
+    from migate.remote.doctor import RemoteDoctorCheck, RemoteDoctorReport
+
     captured = {}
     smoke = RemoteRolloutSmokeResult(
         status="success",
         message="remote rollout smoke passed",
         target="root@166.88.232.2:22",
         expected_phases=["install", "readiness", "egress_up", "service_apply", "socks5_smoke", "leak_check"],
-        rollout=None,
+        rollout=RemoteRolloutRunResult(
+            status="success",
+            message="remote rollout completed through injected phase runners",
+            target="root@166.88.232.2:22",
+            phases=[],
+            commands_executed=["rollout smoke xray-tun"],
+            performed_side_effects=True,
+        ),
         commands_executed=["rollout smoke xray-tun"],
         performed_side_effects=True,
     )
@@ -1329,6 +1338,7 @@ def test_run_remote_acceptance_cli_threads_backend_to_default_rollout_smoke_runn
         yes=True,
         allow_remote_changes=True,
         backend="xray-tun",
+        doctor_runner=lambda: RemoteDoctorReport("ok", "root@166.88.232.2:22", [RemoteDoctorCheck("ssh", "ok", "ok")], [], False),
     )
 
     assert result.status == "success"
