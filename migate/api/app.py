@@ -1330,11 +1330,31 @@ def create_app(
     @app.post("/api/xray/restart")
     def api_xray_restart() -> dict[str, object]:
         validation = validator(config_path)
+        if validation.status != "valid":
+            return {
+                "status": "validation_failed",
+                "target_path": str(config_path),
+                "validation": _xray_validation_summary_json(validation),
+                "daemon_reload": None,
+                "restart": None,
+                "services": None,
+                "performed_side_effects": True,
+            }
         reload_result = daemon_reloader()
+        if reload_result.status != "success":
+            return {
+                "status": "daemon_reload_failed",
+                "target_path": str(config_path),
+                "validation": _xray_validation_summary_json(validation),
+                "daemon_reload": _systemd_result_json(reload_result),
+                "restart": None,
+                "services": None,
+                "performed_side_effects": True,
+            }
         restart_result = restarter("migate-xray.service")
         services = _load_migate_systemd_services(status_loader)
         return {
-            "status": "success",
+            "status": "success" if restart_result.status == "success" else "restart_failed",
             "target_path": str(config_path),
             "validation": _xray_validation_summary_json(validation),
             "daemon_reload": _systemd_result_json(reload_result),
