@@ -528,10 +528,10 @@ def _home_body(
         <input name="listen" value="0.0.0.0" required>
       </label>
       <label class="wide">Settings (JSON)
-        <input name="settings" placeholder='{"clients":[{"id":"uuid"}]}'>
+        <input name="settings" placeholder='{{"clients":[{{"id":"uuid"}}]}}'>
       </label>
       <label class="wide">Stream Settings (JSON)
-        <input name="stream_settings" placeholder='{"network":"tcp","security":"tls"}'>
+        <input name="stream_settings" placeholder='{{"network":"tcp","security":"tls"}}'>
       </label>
       <button type="submit">创建入站</button>
     </form>
