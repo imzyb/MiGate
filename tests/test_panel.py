@@ -1585,6 +1585,57 @@ def test_build_xray_apply_and_restart_dry_run_plans_are_pure(tmp_path):
     assert not config_path.exists()
 
 
+def test_panel_xray_config_preview_api_returns_generated_config_without_side_effects(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="Preview Node",
+        host="preview.example.com",
+        port=443,
+        credential="preview-uuid",
+        share_link="vless://preview-uuid@preview.example.com:443#Preview",
+        subscription="preview-subscription",
+    )
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+    calls = []
+
+    def validator(path):
+        calls.append(f"validate:{path}")
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="success", returncode=0, stdout="daemon ok", stderr="")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_config_path=config_path,
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+        )
+    )
+
+    response = client.get("/api/xray/config/preview")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    payload = response.json()
+    assert payload["status"] == "preview"
+    assert payload["target_path"] == str(config_path)
+    assert payload["counts"] == {"total_nodes": 1, "enabled_nodes": 1, "inbounds": 1}
+    assert payload["config"]["inbounds"][0]["tag"] == "node-1-vless"
+    assert payload["performed_side_effects"] is False
+    assert not config_path.exists()
+    assert calls == []
+
+
 def test_panel_xray_apply_dry_run_api_previews_steps_without_side_effects(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     repo.initialize()
@@ -2576,6 +2627,7 @@ def test_panel_dashboard_api_returns_webui_bootstrap_snapshot_without_side_effec
             {"name": "dashboard", "method": "GET", "path": "/api/dashboard"},
             {"name": "xray_install_plan", "method": "GET", "path": "/api/xray/install-plan"},
             {"name": "xray_install_dry_run", "method": "GET", "path": "/api/xray/install/dry-run"},
+            {"name": "xray_config_preview", "method": "GET", "path": "/api/xray/config/preview"},
             {"name": "xray_config_validate", "method": "GET", "path": "/api/xray/config/validate"},
             {"name": "xray_apply_dry_run", "method": "GET", "path": "/api/xray/apply/dry-run"},
             {"name": "xray_restart_dry_run", "method": "GET", "path": "/api/xray/restart/dry-run"},
