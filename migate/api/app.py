@@ -80,7 +80,21 @@ def load_panel_auth_config(path: str | Path | None) -> dict[str, object] | None:
 
 
 def _panel_auth_enabled(panel_auth_config: dict[str, object] | None) -> bool:
-    return panel_auth_config is not None
+    if panel_auth_config is None:
+        return False
+    return bool(panel_auth_config.get("admin_user")) and str(panel_auth_config.get("password_hash", "")).startswith("sha256:")
+
+
+def _dangerous_actions_enabled(panel_auth_config: dict[str, object] | None) -> bool:
+    return bool((panel_auth_config or {}).get("dangerous_actions_enabled", False))
+
+
+def _dangerous_action_rejected_json() -> dict[str, object]:
+    return {
+        "status": "rejected",
+        "message": "dangerous actions are disabled in panel config",
+        "performed_side_effects": False,
+    }
 
 
 def _session_token_for_auth_config(panel_auth_config: dict[str, object]) -> str:
@@ -798,10 +812,10 @@ def _safe_preview_actions_json() -> list[dict[str, str]]:
     ]
 
 
-def _dangerous_actions_json() -> list[dict[str, object]]:
+def _dangerous_actions_json(*, enabled: bool = False) -> list[dict[str, object]]:
     return [
-        {"name": "xray_apply", "method": "POST", "path": "/api/xray/apply", "enabled": False},
-        {"name": "xray_restart", "method": "POST", "path": "/api/xray/restart", "enabled": False},
+        {"name": "xray_apply", "method": "POST", "path": "/api/xray/apply", "enabled": enabled},
+        {"name": "xray_restart", "method": "POST", "path": "/api/xray/restart", "enabled": enabled},
     ]
 
 
@@ -920,6 +934,7 @@ def _dashboard_snapshot_json(
     readiness: RemoteReadinessReport,
     leak_check: RemoteLeakCheckReport,
     rollout: RemoteRolloutPlan,
+    dangerous_actions_enabled: bool = False,
 ) -> dict[str, object]:
     healthy = (
         runtime.status == "installed"
@@ -951,8 +966,8 @@ def _dashboard_snapshot_json(
         },
         "actions": {
             "safe_previews": _safe_preview_actions_json(),
-            "dangerous_actions_enabled": False,
-            "dangerous_actions": _dangerous_actions_json(),
+            "dangerous_actions_enabled": dangerous_actions_enabled,
+            "dangerous_actions": _dangerous_actions_json(enabled=dangerous_actions_enabled),
         },
         "performed_side_effects": False,
     }
@@ -1301,7 +1316,9 @@ def create_app(
         return build_xray_apply_dry_run_plan(nodes=nodes, enabled_nodes=enabled_nodes, config_path=config_path)
 
     @app.post("/api/xray/apply")
-    def api_xray_apply() -> dict[str, object]:
+    def api_xray_apply():
+        if not _dangerous_actions_enabled(loaded_panel_auth_config):
+            return JSONResponse(_dangerous_action_rejected_json(), status_code=403)
         nodes = repo.list_nodes()
         enabled_nodes = [node for node in nodes if node.enabled]
         write_xray_config(_xray_config_for_nodes(nodes), config_path)
@@ -1347,7 +1364,9 @@ def create_app(
         return build_xray_restart_dry_run_plan(config_path=config_path)
 
     @app.post("/api/xray/restart")
-    def api_xray_restart() -> dict[str, object]:
+    def api_xray_restart():
+        if not _dangerous_actions_enabled(loaded_panel_auth_config):
+            return JSONResponse(_dangerous_action_rejected_json(), status_code=403)
         validation = validator(config_path)
         if validation.status != "valid":
             return {
@@ -1537,6 +1556,7 @@ def create_app(
             readiness=readiness,
             leak_check=leak_check,
             rollout=rollout,
+            dangerous_actions_enabled=_dangerous_actions_enabled(loaded_panel_auth_config),
         )
 
     def dashboard_snapshot() -> dict[str, object]:

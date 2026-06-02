@@ -1706,6 +1706,62 @@ def test_panel_xray_apply_dry_run_api_previews_steps_without_side_effects(tmp_pa
     assert calls == []
 
 
+def test_panel_dangerous_xray_json_posts_are_rejected_by_default_without_side_effects(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="Rejected Dangerous Node",
+        host="rejected-dangerous.example.com",
+        port=443,
+        credential="rejected-dangerous-uuid",
+        share_link="vless://rejected-dangerous-uuid@rejected-dangerous.example.com:443#RejectedDangerous",
+        subscription="rejected-dangerous-subscription",
+    )
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+    calls = []
+
+    def validator(path):
+        calls.append(f"validate:{path}")
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="success", returncode=0, stdout="daemon ok", stderr="")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_config_path=config_path,
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+        )
+    )
+
+    apply_response = client.post("/api/xray/apply")
+    restart_response = client.post("/api/xray/restart")
+
+    assert apply_response.status_code == 403
+    assert apply_response.json() == {
+        "status": "rejected",
+        "message": "dangerous actions are disabled in panel config",
+        "performed_side_effects": False,
+    }
+    assert restart_response.status_code == 403
+    assert restart_response.json() == {
+        "status": "rejected",
+        "message": "dangerous actions are disabled in panel config",
+        "performed_side_effects": False,
+    }
+    assert not config_path.exists()
+    assert calls == []
+
+
 def test_panel_xray_apply_api_writes_validates_reloads_restarts_and_returns_json(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     repo.initialize()
@@ -1740,6 +1796,7 @@ def test_panel_xray_apply_api_writes_validates_reloads_restarts_and_returns_json
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -1808,6 +1865,7 @@ def test_panel_xray_apply_api_stops_when_validation_fails(tmp_path):
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -1863,6 +1921,7 @@ def test_panel_xray_apply_api_stops_when_daemon_reload_fails(tmp_path):
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -1924,6 +1983,7 @@ def test_panel_xray_apply_api_reports_restart_failure_with_refreshed_services(tm
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -2038,6 +2098,7 @@ def test_panel_xray_restart_api_validates_reloads_restarts_and_returns_json(tmp_
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -2094,6 +2155,7 @@ def test_panel_xray_restart_api_stops_when_validation_fails(tmp_path):
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -2137,6 +2199,7 @@ def test_panel_xray_restart_api_stops_when_daemon_reload_fails(tmp_path):
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -2186,6 +2249,7 @@ def test_panel_xray_restart_api_reports_restart_failure_with_refreshed_services(
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
             xray_config_path=config_path,
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
@@ -3127,6 +3191,60 @@ def test_panel_dashboard_api_returns_webui_bootstrap_snapshot_without_side_effec
         "leak:root@166.88.232.2:22:34501",
         "rollout:root@166.88.232.2:22:/tmp/migate-install:None",
     ]
+
+
+def test_panel_dashboard_api_marks_dangerous_actions_enabled_from_panel_config(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            panel_auth_config={
+                "admin_user": "admin",
+                "password_hash": "sha256:5c76fcf4400da3b4804d70b91af20703d483f2c5860cc2f8d59592a1da8d2121",
+                "base_path": "/",
+                "dangerous_actions_enabled": True,
+            },
+            xray_runtime_loader=lambda: XrayRuntimeStatus(status="not_installed", bin_path="/usr/local/bin/xray", version=None, message="missing"),
+            egress_status_loader=lambda: EgressStatusReport(status="observed", checks=[], performed_side_effects=False),
+            proxy_runtime_loader=lambda: ProxyRunResult(status="not_running", message="stopped", checks=[], listener_started=False, forwarding_started=False, performed_side_effects=False),
+            systemd_status_loader=lambda service_name: SystemdResult(status="success", returncode=0, stdout="active", stderr=""),
+            remote_readiness_loader=lambda **kwargs: RemoteReadinessReport(
+                status="ok", target="root@166.88.232.2:22", checks=[], commands_executed=[], performed_side_effects=False
+            ),
+            remote_leak_check_loader=lambda **kwargs: RemoteLeakCheckReport(
+                status="ok",
+                target="root@166.88.232.2:22",
+                native_public_ip="198.51.100.10",
+                egress_public_ip="203.0.113.20",
+                checks=[],
+                commands_executed=[],
+                performed_side_effects=False,
+            ),
+            remote_rollout_plan_loader=lambda **kwargs: RemoteRolloutPlan(
+                status="dry_run",
+                message="planned",
+                target="root@166.88.232.2:22",
+                credential_hint="[REDACTED]",
+                staging_dir="/tmp/migate-install",
+                steps=[],
+                commands_executed=[],
+                performed_side_effects=False,
+            ),
+        )
+    )
+    login_response = client.post("/login", data={"username": "admin", "password": "super-secret-password"}, follow_redirects=False)
+    assert login_response.status_code == 303
+
+    response = client.get("/api/dashboard")
+
+    assert response.status_code == 200
+    actions = response.json()["actions"]
+    assert actions["dangerous_actions_enabled"] is True
+    assert actions["dangerous_actions"] == [
+        {"name": "xray_apply", "method": "POST", "path": "/api/xray/apply", "enabled": True},
+        {"name": "xray_restart", "method": "POST", "path": "/api/xray/restart", "enabled": True},
+    ]
+    assert response.json()["performed_side_effects"] is False
 
 
 def test_panel_dashboard_api_marks_degraded_when_remote_leak_check_fails_closed(tmp_path):
