@@ -729,6 +729,7 @@ def _safe_preview_actions_json() -> list[dict[str, str]]:
         {"name": "xray_install_plan", "method": "GET", "path": "/api/xray/install-plan"},
         {"name": "xray_install_dry_run", "method": "GET", "path": "/api/xray/install/dry-run"},
         {"name": "xray_apply_dry_run", "method": "GET", "path": "/api/xray/apply/dry-run"},
+        {"name": "xray_restart_dry_run", "method": "GET", "path": "/api/xray/restart/dry-run"},
         {"name": "egress_up_dry_run", "method": "GET", "path": "/api/egress/up/dry-run"},
         {"name": "egress_down_dry_run", "method": "GET", "path": "/api/egress/down/dry-run"},
         {"name": "remote_rollout_dry_run", "method": "GET", "path": "/api/remote/rollout/dry-run"},
@@ -1204,6 +1205,23 @@ def create_app(
                 {"action": "validate_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": False},
                 {"action": "daemon_reload", "status": "planned", "service": None, "performs_side_effects": True},
                 {"action": "restart_service", "status": "planned", "service": "migate-xray.service", "performs_side_effects": True},
+            ],
+            "commands_executed": [],
+            "systemctl_commands_executed": [],
+            "performed_side_effects": False,
+        }
+
+    @app.get("/api/xray/restart/dry-run")
+    def api_xray_restart_dry_run() -> dict[str, object]:
+        return {
+            "status": "dry_run",
+            "message": "planned only; no validation or service control executed",
+            "target_path": str(config_path),
+            "steps": [
+                {"action": "validate_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": False},
+                {"action": "daemon_reload", "status": "planned", "service": None, "performs_side_effects": True},
+                {"action": "restart_service", "status": "planned", "service": "migate-xray.service", "performs_side_effects": True},
+                {"action": "refresh_service_status", "status": "planned", "service": "migate-xray.service", "performs_side_effects": False},
             ],
             "commands_executed": [],
             "systemctl_commands_executed": [],

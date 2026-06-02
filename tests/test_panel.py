@@ -1576,6 +1576,58 @@ def test_panel_xray_apply_dry_run_api_previews_steps_without_side_effects(tmp_pa
     assert calls == []
 
 
+def test_panel_xray_restart_dry_run_api_previews_steps_without_side_effects(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+    calls = []
+
+    def validator(path):
+        calls.append(f"validate:{path}")
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="success", returncode=0, stdout="daemon ok", stderr="")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            xray_config_path=config_path,
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+        )
+    )
+
+    response = client.get("/api/xray/restart/dry-run")
+    dashboard_response = client.get("/api/dashboard")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "status": "dry_run",
+        "message": "planned only; no validation or service control executed",
+        "target_path": str(config_path),
+        "steps": [
+            {"action": "validate_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": False},
+            {"action": "daemon_reload", "status": "planned", "service": None, "performs_side_effects": True},
+            {"action": "restart_service", "status": "planned", "service": "migate-xray.service", "performs_side_effects": True},
+            {"action": "refresh_service_status", "status": "planned", "service": "migate-xray.service", "performs_side_effects": False},
+        ],
+        "commands_executed": [],
+        "systemctl_commands_executed": [],
+        "performed_side_effects": False,
+    }
+    safe_previews = dashboard_response.json()["actions"]["safe_previews"]
+    assert {"name": "xray_restart_dry_run", "method": "GET", "path": "/api/xray/restart/dry-run"} in safe_previews
+    assert not config_path.exists()
+    assert calls == []
+
+
 def test_panel_service_status_refresh_shows_structured_results(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
 
@@ -2412,6 +2464,7 @@ def test_panel_dashboard_api_returns_webui_bootstrap_snapshot_without_side_effec
             {"name": "xray_install_plan", "method": "GET", "path": "/api/xray/install-plan"},
             {"name": "xray_install_dry_run", "method": "GET", "path": "/api/xray/install/dry-run"},
             {"name": "xray_apply_dry_run", "method": "GET", "path": "/api/xray/apply/dry-run"},
+            {"name": "xray_restart_dry_run", "method": "GET", "path": "/api/xray/restart/dry-run"},
             {"name": "egress_up_dry_run", "method": "GET", "path": "/api/egress/up/dry-run"},
             {"name": "egress_down_dry_run", "method": "GET", "path": "/api/egress/down/dry-run"},
             {"name": "remote_rollout_dry_run", "method": "GET", "path": "/api/remote/rollout/dry-run"},
