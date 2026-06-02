@@ -728,6 +728,7 @@ def _safe_preview_actions_json() -> list[dict[str, str]]:
         {"name": "dashboard", "method": "GET", "path": "/api/dashboard"},
         {"name": "xray_install_plan", "method": "GET", "path": "/api/xray/install-plan"},
         {"name": "xray_install_dry_run", "method": "GET", "path": "/api/xray/install/dry-run"},
+        {"name": "xray_apply_dry_run", "method": "GET", "path": "/api/xray/apply/dry-run"},
         {"name": "egress_up_dry_run", "method": "GET", "path": "/api/egress/up/dry-run"},
         {"name": "egress_down_dry_run", "method": "GET", "path": "/api/egress/down/dry-run"},
         {"name": "remote_rollout_dry_run", "method": "GET", "path": "/api/remote/rollout/dry-run"},
@@ -1187,6 +1188,27 @@ def create_app(
     @app.get("/api/xray/install/dry-run")
     def api_xray_install_dry_run() -> dict[str, object]:
         return _xray_install_dry_run_json(dry_run_loader())
+
+    @app.get("/api/xray/apply/dry-run")
+    def api_xray_apply_dry_run() -> dict[str, object]:
+        nodes = repo.list_nodes()
+        enabled_nodes = [node for node in nodes if node.enabled]
+        return {
+            "status": "dry_run",
+            "message": "planned only; no config write, validation, or service control executed",
+            "target_path": str(config_path),
+            "counts": {"total_nodes": len(nodes), "enabled_nodes": len(enabled_nodes)},
+            "steps": [
+                {"action": "generate_config", "status": "planned", "performs_side_effects": False},
+                {"action": "write_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": True},
+                {"action": "validate_config", "status": "planned", "target_path": str(config_path), "performs_side_effects": False},
+                {"action": "daemon_reload", "status": "planned", "service": None, "performs_side_effects": True},
+                {"action": "restart_service", "status": "planned", "service": "migate-xray.service", "performs_side_effects": True},
+            ],
+            "commands_executed": [],
+            "systemctl_commands_executed": [],
+            "performed_side_effects": False,
+        }
 
     @app.get("/api/proxy/runtime")
     def api_proxy_runtime() -> dict[str, object]:
