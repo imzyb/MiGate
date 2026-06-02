@@ -34,7 +34,9 @@ WantedBy=multi-user.target
     return SystemdUnit(name="migate-xray.service", content=content)
 
 
-def build_panel_unit(config: MiGateConfig) -> SystemdUnit:
+def build_panel_unit(config: MiGateConfig, *, host: str | None = None, port: int | None = None) -> SystemdUnit:
+    bind_host = host or config.security.web_bind
+    bind_port = port or config.security.web_port
     content = f"""[Unit]
 Description=MiGate web panel
 After=network-online.target
@@ -43,7 +45,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/migate panel --host {config.security.web_bind} --port {config.security.web_port}
+ExecStart=/usr/local/bin/migate panel --host {bind_host} --port {bind_port}
 Restart=on-failure
 RestartSec=3s
 
