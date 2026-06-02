@@ -24,7 +24,7 @@ from migate.xray.runtime import XrayRuntimeStatus
 from migate.xray.validator import XrayValidationResult
 
 
-def _write_panel_config(path, *, base_path="/mg-admin"):
+def _write_panel_config(path, *, base_path="/mg-admin", dangerous_actions_enabled=False):
     path.write_text(
         json.dumps(
             {
@@ -34,6 +34,7 @@ def _write_panel_config(path, *, base_path="/mg-admin"):
                 "password_hash": "sha256:5c76fcf4400da3b4804d70b91af20703d483f2c5860cc2f8d59592a1da8d2121",
                 "base_path": base_path,
                 "public_host": "127.0.0.1",
+                "dangerous_actions_enabled": dangerous_actions_enabled,
             }
         )
     )
@@ -50,6 +51,28 @@ def test_panel_loads_auth_config_from_panel_json_and_protects_home(tmp_path):
     assert response.status_code == 303
     assert response.headers["location"] == "/mg-admin/login"
 
+
+
+def test_panel_loads_dangerous_actions_enabled_from_panel_json(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin", dangerous_actions_enabled=True)
+    client = TestClient(create_app(node_repository=NodeRepository(tmp_path / "migate.db"), panel_config_path=config_path))
+
+    login = client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"}, follow_redirects=False)
+    assert login.status_code == 303
+
+    dashboard = client.get("/api/dashboard")
+    home = client.get("/mg-admin/")
+
+    assert dashboard.status_code == 200
+    actions = dashboard.json()["actions"]
+    assert actions["dangerous_actions_enabled"] is True
+    assert all(action["enabled"] is True for action in actions["dangerous_actions"])
+    assert home.status_code == 200
+    decoded = unescape(home.text)
+    assert "危险动作：启用" in decoded
+    assert 'method="post" action="/api/xray/apply"' in decoded
+    assert 'method="post" action="/api/xray/restart"' in decoded
 
 
 def test_panel_base_path_routes_login_home_logout_and_node_creation(tmp_path):
@@ -881,6 +904,55 @@ def test_panel_home_renders_readonly_dashboard_cards_from_loaders(tmp_path):
         "leak_check",
         "rollout",
     ]
+
+
+def test_panel_home_renders_dangerous_action_forms_only_when_enabled(tmp_path):
+    client = TestClient(
+        create_app(
+            node_repository=NodeRepository(tmp_path / "migate.db"),
+            panel_auth_config={"dangerous_actions_enabled": True},
+            xray_runtime_loader=lambda: XrayRuntimeStatus(status="installed", bin_path="/usr/local/bin/xray", version="1.8.24", message="ok"),
+            egress_status_loader=lambda: EgressStatusReport(status="observed", checks=[], performed_side_effects=False),
+            proxy_runtime_loader=lambda: ProxyRunResult(
+                status="running", message="ok", checks=[], listener_started=True, forwarding_started=True, performed_side_effects=True
+            ),
+            systemd_status_loader=lambda service_name: SystemdResult(status="success", returncode=0, stdout="active", stderr=""),
+            remote_readiness_loader=lambda **kwargs: RemoteReadinessReport(
+                status="ok", target="root@166.88.232.2:22", checks=[], commands_executed=[], performed_side_effects=False
+            ),
+            remote_leak_check_loader=lambda **kwargs: RemoteLeakCheckReport(
+                status="ok",
+                target="root@166.88.232.2:22",
+                native_public_ip="198.51.100.10",
+                egress_public_ip="203.0.113.20",
+                checks=[],
+                commands_executed=[],
+                performed_side_effects=False,
+            ),
+            remote_rollout_plan_loader=lambda **kwargs: RemoteRolloutPlan(
+                status="dry_run",
+                message="planned",
+                target="root@166.88.232.2:22",
+                credential_hint="[REDACTED]",
+                staging_dir="/tmp/migate-install",
+                steps=[],
+                commands_executed=[],
+                performed_side_effects=False,
+            ),
+        )
+    )
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    decoded = unescape(response.text)
+    assert "危险动作：启用" in decoded
+    assert "危险动作执行" in decoded
+    assert "危险动作发现（禁用）" not in decoded
+    assert 'method="post" action="/api/xray/apply"' in decoded
+    assert 'method="post" action="/api/xray/restart"' in decoded
+    assert "执行 xray_apply" in decoded
+    assert "执行 xray_restart" in decoded
 
 
 def test_panel_home_renders_remote_fail_closed_details_without_dangerous_actions(tmp_path):
