@@ -1595,7 +1595,7 @@ def create_app(
                 nodes=repo.list_nodes(),
                 result_html=result,
                 base_path=panel_base_path,
-                service_status_html=_service_status_html(status_loader),
+                service_status_html=_service_status_html(status_loader, refreshed=True),
                 systemd_html=_systemd_preview_html(migate_config),
             )
         )

@@ -2011,6 +2011,12 @@ def test_panel_apply_current_nodes_saves_config_validates_then_restarts_xray(tmp
         calls.append(f"restart:{service_name}")
         return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
 
+    def status_loader(service_name: str):
+        calls.append(f"status:{service_name}")
+        if service_name == "migate-xray.service":
+            return SystemdResult(status="success", returncode=0, stdout="active (running)", stderr="")
+        return SystemdResult(status="success", returncode=0, stdout="support service active", stderr="")
+
     client = TestClient(
         create_app(
             node_repository=repo,
@@ -2018,6 +2024,7 @@ def test_panel_apply_current_nodes_saves_config_validates_then_restarts_xray(tmp
             xray_validator=validator,
             systemd_daemon_reloader=daemon_reloader,
             systemd_restarter=restarter,
+            systemd_status_loader=status_loader,
         )
     )
 
@@ -2031,9 +2038,19 @@ def test_panel_apply_current_nodes_saves_config_validates_then_restarts_xray(tmp
     assert "config ok" in decoded
     assert "daemon ok" in decoded
     assert "restart ok" in decoded
+    assert "服务状态已刷新" in decoded
+    assert "migate-xray.service" in decoded
+    assert "active (running)" in decoded
     written_config = json.loads(config_path.read_text(encoding="utf-8"))
     assert written_config["inbounds"][0]["tag"] == "node-1-vless"
-    assert calls == [f"validate:{config_path}", "daemon-reload", "restart:migate-xray.service"]
+    assert calls == [
+        f"validate:{config_path}",
+        "daemon-reload",
+        "restart:migate-xray.service",
+        "status:migate-xray.service",
+        "status:migate-panel.service",
+        "status:migate-proxy.service",
+    ]
 
 
 def test_panel_dashboard_api_returns_webui_bootstrap_snapshot_without_side_effects(tmp_path):
