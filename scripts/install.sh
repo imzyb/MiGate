@@ -168,6 +168,7 @@ run_setup() {
 
 save_runtime_units() {
   log 'saving MiGate runtime service units'
+  "$MIGATE_BIN" panel-service save --yes --allow-system-changes
   "$MIGATE_BIN" xray service save --yes --allow-system-changes
   "$MIGATE_BIN" proxy service save --yes --allow-system-changes
 }

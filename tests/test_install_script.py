@@ -94,6 +94,7 @@ def test_one_click_install_script_enhances_failure_diagnostics_and_service_summa
 def test_one_click_install_script_writes_services_and_prints_next_steps():
     script = INSTALL_SCRIPT.read_text(encoding="utf-8")
 
+    assert "panel-service save --yes --allow-system-changes" in script
     assert "xray service save --yes --allow-system-changes" in script
     assert "proxy service save --yes --allow-system-changes" in script
     assert "systemctl enable --now migate-panel.service" in script

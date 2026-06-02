@@ -19,6 +19,7 @@ from migate.egress.xray_tun_backend import build_xray_tun_start_plan, build_xray
 from migate.proxy.run import render_proxy_run_result, run_proxy
 from migate.proxy.runtime import render_proxy_runtime_report, run_proxy_doctor, run_proxy_status
 from migate.proxy.service_cli import DEFAULT_PROXY_SERVICE_PATH, ProxyServiceSaveResult, preview_proxy_service_unit, save_proxy_service_unit
+from migate.panel.service_cli import DEFAULT_PANEL_SERVICE_PATH, PanelServiceSaveResult, preview_panel_service_unit, save_panel_service_unit
 from migate.proxy.service_start import ProxyServiceStartResult, run_proxy_service_start
 from migate.setup_service_start import SetupServiceStartResult, run_setup_service_start
 from migate.remote.acceptance import RemoteAcceptanceResult, render_remote_acceptance_result, run_remote_acceptance
@@ -97,6 +98,7 @@ xray_apply_app = typer.Typer(help="Validation-gated Xray apply operations")
 proxy_app = typer.Typer(help="MiGate local proxy runtime status commands")
 proxy_service_app = typer.Typer(help="MiGate local proxy systemd service preview and save commands")
 proxy_socks5_app = typer.Typer(help="SOCKS5 local listener planning commands")
+panel_service_app = typer.Typer(help="MiGate panel systemd service preview and save commands")
 egress_app = typer.Typer(help="MiGate VPN egress lifecycle commands")
 vpn_app = typer.Typer(help="MiGate VPN/OpenVPN configuration commands")
 vpn_config_app = typer.Typer(help="OpenVPN runtime config preview and save commands")
@@ -107,6 +109,7 @@ app.add_typer(proxy_app, name="proxy")
 app.add_typer(egress_app, name="egress")
 app.add_typer(vpn_app, name="vpn")
 app.add_typer(remote_app, name="remote")
+app.add_typer(panel_service_app, name="panel-service")
 proxy_app.add_typer(proxy_service_app, name="service")
 proxy_app.add_typer(proxy_socks5_app, name="socks5")
 xray_app.add_typer(xray_config_app, name="config")
@@ -1438,6 +1441,29 @@ def proxy_service_start(
     result = run_proxy_service_start(yes=yes, allow_system_changes=allow_system_changes, backend=backend)
     typer.echo(render_proxy_service_start_result(result))
     if result.status != "success":
+        raise typer.Exit(code=1)
+
+
+@panel_service_app.command("preview")
+def panel_service_preview() -> None:
+    typer.echo(preview_panel_service_unit(), nl=False)
+    typer.echo("systemctl_commands_executed: []")
+    typer.echo("performed_side_effects: False")
+
+
+@panel_service_app.command("save")
+def panel_service_save(
+    target: str = typer.Option(DEFAULT_PANEL_SERVICE_PATH, "--target", help="Target systemd unit path."),
+    yes: bool = typer.Option(False, "--yes", help="Acknowledge that saving service writes to disk."),
+    allow_system_changes: bool = typer.Option(False, "--allow-system-changes", help="Actually write service unit when combined with --yes."),
+) -> None:
+    result = save_panel_service_unit(target, yes=yes, allow_system_changes=allow_system_changes)
+    typer.echo(f"status: {result.status}")
+    typer.echo(f"message: {result.message}")
+    typer.echo(f"target: {result.target}")
+    typer.echo(f"systemctl_commands_executed: {result.systemctl_commands_executed or []}")
+    typer.echo(f"performed_side_effects: {result.performed_side_effects}")
+    if result.status == "rejected":
         raise typer.Exit(code=1)
 
 
