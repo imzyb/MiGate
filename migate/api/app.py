@@ -1327,6 +1327,22 @@ def create_app(
     def api_xray_restart_dry_run() -> dict[str, object]:
         return build_xray_restart_dry_run_plan(config_path=config_path)
 
+    @app.post("/api/xray/restart")
+    def api_xray_restart() -> dict[str, object]:
+        validation = validator(config_path)
+        reload_result = daemon_reloader()
+        restart_result = restarter("migate-xray.service")
+        services = _load_migate_systemd_services(status_loader)
+        return {
+            "status": "success",
+            "target_path": str(config_path),
+            "validation": _xray_validation_summary_json(validation),
+            "daemon_reload": _systemd_result_json(reload_result),
+            "restart": {"service": "migate-xray.service", **_systemd_result_json(restart_result)},
+            "services": _systemd_services_status_json(services),
+            "performed_side_effects": True,
+        }
+
     @app.get("/api/proxy/runtime")
     def api_proxy_runtime() -> dict[str, object]:
         return _proxy_run_result_json(proxy_loader())
