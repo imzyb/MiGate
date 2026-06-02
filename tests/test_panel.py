@@ -852,6 +852,8 @@ def test_panel_home_renders_readonly_dashboard_cards_from_loaders(tmp_path):
     assert "POST /api/xray/restart" in decoded
     assert 'action="/api/xray/apply"' not in decoded
     assert 'action="/api/xray/restart"' not in decoded
+    assert 'href="/api/xray/apply"' not in decoded
+    assert 'href="/api/xray/restart"' not in decoded
     assert "刷新远端状态" in decoded
     assert "远端状态详情" in decoded
     assert "readiness: ok" in decoded
