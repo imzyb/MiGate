@@ -97,6 +97,21 @@ def _dangerous_action_rejected_json() -> dict[str, object]:
     }
 
 
+def _dangerous_action_confirmation_required_json(required_confirm: str) -> dict[str, object]:
+    return {
+        "status": "confirmation_required",
+        "message": "dangerous action confirmation is required",
+        "required_confirm": required_confirm,
+        "performed_side_effects": False,
+    }
+
+
+def _confirm_dangerous_action(confirm: str | None, required_confirm: str) -> JSONResponse | None:
+    if confirm == required_confirm:
+        return None
+    return JSONResponse(_dangerous_action_confirmation_required_json(required_confirm), status_code=403)
+
+
 def _session_token_for_auth_config(panel_auth_config: dict[str, object]) -> str:
     admin_user = str(panel_auth_config.get("admin_user", ""))
     password_hash = str(panel_auth_config.get("password_hash", ""))
@@ -1028,6 +1043,7 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
             """
       <li>
         <form method=\"post\" action=\"{path}\">
+          <input type=\"hidden\" name=\"confirm\" value=\"{confirm}\">
           <button type=\"submit\">执行 {name}</button>
           <span class=\"label\">{method} {path}</span>
         </form>
@@ -1035,6 +1051,7 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
                 name=escape(str(action["name"])),
                 method=escape(str(action["method"])),
                 path=escape(str(action["path"])),
+                confirm=escape("APPLY" if action.get("name") == "xray_apply" else "RESTART"),
             )
             for action in dangerous_actions
             if isinstance(action, dict) and action.get("enabled") is True
@@ -1336,9 +1353,12 @@ def create_app(
         return build_xray_apply_dry_run_plan(nodes=nodes, enabled_nodes=enabled_nodes, config_path=config_path)
 
     @app.post("/api/xray/apply")
-    def api_xray_apply():
+    def api_xray_apply(confirm: str = Form("")):
         if not _dangerous_actions_enabled(loaded_panel_auth_config):
             return JSONResponse(_dangerous_action_rejected_json(), status_code=403)
+        confirmation_failure = _confirm_dangerous_action(confirm, "APPLY")
+        if confirmation_failure is not None:
+            return confirmation_failure
         nodes = repo.list_nodes()
         enabled_nodes = [node for node in nodes if node.enabled]
         write_xray_config(_xray_config_for_nodes(nodes), config_path)
@@ -1384,9 +1404,12 @@ def create_app(
         return build_xray_restart_dry_run_plan(config_path=config_path)
 
     @app.post("/api/xray/restart")
-    def api_xray_restart():
+    def api_xray_restart(confirm: str = Form("")):
         if not _dangerous_actions_enabled(loaded_panel_auth_config):
             return JSONResponse(_dangerous_action_rejected_json(), status_code=403)
+        confirmation_failure = _confirm_dangerous_action(confirm, "RESTART")
+        if confirmation_failure is not None:
+            return confirmation_failure
         validation = validator(config_path)
         if validation.status != "valid":
             return {

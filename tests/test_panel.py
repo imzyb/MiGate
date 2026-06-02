@@ -73,6 +73,8 @@ def test_panel_loads_dangerous_actions_enabled_from_panel_json(tmp_path):
     assert "危险动作：启用" in decoded
     assert 'method="post" action="/api/xray/apply"' in decoded
     assert 'method="post" action="/api/xray/restart"' in decoded
+    assert 'name="confirm" value="APPLY"' in decoded
+    assert 'name="confirm" value="RESTART"' in decoded
 
 
 def test_panel_base_path_routes_login_home_logout_and_node_creation(tmp_path):
@@ -951,6 +953,8 @@ def test_panel_home_renders_dangerous_action_forms_only_when_enabled(tmp_path):
     assert "危险动作发现（禁用）" not in decoded
     assert 'method="post" action="/api/xray/apply"' in decoded
     assert 'method="post" action="/api/xray/restart"' in decoded
+    assert 'name="confirm" value="APPLY"' in decoded
+    assert 'name="confirm" value="RESTART"' in decoded
     assert "执行 xray_apply" in decoded
     assert "执行 xray_restart" in decoded
 
@@ -1834,6 +1838,65 @@ def test_panel_dangerous_xray_json_posts_are_rejected_by_default_without_side_ef
     assert calls == []
 
 
+def test_panel_dangerous_xray_json_posts_require_confirmation_when_enabled(tmp_path):
+    repo = NodeRepository(tmp_path / "migate.db")
+    repo.initialize()
+    repo.create_node(
+        protocol="vless",
+        name="Confirmation Required Node",
+        host="confirm-required.example.com",
+        port=443,
+        credential="confirm-required-uuid",
+        share_link="vless://confirm-required-uuid@confirm-required.example.com:443#ConfirmationRequired",
+        subscription="confirm-required-subscription",
+    )
+    config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
+    calls = []
+
+    def validator(path):
+        calls.append(f"validate:{path}")
+        return XrayValidationResult(status="valid", returncode=0, stdout="config ok", stderr="")
+
+    def daemon_reloader():
+        calls.append("daemon-reload")
+        return SystemdResult(status="success", returncode=0, stdout="daemon ok", stderr="")
+
+    def restarter(service_name: str):
+        calls.append(f"restart:{service_name}")
+        return SystemdResult(status="success", returncode=0, stdout="restart ok", stderr="")
+
+    client = TestClient(
+        create_app(
+            node_repository=repo,
+            panel_auth_config={"dangerous_actions_enabled": True},
+            xray_config_path=config_path,
+            xray_validator=validator,
+            systemd_daemon_reloader=daemon_reloader,
+            systemd_restarter=restarter,
+        )
+    )
+
+    apply_response = client.post("/api/xray/apply")
+    restart_response = client.post("/api/xray/restart")
+
+    assert apply_response.status_code == 403
+    assert apply_response.json() == {
+        "status": "confirmation_required",
+        "message": "dangerous action confirmation is required",
+        "required_confirm": "APPLY",
+        "performed_side_effects": False,
+    }
+    assert restart_response.status_code == 403
+    assert restart_response.json() == {
+        "status": "confirmation_required",
+        "message": "dangerous action confirmation is required",
+        "required_confirm": "RESTART",
+        "performed_side_effects": False,
+    }
+    assert not config_path.exists()
+    assert calls == []
+
+
 def test_panel_xray_apply_api_writes_validates_reloads_restarts_and_returns_json(tmp_path):
     repo = NodeRepository(tmp_path / "migate.db")
     repo.initialize()
@@ -1877,7 +1940,7 @@ def test_panel_xray_apply_api_writes_validates_reloads_restarts_and_returns_json
         )
     )
 
-    response = client.post("/api/xray/apply")
+    response = client.post("/api/xray/apply", data={"confirm": "APPLY"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
@@ -1945,7 +2008,7 @@ def test_panel_xray_apply_api_stops_when_validation_fails(tmp_path):
         )
     )
 
-    response = client.post("/api/xray/apply")
+    response = client.post("/api/xray/apply", data={"confirm": "APPLY"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
@@ -2001,7 +2064,7 @@ def test_panel_xray_apply_api_stops_when_daemon_reload_fails(tmp_path):
         )
     )
 
-    response = client.post("/api/xray/apply")
+    response = client.post("/api/xray/apply", data={"confirm": "APPLY"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
@@ -2064,7 +2127,7 @@ def test_panel_xray_apply_api_reports_restart_failure_with_refreshed_services(tm
         )
     )
 
-    response = client.post("/api/xray/apply")
+    response = client.post("/api/xray/apply", data={"confirm": "APPLY"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
@@ -2179,7 +2242,7 @@ def test_panel_xray_restart_api_validates_reloads_restarts_and_returns_json(tmp_
         )
     )
 
-    response = client.post("/api/xray/restart")
+    response = client.post("/api/xray/restart", data={"confirm": "RESTART"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
@@ -2235,7 +2298,7 @@ def test_panel_xray_restart_api_stops_when_validation_fails(tmp_path):
         )
     )
 
-    response = client.post("/api/xray/restart")
+    response = client.post("/api/xray/restart", data={"confirm": "RESTART"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
@@ -2279,7 +2342,7 @@ def test_panel_xray_restart_api_stops_when_daemon_reload_fails(tmp_path):
         )
     )
 
-    response = client.post("/api/xray/restart")
+    response = client.post("/api/xray/restart", data={"confirm": "RESTART"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
@@ -2330,7 +2393,7 @@ def test_panel_xray_restart_api_reports_restart_failure_with_refreshed_services(
         )
     )
 
-    response = client.post("/api/xray/restart")
+    response = client.post("/api/xray/restart", data={"confirm": "RESTART"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
