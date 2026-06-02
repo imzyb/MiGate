@@ -154,25 +154,22 @@ def _panel_url(base_path: str, path: str = "/") -> str:
 
 
 def _login_html(message: str = "", *, base_path: str = "/") -> str:
-    message_html = f"<p class=\"warn\">{escape(message)}</p>" if message else ""
+    message_html = f'<div class="toast toast-error">{escape(message)}</div>' if message else ""
     login_action = _panel_url(base_path, "/login")
     return _page_shell(
         f"""
   <section class="card">
-    <h1>MiGate 登录</h1>
-    <p>请输入 setup 配置中的管理员账号和密码。</p>
+    <h2 style="margin-bottom:8px;">MiGate 登录</h2>
+    <p class="text-muted text-sm" style="margin-bottom:16px;">请输入 setup 配置中的管理员账号和密码。</p>
     {message_html}
-    <form method="post" action="{escape(login_action)}">
-      <label>用户名
-        <input name="username" required>
-      </label>
-      <label>密码
-        <input name="password" type="password" required>
-      </label>
-      <button type="submit">登录</button>
+    <form method="post" action="{escape(login_action)}" style="display:grid;gap:14px;">
+      <div class="form-group"><label>用户名<input name="username" required></label></div>
+      <div class="form-group"><label>密码<input name="password" type="password" required></label></div>
+      <button class="btn btn-primary btn-block" type="submit">登录</button>
     </form>
   </section>
-"""
+""",
+        show_sidebar=False, title="登录", base_path=base_path,
     )
 
 
@@ -185,44 +182,64 @@ def _logout_html(*, base_path: str = "/") -> str:
 """
 
 
-def _page_shell(body: str) -> str:
-    return f"""<!doctype html>
+def _page_shell(body: str, *, active: str = "dashboard", title: str = "MiGate 面板", subtitle: str = "", base_path: str = "/", show_sidebar: bool = True, user: str = "", flash: str = "", flash_type: str = "ok") -> str:
+    if not show_sidebar:
+        return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MiGate 面板</title>
-  <style>
-    :root {{ color-scheme: dark; --bg:#0b1020; --card:#121a33; --muted:#8fa3c8; --text:#edf3ff; --accent:#65d6ad; --danger:#ff7a90; }}
-    * {{ box-sizing: border-box; }}
-    body {{ margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: radial-gradient(circle at top, #18264d, var(--bg)); color:var(--text); }}
-    main {{ max-width: 1080px; margin: 0 auto; padding: 32px 20px 56px; }}
-    .hero {{ display:flex; justify-content:space-between; gap:16px; align-items:flex-start; margin-bottom:24px; }}
-    h1 {{ margin:0 0 8px; font-size:36px; }}
-    p {{ color:var(--muted); line-height:1.6; }}
-    .grid {{ display:grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin: 20px 0; }}
-    .card {{ background:rgba(18,26,51,.88); border:1px solid rgba(143,163,200,.18); border-radius:18px; padding:18px; box-shadow: 0 20px 60px rgba(0,0,0,.22); }}
-    .label {{ color:var(--muted); font-size:14px; }}
-    .value {{ font-size:22px; margin-top:6px; }}
-    .ok {{ color:var(--accent); }}
-    .warn {{ color:#ffd166; }}
-    form {{ display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:14px; }}
-    label {{ display:flex; flex-direction:column; gap:6px; color:var(--muted); font-size:14px; }}
-    input, select {{ width:100%; border:1px solid rgba(143,163,200,.25); border-radius:12px; padding:12px 14px; background:#0d1429; color:var(--text); font-size:15px; }}
-    button {{ grid-column:1/-1; border:0; border-radius:14px; padding:14px 18px; background:linear-gradient(135deg,#65d6ad,#63a4ff); color:#06111f; font-weight:800; cursor:pointer; }}
-    pre {{ white-space:pre-wrap; word-break:break-all; background:#080d1c; border-radius:14px; padding:14px; border:1px solid rgba(143,163,200,.16); }}
-    .wide {{ grid-column: 1/-1; }}
-    .node {{ display:grid; grid-template-columns: 1fr; gap:8px; margin-top:12px; padding:14px; background:#0d1429; border-radius:14px; border:1px solid rgba(143,163,200,.16); }}
-    .node-title {{ font-weight:800; }}
-    @media (max-width: 720px) {{ form {{ grid-template-columns: 1fr; }} .hero {{ flex-direction:column; }} }}
-  </style>
+  <title>{escape(title)} - MiGate</title>
+  <link rel="stylesheet" href="{escape(base_path.rstrip('/'))}/static/style.css">
 </head>
 <body>
-<main>
-{body}
+<main class="main-content" style="margin-left:0;max-width:520px;display:flex;align-items:center;justify-content:center;min-height:100vh;">
+  {body}
 </main>
 </body>
 </html>"""
+    from migate.panel.layout import layout
+    return layout(
+        active=active, title=title, subtitle=subtitle, content=body,
+        base_path=base_path, flash=flash, flash_type=flash_type, user=user,
+    )
+
+
+def _node_create_form_html(base_path: str = "/") -> str:
+    return f"""
+  <section class="card">
+    <h3>创建节点</h3>
+    <p class="text-muted text-sm">推荐新手先使用 VLESS TCP；Trojan 和 Shadowsocks 也已支持链接生成。</p>
+    <form method="post" action="{escape(_panel_url(base_path, '/nodes/create'))}" class="form-grid">
+      <div class="form-group"><label>节点协议<select name="protocol"><option value="vless">VLESS</option><option value="trojan">Trojan</option><option value="shadowsocks">Shadowsocks</option></select></label></div>
+      <div class="form-group"><label>节点名称<input name="name" value="MiGate Node" placeholder="MiGate JP"></label></div>
+      <div class="form-group"><label>服务器域名/IP<input name="host" placeholder="example.com" required></label></div>
+      <div class="form-group"><label>端口<input name="port" type="number" value="443" min="1" max="65535" required></label></div>
+      <div class="form-group"><label>UUID / 密码（留空自动生成）<input name="credential" placeholder="VLESS 填 UUID；Trojan/SS 填密码"></label></div>
+      <div class="form-group"><label>SOCKS5 出口主机（可选）<input name="socks5_host" placeholder="127.0.0.1"></label></div>
+      <div class="form-group"><label>SOCKS5 出口端口（可选）<input name="socks5_port" type="number" min="1" max="65535" placeholder="34501"></label></div>
+      <button class="btn btn-primary btn-block" type="submit">生成并保存节点</button>
+    </form>
+  </section>
+"""
+
+
+def _inbound_create_form_html(base_path: str = "/") -> str:
+    return f"""
+  <section class="card">
+    <h3>创建入站规则</h3>
+    <p class="text-muted text-sm">创建 Xray 入站代理。支持 VLESS、VMess、Trojan、Shadowsocks 协议。</p>
+    <form method="post" action="{escape(_panel_url(base_path, '/inbounds/create'))}" class="form-grid">
+      <div class="form-group"><label>备注<input name="remark" placeholder="HK VLESS TLS" required></label></div>
+      <div class="form-group"><label>协议<select name="protocol"><option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option><option value="shadowsocks">Shadowsocks</option></select></label></div>
+      <div class="form-group"><label>端口<input name="port" type="number" value="443" min="1" max="65535" required></label></div>
+      <div class="form-group"><label>监听地址<input name="listen" value="0.0.0.0" required></label></div>
+      <div class="form-group"><label>Settings (JSON)<input name="settings" placeholder='{{"clients":[{{"id":"uuid"}}]}}'></label></div>
+      <div class="form-group"><label>Stream Settings (JSON)<input name="stream_settings" placeholder='{{"network":"tcp","security":"tls"}}'></label></div>
+      <button class="btn btn-primary btn-block" type="submit">创建入站</button>
+    </form>
+  </section>
+"""
 
 
 def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
@@ -444,6 +461,23 @@ def _rewrite_panel_actions(html: str, *, base_path: str) -> str:
     for prefix in protected_prefixes:
         rewritten = rewritten.replace(f'action="{prefix}', f'action="{normalized_base}{prefix}')
     return rewritten
+
+
+def _action_page(
+    result_html: str,
+    *,
+    active: str = "dashboard",
+    title: str = "操作结果",
+    subtitle: str = "",
+    base_path: str = "/",
+    user: str = "",
+) -> str:
+    """Wrap an action result in the sidebar layout."""
+    from migate.panel.layout import layout
+    return layout(
+        active=active, title=title, subtitle=subtitle,
+        content=result_html, base_path=base_path, user=user,
+    )
 
 
 def _home_body(
@@ -1417,6 +1451,17 @@ def create_app(
     inbound_repo.initialize()
     app = FastAPI(title="MiGate Panel")
 
+    # Static files
+    _static_dir = Path(__file__).resolve().parent.parent / "panel" / "static"
+
+    @app.get(_panel_url(panel_base_path, "/static/{filename}"))
+    def serve_static(filename: str):
+        from fastapi.responses import FileResponse
+        file_path = _static_dir / filename
+        if not file_path.exists() or not file_path.is_file():
+            return JSONResponse({"detail": "not found"}, status_code=404)
+        return FileResponse(file_path, media_type="text/css" if filename.endswith(".css") else "application/octet-stream")
+
     @app.middleware("http")
     async def protect_panel_routes(request: Request, call_next):
         path = request.url.path
@@ -1931,23 +1976,65 @@ def create_app(
         if auth_redirect is not None:
             return auth_redirect
         parts = collect_dashboard_parts()
-        nodes, runtime, egress, _proxy, services, _readiness, _leak_check, _rollout = parts
         snapshot = dashboard_snapshot_from_parts(parts)
         return _page_shell(
-            _home_body(
-                nodes=nodes,
-                inbounds=inbound_repo.list_inbounds(),
-                result_html=_dashboard_html(snapshot),
-                auth_html=_logout_html(base_path=panel_base_path) if _panel_auth_enabled(loaded_panel_auth_config) else "",
-                base_path=panel_base_path,
-                xray_runtime_html=_xray_runtime_status_html(runtime),
-                xray_install_plan_html=_xray_install_plan_html(plan_loader),
-                egress_status_html=_egress_status_report_html(egress),
-                egress_dry_run_html=_egress_dry_run_controls_html()
-                + _remote_status_detail_html(readiness=_readiness, leak_check=_leak_check, rollout=_rollout),
-                service_status_html=_service_statuses_html(services),
-                systemd_html=_systemd_preview_html(migate_config),
-            )
+            _dashboard_html(snapshot),
+            active="dashboard", title="Dashboard", subtitle="系统状态总览",
+            base_path=panel_base_path,
+            user=str((loaded_panel_auth_config or {}).get("admin_user", "")),
+        )
+
+    _panel_user = str((loaded_panel_auth_config or {}).get("admin_user", ""))
+
+    @app.get(_panel_url(panel_base_path, "/nodes"), response_class=HTMLResponse)
+    def nodes_page(request: Request):
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return auth_redirect
+        nodes = repo.list_nodes()
+        return _page_shell(
+            _node_create_form_html(panel_base_path) + _nodes_html(nodes, base_path=panel_base_path),
+            active="nodes", title="节点管理", subtitle="创建和管理代理节点",
+            base_path=panel_base_path, user=_panel_user,
+        )
+
+    @app.get(_panel_url(panel_base_path, "/inbounds"), response_class=HTMLResponse)
+    def inbounds_page(request: Request):
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return auth_redirect
+        return _page_shell(
+            _inbound_create_form_html(panel_base_path) + _inbounds_html(inbound_repo.list_inbounds(), base_path=panel_base_path),
+            active="inbounds", title="入站规则", subtitle="管理 Xray 入站代理规则",
+            base_path=panel_base_path, user=_panel_user,
+        )
+
+    @app.get(_panel_url(panel_base_path, "/xray"), response_class=HTMLResponse)
+    def xray_page(request: Request):
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return auth_redirect
+        nodes = repo.list_nodes()
+        runtime = runtime_loader()
+        return _page_shell(
+            _xray_preview_html(nodes, base_path=panel_base_path)
+            + _xray_runtime_status_html(runtime)
+            + _xray_install_plan_html(plan_loader),
+            active="xray", title="Xray 配置", subtitle="预览、校验和管理 Xray 配置",
+            base_path=panel_base_path, user=_panel_user,
+        )
+
+    @app.get(_panel_url(panel_base_path, "/system"), response_class=HTMLResponse)
+    def system_page(request: Request):
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return auth_redirect
+        services = {n: status_loader(n) for n in MIGATE_SYSTEMD_SERVICES}
+        egress = egress_loader()
+        return _page_shell(
+            _service_statuses_html(services) + _egress_status_report_html(egress) + _systemd_preview_html(migate_config),
+            active="system", title="系统设置", subtitle="服务管理、Egress 状态和系统配置",
+            base_path=panel_base_path, user=_panel_user,
         )
 
     def remote_status_detail() -> str:
@@ -1966,7 +2053,7 @@ def create_app(
     @app.post(_panel_url(panel_base_path, "/remote/status/refresh"), response_class=HTMLResponse)
     def refresh_remote_status() -> str:
         result = remote_status_detail().replace("远端状态详情", "远端状态详情已刷新", 1)
-        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, base_path=panel_base_path))
+        return _action_page(result, active="system", title="远端状态", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/nodes/create"), response_class=HTMLResponse)
     def create_node(
@@ -2011,7 +2098,7 @@ def create_app(
     <pre>{escape(subscription)}</pre>
   </section>
 """
-        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, base_path=panel_base_path))
+        return _action_page(result, active="nodes", title="创建节点", base_path=panel_base_path, user=_panel_user)
 
     def _node_action_result(title: str, message: str) -> str:
         result = f"""
@@ -2020,7 +2107,7 @@ def create_app(
     <p>{escape(message)}</p>
   </section>
 """
-        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, base_path=panel_base_path))
+        return _action_page(result, active="nodes", title="节点管理", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/nodes/{node_id}/edit"), response_class=HTMLResponse)
     def edit_node(
@@ -2087,7 +2174,7 @@ def create_app(
     <p>{escape(message)}</p>
   </section>
 """
-        return _page_shell(_home_body(nodes=repo.list_nodes(), inbounds=inbound_repo.list_inbounds(), result_html=result, base_path=panel_base_path))
+        return _action_page(result, active="inbounds", title="入站规则", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/inbounds/create"), response_class=HTMLResponse)
     def create_inbound(
@@ -2155,7 +2242,7 @@ def create_app(
     <p>当前步骤仅写盘，不会自动重载 Xray 服务。</p>
   </section>
 """
-        return _page_shell(_home_body(nodes=nodes, result_html=result))
+        return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/xray/config/validate"), response_class=HTMLResponse)
     def validate_saved_xray_config() -> str:
@@ -2169,30 +2256,18 @@ def create_app(
     <pre>{escape(output)}</pre>
   </section>
 """
-        return _page_shell(_home_body(nodes=repo.list_nodes(), result_html=result, systemd_html=_systemd_preview_html(migate_config)))
+        return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/xray/apply"), response_class=HTMLResponse)
     def apply_current_nodes_to_xray(confirm: str = Form("")):
         if not _dangerous_actions_enabled(loaded_panel_auth_config):
             return HTMLResponse(
-                _page_shell(
-                    _home_body(
-                        nodes=repo.list_nodes(),
-                        result_html=_dangerous_action_rejected_html(),
-                        base_path=panel_base_path,
-                    )
-                ),
+                _action_page(_dangerous_action_rejected_html(), active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user),
                 status_code=403,
             )
         if confirm != "APPLY":
             return HTMLResponse(
-                _page_shell(
-                    _home_body(
-                        nodes=repo.list_nodes(),
-                        result_html=_dangerous_action_confirmation_required_html("APPLY"),
-                        base_path=panel_base_path,
-                    )
-                ),
+                _action_page(_dangerous_action_confirmation_required_html("APPLY"), active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user),
                 status_code=403,
             )
         nodes = repo.list_nodes()
@@ -2208,7 +2283,7 @@ def create_app(
     <pre>{escape(_result_output(validation))}</pre>
   </section>
 """
-            return _page_shell(_home_body(nodes=nodes, result_html=result, base_path=panel_base_path))
+            return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
         reload_result = daemon_reloader()
         if reload_result.status != "success":
             result = f"""
@@ -2219,7 +2294,7 @@ def create_app(
 {_xray_control_diagnostics_html(validation=validation, reload_result=reload_result)}
   </section>
 """
-            return _page_shell(_home_body(nodes=nodes, result_html=result, base_path=panel_base_path))
+            return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
         restart_result = restarter("migate-xray.service")
         if restart_result.status != "success":
             result = f"""
@@ -2230,15 +2305,7 @@ def create_app(
 {_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result, restart_label="Xray 重启失败")}
   </section>
 """
-            return _page_shell(
-                _home_body(
-                    nodes=repo.list_nodes(),
-                    result_html=result,
-                    base_path=panel_base_path,
-                    service_status_html=_service_status_html(status_loader, refreshed=True),
-                    systemd_html=_systemd_preview_html(migate_config),
-                )
-            )
+            return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
         result = f"""
   <section class="card">
     <h2>当前节点配置已应用</h2>
@@ -2246,38 +2313,18 @@ def create_app(
 {_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result)}
   </section>
 """
-        return _page_shell(
-            _home_body(
-                nodes=repo.list_nodes(),
-                result_html=result,
-                base_path=panel_base_path,
-                service_status_html=_service_status_html(status_loader, refreshed=True),
-                systemd_html=_systemd_preview_html(migate_config),
-            )
-        )
+        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/xray/restart"), response_class=HTMLResponse)
     def restart_xray_after_validation(confirm: str = Form("")):
         if not _dangerous_actions_enabled(loaded_panel_auth_config):
             return HTMLResponse(
-                _page_shell(
-                    _home_body(
-                        nodes=repo.list_nodes(),
-                        result_html=_dangerous_action_rejected_html(),
-                        base_path=panel_base_path,
-                    )
-                ),
+                _action_page(_dangerous_action_rejected_html(), active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user),
                 status_code=403,
             )
         if confirm != "RESTART":
             return HTMLResponse(
-                _page_shell(
-                    _home_body(
-                        nodes=repo.list_nodes(),
-                        result_html=_dangerous_action_confirmation_required_html("RESTART"),
-                        base_path=panel_base_path,
-                    )
-                ),
+                _action_page(_dangerous_action_confirmation_required_html("RESTART"), active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user),
                 status_code=403,
             )
         validation = validator(config_path)
@@ -2290,14 +2337,7 @@ def create_app(
     <pre>{escape(_result_output(validation))}</pre>
   </section>
 """
-            return _page_shell(
-                _home_body(
-                    nodes=repo.list_nodes(),
-                    result_html=result,
-                    service_status_html=_service_status_html(status_loader),
-                    systemd_html=_systemd_preview_html(migate_config),
-                )
-            )
+            return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
 
         reload_result = daemon_reloader()
         if reload_result.status != "success":
@@ -2308,14 +2348,7 @@ def create_app(
 {_xray_control_diagnostics_html(validation=validation, reload_result=reload_result)}
   </section>
 """
-            return _page_shell(
-                _home_body(
-                    nodes=repo.list_nodes(),
-                    result_html=result,
-                    service_status_html=_service_status_html(status_loader),
-                    systemd_html=_systemd_preview_html(migate_config),
-                )
-            )
+            return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
         restart_result = restarter("migate-xray.service")
         if restart_result.status != "success":
             result = f"""
@@ -2325,14 +2358,7 @@ def create_app(
 {_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result, restart_label="Xray 重启失败")}
   </section>
 """
-            return _page_shell(
-                _home_body(
-                    nodes=repo.list_nodes(),
-                    result_html=result,
-                    service_status_html=_service_status_html(status_loader, refreshed=True),
-                    systemd_html=_systemd_preview_html(migate_config),
-                )
-            )
+            return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
         result = f"""
   <section class="card">
     <h2>Xray 重启已执行</h2>
@@ -2340,14 +2366,7 @@ def create_app(
 {_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result)}
   </section>
 """
-        return _page_shell(
-            _home_body(
-                nodes=repo.list_nodes(),
-                result_html=result,
-                service_status_html=_service_status_html(status_loader, refreshed=True),
-                systemd_html=_systemd_preview_html(migate_config),
-            )
-        )
+        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/systemd/units/save"), response_class=HTMLResponse)
     def save_systemd_units() -> str:
@@ -2361,40 +2380,15 @@ def create_app(
     <p>当前步骤仅写服务文件，不会执行服务重载或启动。</p>
   </section>
 """
-        return _page_shell(
-            _home_body(
-                nodes=repo.list_nodes(),
-                result_html=result,
-                service_status_html=_service_status_html(status_loader),
-                systemd_html=_systemd_preview_html(migate_config),
-            )
-        )
+        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/systemd/status/refresh"), response_class=HTMLResponse)
     def refresh_systemd_status() -> str:
-        return _page_shell(
-            _home_body(
-                nodes=repo.list_nodes(),
-                xray_runtime_html=_xray_runtime_html(runtime_loader),
-                egress_status_html=_egress_status_html(egress_loader),
-                service_status_html=_service_status_html(status_loader, refreshed=True),
-                systemd_html=_systemd_preview_html(migate_config),
-            )
-        )
+        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/egress/status/refresh"), response_class=HTMLResponse)
     def refresh_egress_status() -> str:
-        return _page_shell(
-            _home_body(
-                nodes=repo.list_nodes(),
-                xray_runtime_html=_xray_runtime_html(runtime_loader),
-                xray_install_plan_html=_xray_install_plan_html(plan_loader),
-                egress_status_html=_egress_status_html(egress_loader, refreshed=True),
-                egress_dry_run_html=_egress_dry_run_controls_html(),
-                service_status_html=_service_status_html(status_loader),
-                systemd_html=_systemd_preview_html(migate_config),
-            )
-        )
+        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
 
     @app.get("/api/egress/status")
     def api_egress_status() -> dict[str, object]:
@@ -2410,67 +2404,22 @@ def create_app(
 
     @app.post(_panel_url(panel_base_path, "/egress/up/dry-run"), response_class=HTMLResponse)
     def dry_run_egress_up() -> str:
-        return _page_shell(
-            _home_body(
-                nodes=repo.list_nodes(),
-                xray_runtime_html=_xray_runtime_html(runtime_loader),
-                xray_install_plan_html=_xray_install_plan_html(plan_loader),
-                egress_status_html=_egress_status_html(egress_loader),
-                egress_dry_run_html=_egress_dry_run_result_html("Egress Up dry-run 结果", egress_up_loader),
-                service_status_html=_service_status_html(status_loader),
-                systemd_html=_systemd_preview_html(migate_config),
-            )
-        )
+        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/egress/down/dry-run"), response_class=HTMLResponse)
     def dry_run_egress_down() -> str:
-        return _page_shell(
-            _home_body(
-                nodes=repo.list_nodes(),
-                xray_runtime_html=_xray_runtime_html(runtime_loader),
-                xray_install_plan_html=_xray_install_plan_html(plan_loader),
-                egress_status_html=_egress_status_html(egress_loader),
-                egress_dry_run_html=_egress_dry_run_result_html("Egress Down dry-run 结果", egress_down_loader),
-                service_status_html=_service_status_html(status_loader),
-                systemd_html=_systemd_preview_html(migate_config),
-            )
-        )
+        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/xray/runtime/refresh"), response_class=HTMLResponse)
     def refresh_xray_runtime() -> str:
-        return _page_shell(
-            _home_body(
-                nodes=repo.list_nodes(),
-                xray_runtime_html=_xray_runtime_html(runtime_loader, refreshed=True),
-                xray_install_plan_html=_xray_install_plan_html(plan_loader),
-                service_status_html=_service_status_html(status_loader),
-                systemd_html=_systemd_preview_html(migate_config),
-            )
-        )
+        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/xray/install-plan/refresh"), response_class=HTMLResponse)
     def refresh_xray_install_plan() -> str:
-        return _page_shell(
-            _home_body(
-                nodes=repo.list_nodes(),
-                xray_runtime_html=_xray_runtime_html(runtime_loader),
-                xray_install_plan_html=_xray_install_plan_html(plan_loader, refreshed=True),
-                service_status_html=_service_status_html(status_loader),
-                systemd_html=_systemd_preview_html(migate_config),
-            )
-        )
+        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
 
     @app.post(_panel_url(panel_base_path, "/xray/install/dry-run"), response_class=HTMLResponse)
     def dry_run_xray_install() -> str:
-        return _page_shell(
-            _home_body(
-                nodes=repo.list_nodes(),
-                xray_runtime_html=_xray_runtime_html(runtime_loader),
-                xray_install_plan_html=_xray_install_plan_html(plan_loader),
-                xray_install_dry_run_html=_xray_install_dry_run_html(dry_run_loader),
-                service_status_html=_service_status_html(status_loader),
-                systemd_html=_systemd_preview_html(migate_config),
-            )
-        )
+        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
 
     return app
