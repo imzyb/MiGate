@@ -121,11 +121,12 @@ def run_xray_install_doctor(
             )
         )
 
-    for host, port in [
-        (cfg.xray.api_host, cfg.xray.api_port),
+    install_port_endpoints = [(cfg.xray.api_host, cfg.xray.api_port)]
+    proxy_port_endpoints = [
         (cfg.proxy.socks_host, cfg.proxy.socks_port),
         (cfg.proxy.http_host, cfg.proxy.http_port),
-    ]:
+    ]
+    for host, port in install_port_endpoints:
         available = port_checker(host, port)
         endpoint = f"{host}:{port}"
         checks.append(
@@ -133,6 +134,21 @@ def run_xray_install_doctor(
                 name=f"port:{endpoint}",
                 status="ok" if available else "busy",
                 message=f"{endpoint} is available" if available else f"{endpoint} is already in use",
+            )
+        )
+
+    for host, port in proxy_port_endpoints:
+        available = port_checker(host, port)
+        endpoint = f"{host}:{port}"
+        checks.append(
+            DoctorCheck(
+                name=f"port:{endpoint}",
+                status="ok",
+                message=(
+                    f"{endpoint} is available"
+                    if available
+                    else f"{endpoint} is already in use by an existing proxy listener; safe for idempotent install"
+                ),
             )
         )
 

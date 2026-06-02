@@ -110,6 +110,39 @@ def test_xray_install_doctor_reports_deploy_preflight_checks_without_side_effect
     assert DoctorCheck(f"port:{config.proxy.http_host}:{config.proxy.http_port}", "ok", f"{config.proxy.http_host}:{config.proxy.http_port} is available") in report.checks
 
 
+def test_xray_install_doctor_allows_existing_proxy_listener_ports_during_idempotent_install():
+    config = MiGateConfig()
+
+    def port_available(host: str, port: int) -> bool:
+        return port == config.xray.api_port
+
+    report = run_xray_install_doctor(
+        config,
+        command_exists=lambda command: True,
+        path_writable=lambda path: True,
+        systemd_available=lambda: True,
+        is_root=lambda: True,
+        port_available=port_available,
+    )
+
+    assert report.status == "ok"
+    assert DoctorCheck(
+        f"port:{config.xray.api_host}:{config.xray.api_port}",
+        "ok",
+        f"{config.xray.api_host}:{config.xray.api_port} is available",
+    ) in report.checks
+    assert DoctorCheck(
+        f"port:{config.proxy.socks_host}:{config.proxy.socks_port}",
+        "ok",
+        f"{config.proxy.socks_host}:{config.proxy.socks_port} is already in use by an existing proxy listener; safe for idempotent install",
+    ) in report.checks
+    assert DoctorCheck(
+        f"port:{config.proxy.http_host}:{config.proxy.http_port}",
+        "ok",
+        f"{config.proxy.http_host}:{config.proxy.http_port} is already in use by an existing proxy listener; safe for idempotent install",
+    ) in report.checks
+
+
 def test_xray_install_doctor_report_renders_human_readable_output():
     report = DoctorReport(
         status="failed",
