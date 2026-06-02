@@ -1480,6 +1480,41 @@ def create_app(
             return RedirectResponse(_panel_url(panel_base_path, "/login"), status_code=303)
         return await call_next(request)
 
+    @app.middleware("http")
+    async def catch_exceptions_middleware(request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception as exc:
+            import traceback
+
+            trace = traceback.format_exc()
+            path = request.url.path
+            is_api = path.startswith("/api/")
+            if is_api:
+                return JSONResponse(
+                    {"detail": "internal server error", "error": str(exc)},
+                    status_code=500,
+                )
+            # HTML 页面：返回友好错误页
+            html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>MiGate - 出错了</title>
+<style>
+body {{ background:#0e1621; color:#e0e0e0; font-family:sans-serif; display:flex;
+       justify-content:center; align-items:center; min-height:100vh; margin:0; }}
+.box {{ background:#182533; padding:2rem 3rem; border-radius:12px; max-width:700px; }}
+h1 {{ color:#e74c3c; }} pre {{ background:#0b1926; padding:1rem; border-radius:8px;
+overflow-x:auto; font-size:0.85rem; }}
+a {{ color:#4ecdc4; }}
+</style></head><body>
+<div class="box">
+<h1>⚠️ 出错了</h1>
+<p>请求 <code>{path}</code> 时发生内部错误。</p>
+<p><strong>错误信息：</strong> {exc}</p>
+<p><a href="{_panel_url(panel_base_path, '/')}">← 返回首页</a></p>
+<details><summary>技术详情（仅供调试）</summary><pre>{trace}</pre></details>
+</div></body></html>"""
+            return HTMLResponse(html, status_code=500)
+
     def require_panel_auth(request: Request) -> RedirectResponse | None:
         if _is_authenticated(request, loaded_panel_auth_config):
             return None
