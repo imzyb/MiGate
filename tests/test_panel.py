@@ -2677,8 +2677,9 @@ def test_panel_egress_up_dry_run_renders_planned_openvpn_and_routing_commands(tm
             phases=[],
             commands_executed=[
                 "openvpn --config /var/lib/migate/runtime/active.ovpn --writepid /var/lib/migate/runtime/openvpn.pid",
+                "ip rule del fwmark 0x66 table 100",
                 "ip rule add fwmark 0x66 table 100",
-                "ip route add default dev tun-migate table 100",
+                "ip route replace default dev tun-migate table 100",
             ],
             performed_side_effects=False,
         )
@@ -2692,8 +2693,9 @@ def test_panel_egress_up_dry_run_renders_planned_openvpn_and_routing_commands(tm
     assert "Egress Up dry-run 结果" in decoded
     assert "planned only; no egress up commands executed" in decoded
     assert "openvpn --config /var/lib/migate/runtime/active.ovpn" in decoded
+    assert "ip rule del fwmark 0x66 table 100" in decoded
     assert "ip rule add fwmark 0x66 table 100" in decoded
-    assert "ip route add default dev tun-migate table 100" in decoded
+    assert "ip route replace default dev tun-migate table 100" in decoded
     assert "performed_side_effects: False" in decoded
     assert calls == ["egress-up-dry-run"]
 
@@ -2774,8 +2776,9 @@ def test_panel_egress_dry_run_api_returns_up_and_down_json_without_side_effects(
             phases=[],
             commands_executed=[
                 "openvpn --config /var/lib/migate/runtime/active.ovpn --writepid /var/lib/migate/runtime/openvpn.pid",
+                "ip rule del fwmark 0x66 table 100",
                 "ip rule add fwmark 0x66 table 100",
-                "ip route add default dev tun-migate table 100",
+                "ip route replace default dev tun-migate table 100",
             ],
             performed_side_effects=False,
         )
@@ -2812,8 +2815,9 @@ def test_panel_egress_dry_run_api_returns_up_and_down_json_without_side_effects(
         "message": "planned only; no egress up commands executed",
         "commands_executed": [
             "openvpn --config /var/lib/migate/runtime/active.ovpn --writepid /var/lib/migate/runtime/openvpn.pid",
+            "ip rule del fwmark 0x66 table 100",
             "ip rule add fwmark 0x66 table 100",
-            "ip route add default dev tun-migate table 100",
+            "ip route replace default dev tun-migate table 100",
         ],
         "phases": [],
         "performed_side_effects": False,
