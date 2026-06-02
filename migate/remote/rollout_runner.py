@@ -120,9 +120,11 @@ def build_remote_rollout_service_apply_runner(
         raise ValueError("remote rollout plan must contain exactly one service_apply step")
     step = matching_steps[0]
     ssh_prefix = _service_apply_ssh_prefix(step.command_preview)
+    egress_reapply_step = None
     if "migate xray tun-service save" in step.command_preview:
         xray_service_save_step = ("xray_tun_service_save", "migate xray tun-service save --yes --allow-system-changes")
         xray_apply_step = ("xray_tun_apply_start", "migate xray apply tun-start --yes --allow-system-changes")
+        egress_reapply_step = ("egress_reapply", "migate egress up --backend xray-tun --no-dry-run --yes --allow-system-changes")
         proxy_service_save_step = ("proxy_service_save", "migate proxy service save --backend xray-tun --yes --allow-system-changes")
         proxy_service_start_step = ("proxy_service_start", "migate proxy service start --backend xray-tun --yes --allow-system-changes")
     else:
@@ -134,8 +136,10 @@ def build_remote_rollout_service_apply_runner(
         xray_service_save_step,
         proxy_service_save_step,
         xray_apply_step,
-        proxy_service_start_step,
     ]
+    if egress_reapply_step is not None:
+        substeps.append(egress_reapply_step)
+    substeps.append(proxy_service_start_step)
 
     def run_phase() -> RemoteRolloutPhaseResult:
         run_command = runner or _default_command_runner
