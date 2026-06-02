@@ -169,6 +169,54 @@ def test_apply_validated_xray_tun_start_blocks_systemctl_when_validation_fails()
     assert systemctl_calls == []
 
 
+def test_apply_validated_xray_tun_start_restarts_when_validator_reports_busy_tun_device():
+    actions = []
+
+    def systemctl_runner(action):
+        actions.append(action)
+        return SystemctlActionResult(
+            status="success",
+            action=action,
+            service=ALLOWED_XRAY_TUN_SERVICE_NAME,
+            command=["systemctl", action, ALLOWED_XRAY_TUN_SERVICE_NAME] if action != "daemon-reload" else ["systemctl", "daemon-reload"],
+            returncode=0,
+            stdout=f"{action} ok",
+            stderr="",
+            performed_side_effects=True,
+        )
+
+    result = apply_validated_xray_tun_start(
+        "/etc/migate/xray/config.json",
+        yes=True,
+        allow_system_changes=True,
+        validator=lambda path: XrayValidationResult(
+            "invalid",
+            23,
+            "Failed to start: main: failed to create server > device or resource busy\n",
+            "",
+        ),
+        systemctl_runner=systemctl_runner,
+    )
+
+    assert result == XrayApplyResult(
+        status="success",
+        message="xray tun config busy-validated and service restarted",
+        config_path="/etc/migate/xray/config.json",
+        validation=XrayValidationResult(
+            "invalid",
+            23,
+            "Failed to start: main: failed to create server > device or resource busy\n",
+            "",
+        ),
+        systemctl_results=[
+            SystemctlActionResult("success", "daemon-reload", ALLOWED_XRAY_TUN_SERVICE_NAME, ["systemctl", "daemon-reload"], 0, "daemon-reload ok", "", True),
+            SystemctlActionResult("success", "restart", ALLOWED_XRAY_TUN_SERVICE_NAME, ["systemctl", "restart", ALLOWED_XRAY_TUN_SERVICE_NAME], 0, "restart ok", "", True),
+        ],
+        performed_side_effects=True,
+    )
+    assert actions == ["daemon-reload", "restart"]
+
+
 def test_apply_validated_xray_tun_start_runs_daemon_reload_then_start_after_valid_config():
     actions = []
 

@@ -107,7 +107,8 @@ def apply_validated_xray_tun_start(
 
     validate = validator or validate_xray_config
     validation = validate(config_path)
-    if validation.status != "valid":
+    restart_existing_service = _xray_tun_validation_reports_busy_device(validation)
+    if validation.status != "valid" and not restart_existing_service:
         return XrayApplyResult(
             status="invalid_config",
             message="xray tun config validation failed; systemctl actions skipped",
@@ -130,12 +131,13 @@ def apply_validated_xray_tun_start(
             performed_side_effects=True,
         )
 
-    start_result = run_systemctl("start")
+    start_action = "restart" if restart_existing_service else "start"
+    start_result = run_systemctl(start_action)
     systemctl_results.append(start_result)
     if start_result.status != "success":
         return XrayApplyResult(
             status="systemctl_failed",
-            message="xray tun start failed",
+            message=f"xray tun {start_action} failed",
             config_path=config_path_text,
             validation=validation,
             systemctl_results=systemctl_results,
@@ -144,12 +146,17 @@ def apply_validated_xray_tun_start(
 
     return XrayApplyResult(
         status="success",
-        message="xray tun config validated and service started",
+        message="xray tun config busy-validated and service restarted" if restart_existing_service else "xray tun config validated and service started",
         config_path=config_path_text,
         validation=validation,
         systemctl_results=systemctl_results,
         performed_side_effects=True,
     )
+
+
+def _xray_tun_validation_reports_busy_device(validation: XrayValidationResult) -> bool:
+    output = f"{validation.stdout or ''}\n{validation.stderr or ''}".lower()
+    return validation.status == "invalid" and "device or resource busy" in output
 
 
 def _default_systemctl_runner(action: str) -> SystemctlActionResult:
