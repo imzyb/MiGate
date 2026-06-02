@@ -1021,11 +1021,31 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
         for action in safe_previews
         if isinstance(action, dict)
     )
-    dangerous_action_items = "\n".join(
-        f'      <li>{escape(str(action["name"]))} <span class="label">{escape(str(action["method"]))} {escape(str(action["path"]))} · disabled</span></li>'
-        for action in dangerous_actions
-        if isinstance(action, dict)
-    )
+    dangerous_actions_enabled = actions.get("dangerous_actions_enabled") is True
+    if dangerous_actions_enabled:
+        dangerous_heading = "危险动作执行"
+        dangerous_action_items = "\n".join(
+            """
+      <li>
+        <form method=\"post\" action=\"{path}\">
+          <button type=\"submit\">执行 {name}</button>
+          <span class=\"label\">{method} {path}</span>
+        </form>
+      </li>""".format(
+                name=escape(str(action["name"])),
+                method=escape(str(action["method"])),
+                path=escape(str(action["path"])),
+            )
+            for action in dangerous_actions
+            if isinstance(action, dict) and action.get("enabled") is True
+        )
+    else:
+        dangerous_heading = "危险动作发现（禁用）"
+        dangerous_action_items = "\n".join(
+            f'      <li>{escape(str(action["name"]))} <span class="label">{escape(str(action["method"]))} {escape(str(action["path"]))} · disabled</span></li>'
+            for action in dangerous_actions
+            if isinstance(action, dict)
+        )
     return f"""
   <section class="card">
     <h2>Dashboard 总览</h2>
@@ -1046,7 +1066,7 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
     <ul>
 {action_links}
     </ul>
-    <h3>危险动作发现（禁用）</h3>
+    <h3>{escape(dangerous_heading)}</h3>
     <ul>
 {dangerous_action_items}
     </ul>
