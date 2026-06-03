@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from collections.abc import Callable, Sized
 from html import escape
 import platform
@@ -227,18 +228,403 @@ def _node_create_form_html(base_path: str = "/") -> str:
 """
 
 
+def _stream_settings_form_html(existing_json: str = "{}", uid: str = "", panel_base_path: str = "/") -> str:
+    """Generate a visual Stream Settings configuration form.
+
+    Returns an HTML string with embedded CSS and JS that allows the user
+    to configure Xray stream settings (network, security, TLS, Reality)
+    through a user-friendly form.  The assembled JSON is written to a
+    hidden ``<input name="stream_settings">`` so it can be submitted
+    alongside the rest of the inbound form.
+
+    Parameters
+    ----------
+    existing_json:
+        A JSON string representing previously saved stream settings.
+        When non-empty the form fields are pre-populated on page load.
+    uid:
+        Optional unique identifier (e.g. inbound ID).  When non-empty,
+        all element IDs are prefixed with ``{uid}-`` so multiple forms
+        can coexist on the same page without conflicts.
+    """
+    # Escape for embedding inside an HTML attribute / JS string literal.
+    safe_existing = existing_json.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace('"', '\\"').replace("\r", "")
+
+    # Suffix for element IDs: "-3" when uid="3", "" when uid=""
+    S = f"-{uid}" if uid else ""
+
+    return f"""
+<style>
+  .ss-section {{ margin-top:12px; padding:12px; border:1px solid var(--border,#333); border-radius:var(--radius-sm,6px); background:var(--bg,#1a1a2e); }}
+  .ss-section h4 {{ margin:0 0 10px 0; font-size:0.95rem; color:var(--accent,#00d4ff); }}
+  .ss-section .form-group {{ margin-bottom:8px; }}
+  .ss-section label {{ font-size:0.85rem; color:var(--text,#e0e0e0); display:flex; flex-direction:column; gap:4px; }}
+  .ss-section input, .ss-section select, .ss-section textarea {{
+    background:var(--bg-input,#16213e); color:var(--text,#e0e0e0);
+    border:1px solid var(--border,#333); border-radius:var(--radius-sm,6px);
+    padding:6px 8px; font-size:0.85rem; width:100%; box-sizing:border-box;
+  }}
+  .ss-section textarea {{ min-height:60px; font-family:monospace; resize:vertical; }}
+  .ss-hidden {{ display:none; }}
+  .ss-grid-2 {{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }}
+</style>
+
+<details style="grid-column:1/-1; margin-top:8px;">
+  <summary style="cursor:pointer; color:var(--accent,#00d4ff); font-weight:600; margin-bottom:8px;">🔗 传输与安全设置 (Stream Settings)</summary>
+  <div id="ss-sec{S}">
+  <input type="hidden" name="stream_settings" id="stream-settings-json{S}" value="{{}}">
+
+  <div class="ss-section" style="margin-top:10px;">
+    <div class="ss-grid-2">
+      <div class="form-group">
+        <label>传输协议 (Network)
+          <select id="ss-network{S}">
+            <option value="tcp">TCP</option>
+            <option value="ws">WebSocket</option>
+            <option value="grpc">gRPC</option>
+            <option value="h2">HTTP/2</option>
+          </select>
+        </label>
+      </div>
+      <div class="form-group">
+        <label>安全 (Security)
+          <select id="ss-security{S}">
+            <option value="none">None</option>
+            <option value="tls">TLS</option>
+            <option value="reality">Reality</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- TCP Transport -->
+  <div id="ss-transport-tcp{S}" class="ss-section ss-transport ss-hidden">
+    <h4>TCP 传输设置</h4>
+    <div class="form-group">
+      <label>Header Type
+        <select id="ss-tcp-header-type{S}">
+          <option value="none">none</option>
+          <option value="http">http</option>
+        </select>
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Request Path
+        <input id="ss-tcp-request-path{S}" placeholder="/">
+      </label>
+    </div>
+  </div>
+
+  <!-- WebSocket Transport -->
+  <div id="ss-transport-ws{S}" class="ss-section ss-transport ss-hidden">
+    <h4>WebSocket 传输设置</h4>
+    <div class="form-group">
+      <label>Path
+        <input id="ss-ws-path{S}" value="/ws" placeholder="/ws">
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Host Header
+        <input id="ss-ws-host{S}" placeholder="example.com">
+      </label>
+    </div>
+  </div>
+
+  <!-- gRPC Transport -->
+  <div id="ss-transport-grpc{S}" class="ss-section ss-transport ss-hidden">
+    <h4>gRPC 传输设置</h4>
+    <div class="form-group">
+      <label>Service Name
+        <input id="ss-grpc-service{S}" placeholder="grpc-service">
+      </label>
+    </div>
+  </div>
+
+  <!-- HTTP/2 Transport -->
+  <div id="ss-transport-h2{S}" class="ss-section ss-transport ss-hidden">
+    <h4>HTTP/2 传输设置</h4>
+    <div class="form-group">
+      <label>Host (逗号分隔)
+        <input id="ss-h2-host{S}" placeholder="example.com,cdn.example.com">
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Path
+        <input id="ss-h2-path{S}" placeholder="/">
+      </label>
+    </div>
+  </div>
+
+  <!-- TLS Settings -->
+  <div id="ss-tls-section{S}" class="ss-section ss-hidden">
+    <h4>TLS 设置</h4>
+    <div class="form-group">
+      <label>Server Name (SNI)
+        <input id="ss-tls-sni{S}" placeholder="example.com">
+      </label>
+    </div>
+    <div class="form-group">
+      <label>ALPN 协议 (逗号分隔)
+        <input id="ss-tls-alpn{S}" placeholder="h2,http/1.1">
+      </label>
+    </div>
+    <div class="form-group">
+      <label>证书 (JSON — certFile / keyFile)
+        <textarea id="ss-tls-certs{S}" placeholder='[{{"certFile":"/path/cert.pem","keyFile":"/path/key.pem"}}]'></textarea>
+      </label>
+    </div>
+  </div>
+
+  <!-- Reality Settings -->
+  <div id="ss-reality-section{S}" class="ss-section ss-hidden">
+    <h4>Reality 设置</h4>
+    <div class="form-group">
+      <label>Private Key (x25519)
+        <input id="ss-reality-private-key{S}" placeholder="来自 xray x25519">
+      </label>
+      <button type="button" class="btn" style="margin-top:4px;font-size:0.85em;" onclick="(function(){{
+        fetch('{escape(panel_base_path.rstrip("/"))}/xray/x25519', {{method:'POST'}})
+          .then(function(r){{return r.text();}})
+          .then(function(html){{
+            var mPriv=html.match(/id=&quot;x25519-private-key&quot;[^>]*>([^<]*)</);
+            var mPub=html.match(/id=&quot;x25519-public-key&quot;[^>]*>([^<]*)</);
+            if(mPriv)document.getElementById('ss-reality-private-key{S}').value=mPriv[1].trim();
+            if(mPub)document.getElementById('ss-reality-public-key{S}').value=mPub[1].trim();
+          }});
+      }})()">🔑 生成密钥对</button>
+    </div>
+    <div class="form-group">
+      <label>Public Key
+        <input id="ss-reality-public-key{S}" placeholder="客户端使用的公钥">
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Short ID
+        <input id="ss-reality-short-id{S}" placeholder="随机 hex，如 0123456789abcdef">
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Dest (目标伪装地址)
+        <input id="ss-reality-dest{S}" placeholder="yahoo.com:443">
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Server Names (逗号分隔)
+        <input id="ss-reality-server-names{S}" placeholder="yahoo.com,www.yahoo.com">
+      </label>
+    </div>
+    <div class="form-group">
+      <label>SpiderX 路径
+        <input id="ss-reality-spider-x{S}" placeholder="/">
+      </label>
+    </div>
+  </div>
+
+  <div style="margin-top:8px;">
+    <button type="button" class="btn btn-primary" id="ss-apply-btn{S}" onclick="ssAssembleJson{'_' + uid if uid else ''}()">✓ 应用 Stream Settings</button>
+  </div>
+  </div>
+</details>
+
+<script>
+(function() {{
+  var sc = document.getElementById('ss-sec{S}');
+
+  // --- Network / transport visibility ---
+  var netSel = sc.querySelector('#ss-network{S}');
+  var secSel = sc.querySelector('#ss-security{S}');
+
+  function ssShowTransport() {{
+    sc.querySelectorAll('.ss-transport').forEach(function(el) {{ el.classList.add('ss-hidden'); }});
+    var map = {{ tcp:'ss-transport-tcp{S}', ws:'ss-transport-ws{S}', grpc:'ss-transport-grpc{S}', h2:'ss-transport-h2{S}' }};
+    var target = sc.querySelector('#' + map[netSel.value]);
+    if (target) target.classList.remove('ss-hidden');
+  }}
+
+  function ssShowSecurity() {{
+    sc.querySelector('#ss-tls-section{S}').classList.toggle('ss-hidden', secSel.value !== 'tls');
+    sc.querySelector('#ss-reality-section{S}').classList.toggle('ss-hidden', secSel.value !== 'reality');
+  }}
+
+  netSel.addEventListener('change', function() {{ ssShowTransport(); {'window.ssAssembleJson_' + uid if uid else 'ssAssembleJson'}(); }});
+  secSel.addEventListener('change', function() {{ ssShowSecurity(); {'window.ssAssembleJson_' + uid if uid else 'ssAssembleJson'}(); }});
+  ssShowTransport();
+  ssShowSecurity();
+
+  // --- Assemble JSON ---
+  window.ssAssembleJson{'_' + uid if uid else ''} = function() {{
+    var result = {{}};
+    var net = netSel.value;
+    var sec = secSel.value;
+
+    // network / transport
+    if (net === 'tcp') {{
+      var headerType = sc.querySelector('#ss-tcp-header-type{S}').value;
+      var tcpSettings = {{ header: {{ type: headerType }} }};
+      var reqPath = sc.querySelector('#ss-tcp-request-path{S}').value.trim();
+      if (reqPath) {{
+        tcpSettings.header.request = {{ path: reqPath }};
+      }}
+      result.network = 'tcp';
+      result.tcpSettings = tcpSettings;
+    }} else if (net === 'ws') {{
+      var wsSettings = {{}};
+      var wsPath = sc.querySelector('#ss-ws-path{S}').value.trim();
+      if (wsPath) wsSettings.path = wsPath;
+      var wsHost = sc.querySelector('#ss-ws-host{S}').value.trim();
+      if (wsHost) wsSettings.host = wsHost;
+      result.network = 'ws';
+      result.wsSettings = wsSettings;
+    }} else if (net === 'grpc') {{
+      var grpcSettings = {{}};
+      var svc = sc.querySelector('#ss-grpc-service{S}').value.trim();
+      if (svc) grpcSettings.serviceName = svc;
+      result.network = 'grpc';
+      result.grpcSettings = grpcSettings;
+    }} else if (net === 'h2') {{
+      var h2Settings = {{}};
+      var h2Host = sc.querySelector('#ss-h2-host{S}').value.trim();
+      if (h2Host) h2Settings.host = h2Host.split(',').map(function(s){{ return s.trim(); }}).filter(Boolean);
+      var h2Path = sc.querySelector('#ss-h2-path{S}').value.trim();
+      if (h2Path) h2Settings.path = h2Path;
+      result.network = 'h2';
+      result.httpSettings = h2Settings;
+    }}
+
+    // security
+    if (sec === 'tls') {{
+      result.security = 'tls';
+      var tls = {{}};
+      var sni = sc.querySelector('#ss-tls-sni{S}').value.trim();
+      if (sni) tls.serverName = sni;
+      var alpnRaw = sc.querySelector('#ss-tls-alpn{S}').value.trim();
+      if (alpnRaw) tls.alpn = alpnRaw.split(',').map(function(s){{ return s.trim(); }}).filter(Boolean);
+      try {{
+        var certsRaw = sc.querySelector('#ss-tls-certs{S}').value.trim();
+        if (certsRaw) {{ var parsed = JSON.parse(certsRaw); if (Array.isArray(parsed) && parsed.length) tls.certificates = parsed; }}
+      }} catch(e) {{ /* ignore bad JSON */ }}
+      result.tlsSettings = tls;
+    }} else if (sec === 'reality') {{
+      result.security = 'reality';
+      var reality = {{}};
+      var pk = sc.querySelector('#ss-reality-private-key{S}').value.trim();
+      if (pk) reality.privateKey = pk;
+      var pubk = sc.querySelector('#ss-reality-public-key{S}').value.trim();
+      if (pubk) reality.publicKey = pubk;
+      var sid = sc.querySelector('#ss-reality-short-id{S}').value.trim();
+      if (sid) reality.shortId = sid;
+      var dest = sc.querySelector('#ss-reality-dest{S}').value.trim();
+      if (dest) reality.dest = dest;
+      var sn = sc.querySelector('#ss-reality-server-names{S}').value.trim();
+      if (sn) reality.serverNames = sn.split(',').map(function(s){{ return s.trim(); }}).filter(Boolean);
+      var sx = sc.querySelector('#ss-reality-spider-x{S}').value.trim();
+      if (sx) reality.spiderX = sx;
+      result.realitySettings = reality;
+    }} else {{
+      result.security = 'none';
+    }}
+
+    sc.querySelector('#stream-settings-json{S}').value = JSON.stringify(result);
+  }};
+
+  // Wire up change listeners for auto-update (scoped to this instance)
+  sc.querySelectorAll('input, select, textarea').forEach(function(el) {{
+    el.addEventListener('change', {'window.ssAssembleJson_' + uid if uid else 'ssAssembleJson'});
+    el.addEventListener('input', {'window.ssAssembleJson_' + uid if uid else 'ssAssembleJson'});
+  }});
+
+  // --- Populate from existing JSON ---
+  var existingRaw = "{safe_existing}";
+  if (existingRaw && existingRaw !== '{{}}' && existingRaw !== '{{}}') {{
+    try {{
+      var data = JSON.parse(existingRaw);
+
+      // network
+      var netMap = {{ tcp:'tcp', ws:'ws', grpc:'grpc', h2:'h2', http:'h2', http2:'h2' }};
+      if (data.network && netMap[data.network]) {{
+        netSel.value = netMap[data.network];
+      }}
+      ssShowTransport();
+
+      // security
+      if (data.security && ['none','tls','reality'].indexOf(data.security) !== -1) {{
+        secSel.value = data.security;
+      }}
+      ssShowSecurity();
+
+      // TCP
+      if (data.tcpSettings) {{
+        if (data.tcpSettings.header && data.tcpSettings.header.type) {{
+          sc.querySelector('#ss-tcp-header-type{S}').value = data.tcpSettings.header.type;
+        }}
+        if (data.tcpSettings.header && data.tcpSettings.header.request && data.tcpSettings.header.request.path) {{
+          sc.querySelector('#ss-tcp-request-path{S}').value = data.tcpSettings.header.request.path;
+        }}
+      }}
+
+      // WebSocket
+      if (data.wsSettings) {{
+        if (data.wsSettings.path) sc.querySelector('#ss-ws-path{S}').value = data.wsSettings.path;
+        if (data.wsSettings.host) sc.querySelector('#ss-ws-host{S}').value = data.wsSettings.host;
+      }}
+
+      // gRPC
+      if (data.grpcSettings && data.grpcSettings.serviceName) {{
+        sc.querySelector('#ss-grpc-service{S}').value = data.grpcSettings.serviceName;
+      }}
+
+      // HTTP/2
+      var h2s = data.httpSettings || data.h2Settings || null;
+      if (h2s) {{
+        if (h2s.host) {{
+          var h2host = Array.isArray(h2s.host) ? h2s.host.join(', ') : h2s.host;
+          sc.querySelector('#ss-h2-host{S}').value = h2host;
+        }}
+        if (h2s.path) sc.querySelector('#ss-h2-path{S}').value = h2s.path;
+      }}
+
+      // TLS
+      if (data.tlsSettings) {{
+        var tls = data.tlsSettings;
+        if (tls.serverName) sc.querySelector('#ss-tls-sni{S}').value = tls.serverName;
+        if (tls.alpn) sc.querySelector('#ss-tls-alpn{S}').value = (Array.isArray(tls.alpn) ? tls.alpn.join(', ') : tls.alpn);
+        if (tls.certificates) sc.querySelector('#ss-tls-certs{S}').value = JSON.stringify(tls.certificates, null, 2);
+      }}
+
+      // Reality
+      if (data.realitySettings) {{
+        var r = data.realitySettings;
+        if (r.privateKey) sc.querySelector('#ss-reality-private-key{S}').value = r.privateKey;
+        if (r.publicKey) sc.querySelector('#ss-reality-public-key{S}').value = r.publicKey;
+        if (r.shortId) sc.querySelector('#ss-reality-short-id{S}').value = r.shortId;
+        if (r.dest) sc.querySelector('#ss-reality-dest{S}').value = r.dest;
+        if (r.serverNames) sc.querySelector('#ss-reality-server-names{S}').value = (Array.isArray(r.serverNames) ? r.serverNames.join(', ') : r.serverNames);
+        if (r.spiderX) sc.querySelector('#ss-reality-spider-x{S}').value = r.spiderX;
+      }}
+
+      {'window.ssAssembleJson_' + uid if uid else 'ssAssembleJson'}();
+    }} catch(e) {{
+      console.warn('MiGate: could not parse existing stream settings JSON', e);
+    }}
+  }}
+}})();
+</script>
+"""
+
+
 def _inbound_create_form_html(base_path: str = "/") -> str:
     return f"""
   <section class="card">
     <h3>创建入站规则</h3>
     <p class="text-muted text-sm">创建 Xray 入站代理。支持 VLESS、VMess、Trojan、Shadowsocks 协议。</p>
-    <form method="post" action="{escape(_panel_url(base_path, '/inbounds/create'))}" class="form-grid">
+    <form method="post" action="{escape(_panel_url(base_path, '/inbounds/create'))}" class="form-grid" onsubmit="if(window.ssAssembleJson)ssAssembleJson()">
       <div class="form-group"><label>备注<input name="remark" placeholder="例如：HK-VLESS-443" required></label></div>
       <div class="form-group"><label>协议<select name="protocol"><option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option><option value="shadowsocks">Shadowsocks</option></select></label></div>
       <div class="form-group"><label>端口<input name="port" type="number" value="443" min="1" max="65535" required></label></div>
       <input type="hidden" name="listen" value="0.0.0.0">
       <input type="hidden" name="settings" value="{{}}">
-      <input type="hidden" name="stream_settings" value="{{}}">
+      {_stream_settings_form_html(panel_base_path=base_path)}
       <button class="btn btn-primary btn-block" type="submit">创建入站</button>
     </form>
   </section>
@@ -387,7 +773,7 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/") -> st
       </div>
       <details>
         <summary>编辑入站</summary>
-        <form method="post" action="{escape(edit_action)}">
+        <form method="post" action="{escape(edit_action)}" onsubmit="if(window.ssAssembleJson_{ib.id})window.ssAssembleJson_{ib.id}()">
           <label>备注
             <input name="remark" value="{escape(ib.remark)}" required>
           </label>
@@ -404,7 +790,7 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/") -> st
           </label>
           <input type="hidden" name="listen" value="{escape(ib.listen)}">
           <input type="hidden" name="settings" value="{escape(ib.settings)}">
-          <input type="hidden" name="stream_settings" value="{escape(ib.stream_settings)}">
+          {_stream_settings_form_html(ib.stream_settings, uid=str(ib.id), panel_base_path=base_path)}
           <button type="submit">保存修改</button>
         </form>
       </details>
@@ -1901,6 +2287,25 @@ a {{ color:#4ecdc4; }}
             "performed_side_effects": True,
         }
 
+    @app.post("/api/xray/x25519")
+    def api_xray_x25519():
+        try:
+            result = subprocess.run(["xray", "x25519"], capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                return JSONResponse({"detail": "xray x25519 failed", "stderr": result.stderr}, status_code=500)
+            private_key = ""
+            public_key = ""
+            for line in result.stdout.strip().splitlines():
+                if line.startswith("Private key:"):
+                    private_key = line.split(":", 1)[1].strip()
+                elif line.startswith("Public key:"):
+                    public_key = line.split(":", 1)[1].strip()
+            return {"private_key": private_key, "public_key": public_key}
+        except FileNotFoundError:
+            return JSONResponse({"detail": "xray binary not found"}, status_code=500)
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+
     @app.get("/api/proxy/runtime")
     def api_proxy_runtime() -> dict[str, object]:
         return _proxy_run_result_json(proxy_loader())
@@ -2531,5 +2936,51 @@ a {{ color:#4ecdc4; }}
     def dry_run_xray_install() -> str:
         result = _xray_install_dry_run_html(dry_run_loader)
         return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
+
+    @app.post(_panel_url(panel_base_path, "/xray/x25519"), response_class=HTMLResponse)
+    def panel_xray_x25519(request: Request):
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return auth_redirect
+        try:
+            result = subprocess.run(["xray", "x25519"], capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                body = f"""<div class="card"><h3>❌ x25519 生成失败</h3><pre>{escape(result.stderr)}</pre></div>"""
+                return _action_page(body, active="xray", title="X25519", base_path=panel_base_path, user=_panel_user)
+            private_key = ""
+            public_key = ""
+            for line in result.stdout.strip().splitlines():
+                if line.startswith("Private key:"):
+                    private_key = line.split(":", 1)[1].strip()
+                elif line.startswith("Public key:"):
+                    public_key = line.split(":", 1)[1].strip()
+            body = f"""
+  <section class="card">
+    <h3>🔑 X25519 密钥对已生成</h3>
+    <div class="form-group">
+      <label>Private Key
+        <div style="display:flex;gap:8px;align-items:center;">
+          <code id="x25519-private-key" style="flex:1;padding:8px;background:var(--bg-input);border-radius:var(--radius-sm);word-break:break-all;">{escape(private_key)}</code>
+          <button type="button" class="btn btn-sm" onclick="navigator.clipboard.writeText('{escape(private_key)}')">📋</button>
+        </div>
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Public Key
+        <div style="display:flex;gap:8px;align-items:center;">
+          <code id="x25519-public-key" style="flex:1;padding:8px;background:var(--bg-input);border-radius:var(--radius-sm);word-break:break-all;">{escape(public_key)}</code>
+          <button type="button" class="btn btn-sm" onclick="navigator.clipboard.writeText('{escape(public_key)}')">📋</button>
+        </div>
+      </label>
+    </div>
+  </section>
+"""
+            return _action_page(body, active="xray", title="X25519", base_path=panel_base_path, user=_panel_user)
+        except FileNotFoundError:
+            body = """<div class="card"><h3>❌ xray 未安装</h3><p>请先安装 xray。</p></div>"""
+            return _action_page(body, active="xray", title="X25519", base_path=panel_base_path, user=_panel_user)
+        except Exception as exc:
+            body = f"""<div class="card"><h3>❌ 错误</h3><p>{escape(str(exc))}</p></div>"""
+            return _action_page(body, active="xray", title="X25519", base_path=panel_base_path, user=_panel_user)
 
     return app

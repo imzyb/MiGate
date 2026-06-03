@@ -4234,3 +4234,114 @@ def test_global_exception_handler_returns_json_for_api_routes(tmp_path):
     body = resp.json()
     assert body["detail"] == "internal server error"
     assert "api exploded" in body["error"]
+
+
+def test_api_xray_x25519_returns_key_pair(tmp_path):
+    from unittest.mock import patch, MagicMock
+
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    app = create_app(node_repository=NodeRepository(tmp_path / "migate.db"), panel_config_path=config_path)
+    client = TestClient(app)
+
+    # Login first
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = "Private key: abc123private\nPublic key: def456public\n"
+    mock_result.stderr = ""
+
+    with patch("migate.api.app.subprocess.run", return_value=mock_result) as mock_run:
+        resp = client.post("/api/xray/x25519")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["private_key"] == "abc123private"
+    assert data["public_key"] == "def456public"
+    mock_run.assert_called_once_with(["xray", "x25519"], capture_output=True, text=True, timeout=10)
+
+
+def test_api_xray_x25519_requires_auth(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    app = create_app(node_repository=NodeRepository(tmp_path / "migate.db"), panel_config_path=config_path)
+    client = TestClient(app)
+
+    resp = client.post("/api/xray/x25519")
+
+    assert resp.status_code == 401
+
+
+def test_panel_xray_x25519_returns_html_with_keys(tmp_path):
+    from unittest.mock import patch, MagicMock
+
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    app = create_app(node_repository=NodeRepository(tmp_path / "migate.db"), panel_config_path=config_path)
+    client = TestClient(app)
+
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = "Private key: testprivatekey\nPublic key: testpublickey\n"
+    mock_result.stderr = ""
+
+    with patch("migate.api.app.subprocess.run", return_value=mock_result):
+        resp = client.post("/mg-admin/xray/x25519")
+
+    assert resp.status_code == 200
+    assert "testprivatekey" in resp.text
+    assert "testpublickey" in resp.text
+    assert "x25519-private-key" in resp.text
+    assert "x25519-public-key" in resp.text
+
+
+def test_panel_xray_x25519_requires_auth(tmp_path):
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    app = create_app(node_repository=NodeRepository(tmp_path / "migate.db"), panel_config_path=config_path)
+    client = TestClient(app)
+
+    resp = client.post("/mg-admin/xray/x25519", follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert "/mg-admin/login" in resp.headers["location"]
+
+
+def test_api_xray_x25519_handles_xray_not_found(tmp_path):
+    from unittest.mock import patch
+
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    app = create_app(node_repository=NodeRepository(tmp_path / "migate.db"), panel_config_path=config_path)
+    client = TestClient(app)
+
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+
+    with patch("migate.api.app.subprocess.run", side_effect=FileNotFoundError("xray not found")):
+        resp = client.post("/api/xray/x25519")
+
+    assert resp.status_code == 500
+    assert "not found" in resp.json()["detail"]
+
+
+def test_api_xray_x25519_handles_nonzero_exit(tmp_path):
+    from unittest.mock import patch, MagicMock
+
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, base_path="/mg-admin")
+    app = create_app(node_repository=NodeRepository(tmp_path / "migate.db"), panel_config_path=config_path)
+    client = TestClient(app)
+
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stderr = "some error"
+
+    with patch("migate.api.app.subprocess.run", return_value=mock_result):
+        resp = client.post("/api/xray/x25519")
+
+    assert resp.status_code == 500
