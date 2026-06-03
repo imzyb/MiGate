@@ -12,6 +12,9 @@ const toast = useToast()
 const inbounds = ref([])
 const { loading, error, exec, retry } = useApi()
 const showCreate = ref(false)
+const editingInbound = ref(null)
+const editForm = ref({})
+const editStreamData = ref({ network: 'tcp', security: 'none' })
 const expandedClient = ref(null)
 const confirmModal = ref(null)
 
@@ -67,6 +70,41 @@ async function deleteInbound(id) {
     toast.success('入站已删除')
     await load()
   } catch (e) { toast.error('删除失败: ' + (e.response?.data?.detail || e.message)) }
+}
+
+function startEditInbound(ib) {
+  editingInbound.value = ib.id
+  editForm.value = {
+    remark: ib.remark,
+    protocol: ib.protocol,
+    port: ib.port,
+    listen: ib.listen || '0.0.0.0',
+  }
+  try {
+    editStreamData.value = JSON.parse(ib.stream_settings || '{}')
+  } catch { editStreamData.value = { network: 'tcp', security: 'none' } }
+}
+
+function cancelEditInbound() {
+  editingInbound.value = null
+  editForm.value = {}
+}
+
+async function saveEditInbound(id) {
+  try {
+    const ib = inbounds.value.find(i => i.id === id)
+    const form = new FormData()
+    form.append('remark', editForm.value.remark)
+    form.append('protocol', editForm.value.protocol)
+    form.append('port', editForm.value.port)
+    form.append('listen', editForm.value.listen || '0.0.0.0')
+    form.append('settings', ib?.settings || '{"clients":[]}')
+    form.append('stream_settings', JSON.stringify(editStreamData.value))
+    await api.post(`/api/inbounds/${id}/update`, form)
+    toast.success('入站已更新 ✅')
+    editingInbound.value = null
+    await load()
+  } catch (e) { toast.error('更新失败: ' + (e.response?.data?.detail || e.message)) }
 }
 
 async function addClient(ibId, email) {
@@ -186,6 +224,7 @@ function toggleClientExpand(ibId, email) {
             {{ ib.enabled ? '● 启用' : '○ 禁用' }}
           </span>
           <div class="toggle" :class="{ active: ib.enabled }" @click="toggleInbound(ib.id, ib.enabled)"></div>
+          <button class="btn btn-sm" @click="startEditInbound(ib)" title="编辑">✏️</button>
           <button class="btn btn-sm btn-danger" @click="deleteInbound(ib.id)">🗑️</button>
         </div>
       </div>
@@ -195,6 +234,39 @@ function toggleClientExpand(ibId, email) {
         <span class="text-muted">↑ 上传: <b style="color:var(--text);">{{ fmtBytes(ib.up_bytes) }}</b></span>
         <span class="text-muted">↓ 下载: <b style="color:var(--text);">{{ fmtBytes(ib.down_bytes) }}</b></span>
       </div>
+
+      <!-- Edit form -->
+      <Transition name="slide">
+        <div v-if="editingInbound === ib.id" style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:14px;">
+          <h4 style="margin-bottom:10px;">✏️ 编辑入站</h4>
+          <form @submit.prevent="saveEditInbound(ib.id)" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
+            <div class="form-group">
+              <label class="text-xs">备注</label>
+              <input v-model="editForm.remark" required style="padding:6px 10px;font-size:13px;">
+            </div>
+            <div class="form-group">
+              <label class="text-xs">协议</label>
+              <select v-model="editForm.protocol" style="padding:6px 10px;font-size:13px;">
+                <option value="vless">VLESS</option>
+                <option value="vmess">VMess</option>
+                <option value="trojan">Trojan</option>
+                <option value="shadowsocks">Shadowsocks</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="text-xs">端口</label>
+              <input v-model.number="editForm.port" type="number" required style="padding:6px 10px;font-size:13px;">
+            </div>
+          </form>
+          <div style="margin-top:10px;">
+            <StreamSettingsForm v-model="editStreamData" />
+          </div>
+          <div style="margin-top:10px;display:flex;gap:8px;">
+            <button class="btn btn-sm btn-primary" @click="saveEditInbound(ib.id)">💾 保存</button>
+            <button class="btn btn-sm" @click="cancelEditInbound">✕ 取消</button>
+          </div>
+        </div>
+      </Transition>
 
       <!-- Clients section -->
       <div style="border-top:1px solid var(--border);padding-top:14px;">
