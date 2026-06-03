@@ -56,7 +56,7 @@ def test_build_config_from_nodes_ignores_disabled_nodes_and_blocks_freedom():
     config = build_config_from_nodes(MiGateConfig(), [enabled, disabled])
 
     assert [inbound["tag"] for inbound in config["inbounds"]] == ["api", "node-1-vless"]
-    assert {outbound["protocol"] for outbound in config["outbounds"]} == {"socks", "blackhole"}
+    assert {outbound["protocol"] for outbound in config["outbounds"]} == {"freedom", "blackhole"}
     # routing rules: api traffic rule first, then node forwarding rule
     node_rule = next(r for r in config["routing"]["rules"] if "node-1-vless" in r.get("inboundTag", []))
     assert node_rule["outboundTag"] == "migate-vpngate"

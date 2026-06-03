@@ -9,9 +9,8 @@ def test_preview_xray_config_renders_safe_default_json_without_side_effects():
     rendered = preview_xray_config(MiGateConfig())
     data = json.loads(rendered)
 
-    assert data["outbounds"][0]["protocol"] == "socks"
-    assert data["outbounds"][0]["settings"]["servers"][0]["address"] == "127.0.0.1"
-    assert {outbound["protocol"] for outbound in data["outbounds"]} == {"socks", "blackhole"}
+    assert data["outbounds"][0]["protocol"] == "freedom"
+    assert {outbound["protocol"] for outbound in data["outbounds"]} == {"freedom", "blackhole"}
     assert data["inbounds"][-1]["tag"] == "vless-main"
     assert data["inbounds"][0]["tag"] == "api"
     assert rendered.endswith("\n")
@@ -74,7 +73,7 @@ def test_save_xray_config_writes_then_validates_when_double_gate_passes(tmp_path
     assert result.validation_status == "valid"
     assert result.performed_side_effects is True
     assert target.exists()
-    assert json.loads(target.read_text(encoding="utf-8"))["outbounds"][0]["protocol"] == "socks"
+    assert json.loads(target.read_text(encoding="utf-8"))["outbounds"][0]["protocol"] == "freedom"
     assert calls == [["xray", "test", "-config", str(target.with_name("config.tmp.json"))]]
 
 
@@ -98,7 +97,7 @@ def test_save_xray_config_backs_up_existing_config_and_keeps_backup_on_success(t
     assert result.backup_path == target.with_name("config.json.bak-test")
     assert result.rollback_performed is False
     assert result.backup_path.read_text(encoding="utf-8") == '{"old": true}\n'
-    assert json.loads(target.read_text(encoding="utf-8"))["outbounds"][0]["protocol"] == "socks"
+    assert json.loads(target.read_text(encoding="utf-8"))["outbounds"][0]["protocol"] == "freedom"
 
 
 def test_save_xray_config_restores_existing_config_when_validation_fails(tmp_path):

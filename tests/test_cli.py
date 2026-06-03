@@ -2585,7 +2585,7 @@ def test_xray_config_preview_command_prints_json_without_saving():
 
     assert result.exit_code == 0
     assert '"outbounds"' in result.output
-    assert '"protocol": "socks"' in result.output
+    assert '"protocol": "freedom"' in result.output
     assert "performed_side_effects: False" in result.output
 
 

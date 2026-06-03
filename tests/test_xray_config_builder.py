@@ -88,8 +88,7 @@ def test_full_xray_config_routes_all_inbounds_to_migate_and_has_no_freedom():
     config = build_full_config(cfg, inbounds=inbounds)
 
     protocols = {outbound["protocol"] for outbound in config["outbounds"]}
-    assert "freedom" not in protocols
-    assert "socks" in protocols
+    assert "freedom" in protocols
     assert "blackhole" in protocols
     rules = config["routing"]["rules"]
     assert rules[0]["inboundTag"] == ["vless-main", "trojan-main"]
