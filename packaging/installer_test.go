@@ -124,6 +124,37 @@ func TestBuildReleaseScriptProducesLinuxArchivesAndChecksums(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowBuildsAndUploadsReleaseAssets(t *testing.T) {
+	workflow := read(t, ".github", "workflows", "release.yml")
+	for _, want := range []string{
+		"name: Release",
+		"push:",
+		"tags:",
+		"v*",
+		"contents: write",
+		"actions/checkout",
+		"actions/setup-go",
+		"go-version-file: go.mod",
+		"packaging/build-release.sh",
+		"softprops/action-gh-release",
+		"dist/migate-linux-amd64.tar.gz",
+		"dist/migate-linux-arm64.tar.gz",
+		"dist/checksums.txt",
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Fatalf("release workflow missing %q", want)
+		}
+	}
+
+	forbidden := []string{"npm", "node_modules", "pip", "uv ", "python", "openvpn", "rollout", "leak", "egress"}
+	lower := strings.ToLower(workflow)
+	for _, word := range forbidden {
+		if strings.Contains(lower, word) {
+			t.Fatalf("release workflow must not contain %q", word)
+		}
+	}
+}
+
 func mustReadFile(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)
