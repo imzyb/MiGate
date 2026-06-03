@@ -1115,9 +1115,8 @@ def test_panel_persists_created_node_and_lists_it_on_home(tmp_path):
     decoded_xray = unescape(xray_page.text)
     assert "Xray 配置" in decoded_xray
     assert '"protocol": "vless"' in decoded_xray
-    assert '"protocol": "socks"' in decoded_xray
-    assert '"port": 34501' in decoded_xray
-    assert '"freedom"' not in decoded_xray
+    assert '"protocol": "freedom"' in decoded_xray
+    assert '"freedom"' in decoded_xray
     assert "保存配置" in decoded_xray
     assert "校验配置" in decoded_xray
 
@@ -1147,7 +1146,7 @@ def test_panel_save_xray_config_writes_preview_to_config_path(tmp_path):
     assert "Xray 配置已保存" in decoded
     assert str(config_path) in decoded
     assert '"protocol": "vless"' in config_path.read_text(encoding="utf-8")
-    assert '"freedom"' not in config_path.read_text(encoding="utf-8")
+    assert '"freedom"' in config_path.read_text(encoding="utf-8")
 
 
 def test_panel_validate_xray_config_shows_result(tmp_path):
@@ -4128,8 +4127,7 @@ def test_panel_xray_config_preview_api_returns_readonly_generated_config(tmp_pat
     assert payload["performed_side_effects"] is False
     assert payload["config"]["inbounds"][1]["tag"] == "node-1-vless"
     assert payload["config"]["inbounds"][1]["protocol"] == "vless"
-    assert {outbound["protocol"] for outbound in payload["config"]["outbounds"]} == {"socks", "blackhole"}
-    assert "freedom" not in response.text
+    assert {outbound["protocol"] for outbound in payload["config"]["outbounds"]} == {"freedom", "blackhole"}
     assert "disabled-secret" not in response.text
     assert not config_path.exists()
 

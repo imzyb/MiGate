@@ -16,6 +16,7 @@ class XrayConfig(BaseModel):
     api_port: int = 10085
     default_outbound_tag: str = "migate-vpngate"
     block_direct_fallback: bool = True
+    egress_mode: str = "direct"  # "direct" = freedom outbound, "socks" = socks proxy chain
 
 
 class VPNConfig(BaseModel):

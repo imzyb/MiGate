@@ -135,7 +135,9 @@ def build_full_config(config: MiGateConfig, *, inbounds: list[XrayObject]) -> Xr
         },
         "inbounds": all_inbounds,
         "outbounds": [
-            build_migate_socks_outbound(config),
+            build_marked_freedom_outbound(config.xray.default_outbound_tag)
+            if config.xray.egress_mode == "direct"
+            else build_migate_socks_outbound(config),
             build_blackhole_outbound(),
         ],
         "routing": {
