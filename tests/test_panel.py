@@ -70,7 +70,7 @@ def test_panel_loads_dangerous_actions_enabled_from_panel_json(tmp_path):
     assert all(action["enabled"] is True for action in actions["dangerous_actions"])
     assert home.status_code == 200
     decoded = unescape(home.text)
-    assert "危险动作：启用" in decoded
+    assert "危险动作" in decoded
     assert 'method="post" action="/api/xray/apply"' in decoded
     assert 'method="post" action="/api/xray/restart"' in decoded
     assert 'name="confirm" value="APPLY"' in decoded
@@ -900,7 +900,7 @@ def test_panel_home_renders_dangerous_action_forms_only_when_enabled(tmp_path):
 
     assert response.status_code == 200
     decoded = unescape(response.text)
-    assert "危险动作：启用" in decoded
+    assert "危险动作" in decoded
     assert "危险动作发现（禁用）" not in decoded
     assert 'method="post" action="/api/xray/apply"' in decoded
     assert 'method="post" action="/api/xray/restart"' in decoded

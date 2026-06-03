@@ -52,10 +52,13 @@ def layout(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{escape(title)} - MiGate</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="{escape(static_css)}">
 </head>
-<body>
-<button class="sidebar-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰</button>
+<body data-base-path="{escape(bp)}">
+<button class="sidebar-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Toggle menu">
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="5" x2="17" y2="5"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="15" x2="17" y2="15"/></svg>
+</button>
 <div class="layout">
   <aside class="sidebar">
     <div class="sidebar-brand">
@@ -79,6 +82,12 @@ def layout(
     {content}
   </main>
 </div>
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loading-overlay">
+  <div class="spinner"></div>
+</div>
+<!-- Toast container (JS-driven notifications) -->
+<div class="toast-container" id="toast-container"></div>
 <script>
 // Close sidebar on outside click (mobile)
 document.addEventListener('click', function(e) {{
@@ -90,15 +99,25 @@ document.addEventListener('click', function(e) {{
 }});
 </script>
 <script>
-function showToast(msg,type){{const t=document.createElement('div');t.className='toast '+(type||'toast-ok');t.textContent=msg;document.body.appendChild(t);requestAnimationFrame(()=>t.classList.add('show'));setTimeout(()=>{{t.classList.remove('show');setTimeout(()=>t.remove(),300)}},2000)}}
-function copyText(el){{ navigator.clipboard.writeText(el.dataset.text || el.textContent); showToast('已复制'); setTimeout(()=>el.textContent=el.dataset.orig||'复制',1500); }}
+function showToast(msg, type) {{
+  var container = document.getElementById('toast-container');
+  var t = document.createElement('div');
+  t.className = 'toast ' + (type === 'toast-err' || type === 'toast-error' ? 'toast-error' : 'toast-ok');
+  t.textContent = msg;
+  container.appendChild(t);
+  setTimeout(function() {{
+    t.classList.add('removing');
+    setTimeout(function() {{ t.remove(); }}, 300);
+  }}, 2500);
+}}
+function copyText(el){{ navigator.clipboard.writeText(el.dataset.text || el.textContent); showToast('已复制'); setTimeout(function(){{el.textContent=el.dataset.orig||'复制';}},1500); }}
 document.addEventListener('submit', function(e) {{
   var form = e.target;
   if (form.action && form.action.indexOf('/delete') !== -1) {{
     if (!confirm('确定要删除吗？')) {{ e.preventDefault(); return; }}
     var fd = new FormData(form);
     fetch(form.action, {{method:'POST', body:fd, credentials:'same-origin'}}).then(function(r) {{
-      if (r.ok) {{ showToast('已删除'); setTimeout(()=>location.reload(),800); }}
+      if (r.ok) {{ showToast('已删除'); setTimeout(function(){{location.reload();}},800); }}
       else {{ showToast('删除失败','toast-err'); }}
     }}).catch(function(){{ showToast('删除失败','toast-err'); }});
     e.preventDefault();
@@ -116,7 +135,7 @@ async function addClient(e,inboundId,url){{
   try{{
     const r=await fetch(url,{{method:'POST',body:data}});
     const j=await r.json();
-    if(j.status==='created'){{showToast('客户端已添加');setTimeout(()=>location.reload(),500);}}
+    if(j.status==='created'){{showToast('客户端已添加');setTimeout(function(){{location.reload();}},500);}}
     else showToast(j.status||'添加失败','toast-err');
   }}catch(err){{showToast('网络错误','toast-err');}}
 }}
@@ -137,13 +156,13 @@ async function saveClientLimits(e,inboundId,email){{
   try{{
     const r=await fetch(bp+'api/inbounds/'+inboundId+'/clients/'+encodeURIComponent(email)+'/limits',{{method:'POST',body:data}});
     const j=await r.json();
-    if(j.status==='ok'){{showToast('限额已保存');setTimeout(()=>location.reload(),500);}}
+    if(j.status==='ok'){{showToast('限额已保存');setTimeout(function(){{location.reload();}},500);}}
     else showToast(j.detail||'保存失败','toast-err');
   }}catch(err){{showToast('网络错误','toast-err');}}
 }}
 </script>
 <div id="qr-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);align-items:center;justify-content:center;" onclick="if(event.target===this)this.style.display='none'">
-  <div style="background:#1e1e2e;padding:24px;border-radius:12px;text-align:center;max-width:320px;">
+  <div style="background:#161b22;padding:24px;border-radius:12px;text-align:center;max-width:320px;border:1px solid #30363d;">
     <div style="margin-bottom:12px;font-weight:600;">扫码导入</div>
     <img id="qr-img" src="" alt="QR Code" style="width:200px;height:200px;background:#fff;padding:8px;border-radius:8px;">
     <div style="margin-top:12px;"><button class="btn btn-sm" onclick="document.getElementById('qr-modal').style.display='none'">关闭</button></div>

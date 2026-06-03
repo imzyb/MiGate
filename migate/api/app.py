@@ -699,80 +699,85 @@ def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
     if not nodes:
         return """
   <section class="card">
-    <h2>已创建节点</h2>
-    <p>还没有节点。请先使用上面的表单生成第一个节点。</p>
+    <h3>已创建节点</h3>
+    <p class="text-muted">还没有节点。请先使用上面的表单生成第一个节点。</p>
   </section>
 """
 
-    items = []
+    rows = []
     for node in nodes:
         address = f"{escape(node.host)}:{node.port}"
-        socks5 = f"<div class=\"label\">SOCKS5 出口：{escape(node.socks5_host)}:{node.socks5_port}</div>" if node.socks5_host and node.socks5_port else "<div class=\"label\">SOCKS5 出口：默认 MiGate 本地出口</div>"
+        status_badge = '<span class="badge badge-ok">启用</span>' if node.enabled else '<span class="badge badge-off">禁用</span>'
         toggle_action = _panel_url(base_path, f"/nodes/{node.id}/disable" if node.enabled else f"/nodes/{node.id}/enable")
-        toggle_label = "禁用节点" if node.enabled else "启用节点"
         delete_action = _panel_url(base_path, f"/nodes/{node.id}/delete")
         edit_action = _panel_url(base_path, f"/nodes/{node.id}/edit")
         vless_selected = " selected" if node.protocol == "vless" else ""
         trojan_selected = " selected" if node.protocol == "trojan" else ""
         ss_selected = " selected" if node.protocol == "shadowsocks" else ""
         socks5_port_value = "" if node.socks5_port is None else str(node.socks5_port)
-        items.append(
-            f"""
-    <article class="node">
-      <div class="node-title">{escape(node.name)} <span class="label">#{node.id}</span></div>
-      <div class="label">协议：{escape(node.protocol)} ｜ 地址：{address} ｜ 状态：{'启用' if node.enabled else '禁用'} <span class="badge badge-traffic">↑ {_format_bytes(node.up_bytes if hasattr(node,'up_bytes') else 0)} ↓ {_format_bytes(node.down_bytes if hasattr(node,'down_bytes') else 0)}</span></div>
-      {socks5}
-      <div class="label">分享链接</div>
-      <div class="code-block"><code>{escape(node.share_link)}</code><button class="copy-btn" onclick="copyText(this)" data-text="{escape(node.share_link)}" data-orig="复制">复制</button><button class="copy-btn" onclick="showQR(this.dataset.text)" data-text="{escape(node.share_link)}">QR 码</button></div>
-      <div class="label">订阅内容</div>
-      <div class="code-block"><code>{escape(node.subscription)}</code><button class="copy-btn" onclick="copyText(this)" data-text="{escape(node.subscription)}" data-orig="复制">复制</button><button class="copy-btn" onclick="showQR(this.dataset.text)" data-text="{escape(node.subscription)}">QR 码</button></div>
-      <div class="actions">
-        <div class="toggle-wrap">
-          <input type="checkbox" id="node-toggle-{node.id}" class="toggle-checkbox"{' checked' if node.enabled else ''} data-url="{escape(toggle_action)}">
-          <label for="node-toggle-{node.id}" class="toggle-btn"></label>
+        up_bytes = node.up_bytes if hasattr(node, 'up_bytes') else 0
+        down_bytes = node.down_bytes if hasattr(node, 'down_bytes') else 0
+        rows.append(f"""
+    <tr>
+      <td>
+        <div style="font-weight:600;">{escape(node.name)}</div>
+        <div class="text-muted text-xs">#{node.id}</div>
+      </td>
+      <td><span class="badge badge-traffic">{escape(node.protocol.upper())}</span></td>
+      <td>{address}</td>
+      <td>{status_badge}</td>
+      <td class="text-sm">↑ {_format_bytes(up_bytes)}<br>↓ {_format_bytes(down_bytes)}</td>
+      <td>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <div class="toggle-wrap">
+            <input type="checkbox" id="node-toggle-{node.id}" class="toggle-checkbox"{' checked' if node.enabled else ''} data-url="{escape(toggle_action)}">
+            <label for="node-toggle-{node.id}" class="toggle-btn"></label>
+          </div>
+          <button class="btn btn-sm" onclick="copyText(this)" data-text="{escape(node.share_link)}" data-orig="📋 链接">📋 链接</button>
+          <button class="btn btn-sm" onclick="showQR(this.dataset.text)" data-text="{escape(node.share_link)}">QR</button>
+          <form method="post" action="{escape(delete_action)}" style="display:inline;">
+            <button class="btn btn-sm btn-danger" type="submit">删除</button>
+          </form>
         </div>
-        <form method="post" action="{escape(delete_action)}">
-          <button type="submit">删除节点</button>
-        </form>
-      </div>
-      <details>
-        <summary>编辑节点</summary>
-        <form method="post" action="{escape(edit_action)}">
-          <label>节点协议
-            <select name="protocol">
-              <option value="vless"{vless_selected}>VLESS</option>
-              <option value="trojan"{trojan_selected}>Trojan</option>
-              <option value="shadowsocks"{ss_selected}>Shadowsocks</option>
-            </select>
-          </label>
-          <label>节点名称
-            <input name="name" value="{escape(node.name)}">
-          </label>
-          <label>服务器域名/IP
-            <input name="host" value="{escape(node.host)}" required>
-          </label>
-          <label>端口
-            <input name="port" type="number" value="{node.port}" min="1" max="65535" required>
-          </label>
-          <label class="wide">UUID / 密码
-            <input name="credential" value="{escape(node.credential)}" required>
-          </label>
-          <label>SOCKS5 出口主机（可选）
-            <input name="socks5_host" value="{escape(node.socks5_host)}">
-          </label>
-          <label>SOCKS5 出口端口（可选）
-            <input name="socks5_port" type="number" min="1" max="65535" value="{escape(socks5_port_value)}">
-          </label>
-          <button type="submit">保存修改</button>
-        </form>
-      </details>
-    </article>
-"""
-        )
+      </td>
+    </tr>
+    <tr>
+      <td colspan="6" style="padding:0;border:none;">
+        <details>
+          <summary style="padding:8px 14px;cursor:pointer;">编辑节点 #{node.id}</summary>
+          <form method="post" action="{escape(edit_action)}" class="form-grid" style="padding:0 14px 14px;">
+            <div class="form-group"><label>协议<select name="protocol"><option value="vless"{vless_selected}>VLESS</option><option value="trojan"{trojan_selected}>Trojan</option><option value="shadowsocks"{ss_selected}>Shadowsocks</option></select></label></div>
+            <div class="form-group"><label>名称<input name="name" value="{escape(node.name)}"></label></div>
+            <div class="form-group"><label>域名/IP<input name="host" value="{escape(node.host)}" required></label></div>
+            <div class="form-group"><label>端口<input name="port" type="number" value="{node.port}" min="1" max="65535" required></label></div>
+            <div class="form-group"><label>UUID/密码<input name="credential" value="{escape(node.credential)}" required></label></div>
+            <div class="form-group"><label>SOCKS5 主机<input name="socks5_host" value="{escape(node.socks5_host)}"></label></div>
+            <div class="form-group"><label>SOCKS5 端口<input name="socks5_port" type="number" min="1" max="65535" value="{escape(socks5_port_value)}"></label></div>
+            <button class="btn btn-primary" type="submit">保存修改</button>
+          </form>
+        </details>
+      </td>
+    </tr>""")
     return f"""
   <section class="card">
-    <h2>已创建节点</h2>
-    {''.join(items)}
+    <h3>已创建节点</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>名称</th>
+            <th>协议</th>
+            <th>地址</th>
+            <th>状态</th>
+            <th>流量</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {''.join(rows)}
+        </tbody>
+      </table>
+    </div>
   </section>
 """
 
@@ -1814,55 +1819,45 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
 
     return f"""
   <section class="card">
-    <h2>系统状态</h2>
-    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin:16px 0;">
-      <div class="card" style="text-align:center;">
-        <div style="font-size:32px;">{xray_icon}</div>
-        <div style="font-weight:600;margin:8px 0 4px;">Xray</div>
-        <div class="label">{xray_text} {escape(xray_ver)}</div>
+    <h3>系统状态</h3>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="label">Xray</div>
+        <div class="value">{xray_icon} {xray_text}</div>
+        <div class="detail">{escape(xray_ver)}</div>
       </div>
-      <div class="card" style="text-align:center;">
-        <div style="font-size:32px;">🔗</div>
-        <div style="font-weight:600;margin:8px 0 4px;">节点</div>
-        <div class="label">{nodes_text}</div>
+      <div class="stat-card">
+        <div class="label">节点</div>
+        <div class="value">🔗 {nodes['enabled']}/{nodes['total']}</div>
+        <div class="detail">已启用</div>
       </div>
-      <div class="card" style="text-align:center;">
-        <div style="font-size:32px;">⚙️</div>
-        <div style="font-weight:600;margin:8px 0 4px;">服务</div>
-        <div class="label">{svc_ok}/{svc_total} 正常</div>
+      <div class="stat-card">
+        <div class="label">服务</div>
+        <div class="value">⚙️ {svc_ok}/{svc_total}</div>
+        <div class="detail">正常运行</div>
       </div>
-      <div class="card" style="text-align:center;">
-        <div style="font-size:32px;">🖥</div>
-        <div style="font-weight:600;margin:8px 0 4px;">CPU</div>
+      <div class="stat-card">
+        <div class="label">CPU</div>
         <div class="value" id="sys-cpu">{cpu_pct}%</div>
-        <div style="background:#1a2a3a;border-radius:4px;height:6px;margin-top:6px;overflow:hidden;">
-          <div id="sys-cpu-bar" style="background:{cpu_color};height:100%;width:{cpu_pct}%;transition:width 0.5s;"></div>
-        </div>
-        <div class="label" id="sys-cpu-count">{sys_res.cpu_count} 核心</div>
+        <div class="progress-bar"><div id="sys-cpu-bar" style="width:{cpu_pct}%;background:{cpu_color}"></div></div>
+        <div class="detail" id="sys-cpu-count">{sys_res.cpu_count} 核心</div>
       </div>
-      <div class="card" style="text-align:center;">
-        <div style="font-size:32px;">💾</div>
-        <div style="font-weight:600;margin:8px 0 4px;">RAM</div>
+      <div class="stat-card">
+        <div class="label">RAM</div>
         <div class="value" id="sys-ram">{ram_used_str}/{ram_total_str}</div>
-        <div style="background:#1a2a3a;border-radius:4px;height:6px;margin-top:6px;overflow:hidden;">
-          <div id="sys-ram-bar" style="background:#4ecdc4;height:100%;width:{sys_res.ram_percent}%;transition:width 0.5s;"></div>
-        </div>
-        <div class="label" id="sys-ram-pct">{sys_res.ram_percent}%</div>
+        <div class="progress-bar"><div id="sys-ram-bar" style="width:{sys_res.ram_percent}%"></div></div>
+        <div class="detail" id="sys-ram-pct">{sys_res.ram_percent}%</div>
       </div>
-      <div class="card" style="text-align:center;">
-        <div style="font-size:32px;">💿</div>
-        <div style="font-weight:600;margin:8px 0 4px;">Disk</div>
+      <div class="stat-card">
+        <div class="label">Disk</div>
         <div class="value" id="sys-disk">{disk_used_str}/{disk_total_str}</div>
-        <div style="background:#1a2a3a;border-radius:4px;height:6px;margin-top:6px;overflow:hidden;">
-          <div id="sys-disk-bar" style="background:#4ecdc4;height:100%;width:{sys_res.disk_percent}%;transition:width 0.5s;"></div>
-        </div>
-        <div class="label" id="sys-disk-pct">{sys_res.disk_percent}%</div>
+        <div class="progress-bar"><div id="sys-disk-bar" style="width:{sys_res.disk_percent}%"></div></div>
+        <div class="detail" id="sys-disk-pct">{sys_res.disk_percent}%</div>
       </div>
-      <div class="card" style="text-align:center;">
-        <div style="font-size:32px;">⏱</div>
-        <div style="font-weight:600;margin:8px 0 4px;">Uptime</div>
+      <div class="stat-card">
+        <div class="label">Uptime</div>
         <div class="value" id="sys-uptime">{uptime_str}</div>
-        <div class="label" id="sys-load">负载: {sys_res.load_avg[0]:.2f} / {sys_res.load_avg[1]:.2f} / {sys_res.load_avg[2]:.2f}</div>
+        <div class="detail" id="sys-load">负载: {sys_res.load_avg[0]:.2f} / {sys_res.load_avg[1]:.2f} / {sys_res.load_avg[2]:.2f}</div>
       </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -1921,19 +1916,19 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
     }})();
     </script>
     <h3 style="margin-top:24px;">📊 流量统计</h3>
-    <div class="grid" id="traffic-stats">
-      <div class="card"><div class="label">加载中...</div></div>
-    </div>
-    <script>
-    (function(){{
-      function fmt(v){{if(v>1073741824)return(v/1073741824).toFixed(2)+' GB';if(v>1048576)return(v/1048576).toFixed(2)+' MB';if(v>1024)return(v/1024).toFixed(2)+' KB';return v+' B';}}
-  fetch('/api/stats/traffic').then(r=>r.json()).then(data=>{{
-    const el=document.getElementById('traffic-stats');
-    if(!data.inbounds||data.inbounds.length===0){{el.innerHTML='<div class="card"><div class="label">暂无流量数据</div></div>';return;}}
-    el.innerHTML=data.inbounds.map(s=>`<div class="card"><div class="label">${{s.remark}} (${{s.protocol}}:${{s.port}})</div><div class="value">↑ ${{fmt(s.up_bytes)}} ↓ ${{fmt(s.down_bytes)}}</div><div class="label">总计 ${{fmt(s.total_bytes)}}</div></div>`).join('');
-  }}).catch(()=>{{document.getElementById('traffic-stats').innerHTML='<div class="card"><div class="label">流量数据获取失败</div></div>';}});
-    }})();
-    </script>
+     <h3 style="margin-top:24px;">📊 流量统计</h3>
+     <div class="stats-grid" id="traffic-stats">
+       <div class="stat-card"><div class="label">加载中...</div></div>
+     </div>
+     <script>
+     (function(){{function fmt(v){{if(v>1073741824)return(v/1073741824).toFixed(2)+' GB';if(v>1048576)return(v/1048576).toFixed(2)+' MB';if(v>1024)return(v/1024).toFixed(2)+' KB';return v+' B';}}
+   fetch('/api/stats/traffic').then(r=>r.json()).then(data=>{{
+     const el=document.getElementById('traffic-stats');
+     if(!data.inbounds||data.inbounds.length===0){{el.innerHTML='<div class="stat-card"><div class="label">暂无流量数据</div></div>';return;}}
+     el.innerHTML=data.inbounds.map(s=>`<div class="stat-card"><div class="label">${{s.remark}} (${{s.protocol}}:${{s.port}})</div><div class="value">↑ ${{fmt(s.up_bytes)}}</div><div class="detail">↓ ${{fmt(s.down_bytes)}} · 总计 ${{fmt(s.total_bytes)}}</div></div>`).join('');
+   }}).catch(()=>{{document.getElementById('traffic-stats').innerHTML='<div class="stat-card"><div class="label">流量数据获取失败</div></div>';}});
+     }})();
+     </script>
     <h3 style="margin-top:24px;">📈 流量趋势</h3>
     <div style="position:relative;height:300px;margin:16px 0;">
       <canvas id="trafficChart"></canvas>
@@ -1950,16 +1945,17 @@ def _dangerous_actions_html(snapshot: dict[str, object]) -> str:
     if not enabled:
         return ""
     return """
-  <section class="card">
-    <div class="label">危险动作：启用</div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;">
+  <section class="card" style="border-color: rgba(239,68,68,.3);">
+    <h3 style="color: var(--danger);">⚠️ 危险动作</h3>
+    <p class="text-muted text-sm" style="margin-bottom:12px;">以下操作可能影响服务运行，请谨慎使用。</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
       <form method="post" action="/api/xray/apply">
         <input type="hidden" name="confirm" value="APPLY">
-        <button type="submit">应用 Xray 配置</button>
+        <button class="btn btn-danger" type="submit">应用 Xray 配置</button>
       </form>
       <form method="post" action="/api/xray/restart">
         <input type="hidden" name="confirm" value="RESTART">
-        <button type="submit">重启 Xray</button>
+        <button class="btn btn-danger" type="submit">重启 Xray</button>
       </form>
     </div>
   </section>
