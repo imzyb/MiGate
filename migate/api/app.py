@@ -2133,7 +2133,7 @@ a {{ color:#4ecdc4; }}
         services = {n: status_loader(n) for n in MIGATE_SYSTEMD_SERVICES}
         egress = egress_loader()
         return _page_shell(
-            _service_statuses_html(services) + _egress_status_report_html(egress) + _systemd_preview_html(migate_config),
+            _service_statuses_html(services) + _egress_status_report_html(egress) + _egress_dry_run_controls_html() + _systemd_preview_html(migate_config),
             active="system", title="系统设置", subtitle="服务管理、Egress 状态和系统配置",
             base_path=panel_base_path, user=_panel_user,
         )
