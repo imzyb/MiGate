@@ -2,13 +2,18 @@
 import { ref, onMounted } from 'vue'
 import api from '../api/index.js'
 import { useToast } from '../composables/useToast.js'
+import { useApi } from '../composables/useApi.js'
 import ShareModal from '../components/ShareModal.vue'
+import ConfirmModal from '../components/ConfirmModal.vue'
+import Skeleton from '../components/Skeleton.vue'
+import ErrorBanner from '../components/ErrorBanner.vue'
 
 const toast = useToast()
 const nodes = ref([])
-const loading = ref(true)
+const { loading, error, exec, retry } = useApi()
 const showCreate = ref(false)
 const shareModal = ref(null)
+const confirmModal = ref(null)
 
 const form = ref({
   name: '', protocol: 'vless', host: '', port: 443, credential: '',
@@ -23,12 +28,11 @@ const protoBadge = {
 }
 
 async function load() {
-  loading.value = true
-  try {
+  await exec(async () => {
     const { data } = await api.get('/api/nodes')
     nodes.value = data
-  } catch (e) { console.error(e) }
-  loading.value = false
+    return data
+  })
 }
 
 onMounted(load)
@@ -53,7 +57,8 @@ async function toggleNode(id, enabled) {
 }
 
 async function deleteNode(id) {
-  if (!confirm('确认删除此节点？')) return
+  const ok = await confirmModal.value?.open('确认删除此节点？删除后不可恢复。')
+  if (!ok) return
   try {
     await api.post(`/api/nodes/${id}/delete`)
     toast.success('节点已删除')
@@ -64,7 +69,6 @@ async function deleteNode(id) {
 async function showShareLinks(node) {
   try {
     const { data } = await api.get(`/api/nodes/export`)
-    // Find links for this node
     const nodeLinks = data.filter(e => e.node_id === node.id).map(e => e.link)
     if (nodeLinks.length) {
       shareModal.value?.open(nodeLinks)
@@ -72,11 +76,6 @@ async function showShareLinks(node) {
       toast.warn('该节点暂无分享链接')
     }
   } catch (e) { toast.error('获取链接失败') }
-}
-
-function trafficPercent(node) {
-  // No limit = -1
-  return -1
 }
 
 function fmtBytes(n) {
@@ -99,6 +98,8 @@ function fmtBytes(n) {
         {{ showCreate ? '✕ 取消' : '➕ 创建节点' }}
       </button>
     </div>
+
+    <ErrorBanner :error="error" :retry="retry" />
 
     <Transition name="slide">
       <div v-if="showCreate" class="card">
@@ -138,7 +139,11 @@ function fmtBytes(n) {
 
     <div class="card">
       <h3>节点列表</h3>
-      <div v-if="loading" class="text-muted" style="padding:20px;text-align:center;">加载中...</div>
+      <Skeleton v-if="loading" :lines="4" />
+      <div v-else-if="error && !nodes.length" class="empty-state">
+        <div class="empty-icon">⚠️</div>
+        <div class="empty-text">加载失败，请重试</div>
+      </div>
       <div v-else-if="!nodes.length" class="empty-state">
         <div class="empty-icon">🔗</div>
         <div class="empty-text">暂无节点，点击上方创建</div>
@@ -195,6 +200,7 @@ function fmtBytes(n) {
     </div>
 
     <ShareModal ref="shareModal" />
+    <ConfirmModal ref="confirmModal" />
   </div>
 </template>
 

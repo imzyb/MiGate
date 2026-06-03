@@ -2,12 +2,17 @@
 import { ref, onMounted, computed } from 'vue'
 import api from '../api/index.js'
 import { useToast } from '../composables/useToast.js'
+import { useApi } from '../composables/useApi.js'
+import Skeleton from '../components/Skeleton.vue'
+import ErrorBanner from '../components/ErrorBanner.vue'
+import ConfirmModal from '../components/ConfirmModal.vue'
 
 const toast = useToast()
 const inbounds = ref([])
-const loading = ref(true)
+const { loading, error, exec, retry } = useApi()
 const showCreate = ref(false)
 const expandedClient = ref(null)
+const confirmModal = ref(null)
 
 const form = ref({
   remark: '', protocol: 'vless', port: 443, listen: '0.0.0.0',
@@ -22,12 +27,11 @@ const protoBadge = {
 }
 
 async function load() {
-  loading.value = true
-  try {
+  await exec(async () => {
     const { data } = await api.get('/api/inbounds')
     inbounds.value = data
-  } catch (e) { console.error(e) }
-  loading.value = false
+    return data
+  })
 }
 
 onMounted(load)
@@ -52,7 +56,8 @@ async function toggleInbound(id, enabled) {
 }
 
 async function deleteInbound(id) {
-  if (!confirm('确认删除此入站？')) return
+  const ok = await confirmModal.value?.open('确认删除此入站？删除后不可恢复。')
+  if (!ok) return
   try {
     await api.post(`/api/inbounds/${id}/delete`)
     toast.success('入站已删除')
@@ -69,7 +74,8 @@ async function addClient(ibId, email) {
 }
 
 async function removeClient(ibId, clientId) {
-  if (!confirm('确认删除此客户端？')) return
+  const ok = await confirmModal.value?.open('确认删除此客户端？')
+  if (!ok) return
   try {
     await api.post(`/api/inbounds/${ibId}/clients/${clientId}/remove`)
     toast.success('客户端已删除')
@@ -119,6 +125,8 @@ function toggleClientExpand(ibId, email) {
       </button>
     </div>
 
+    <ErrorBanner :error="error" :retry="retry" />
+
     <Transition name="slide">
       <div v-if="showCreate" class="card">
         <h3>创建入站</h3>
@@ -147,7 +155,11 @@ function toggleClientExpand(ibId, email) {
       </div>
     </Transition>
 
-    <div v-if="loading" class="card text-muted" style="text-align:center;padding:40px;">加载中...</div>
+    <Skeleton v-if="loading" card :lines="4" />
+    <div v-else-if="error && !inbounds.length" class="card empty-state">
+      <div class="empty-icon">⚠️</div>
+      <div class="empty-text">加载失败，请重试</div>
+    </div>
     <div v-else-if="!inbounds.length" class="card empty-state">
       <div class="empty-icon">📡</div>
       <div class="empty-text">暂无入站规则</div>
@@ -232,6 +244,8 @@ function toggleClientExpand(ibId, email) {
         </form>
       </div>
     </div>
+
+    <ConfirmModal ref="confirmModal" />
   </div>
 </template>
 

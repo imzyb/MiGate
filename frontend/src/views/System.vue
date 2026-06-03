@@ -2,26 +2,31 @@
 import { ref, onMounted } from 'vue'
 import { useSystemStats } from '../composables/useSystemStats.js'
 import { useToast } from '../composables/useToast.js'
+import { useApi } from '../composables/useApi.js'
+import Skeleton from '../components/Skeleton.vue'
+import ErrorBanner from '../components/ErrorBanner.vue'
+import ConfirmModal from '../components/ConfirmModal.vue'
 import api from '../api/index.js'
 
 const toast = useToast()
 const { stats, refresh } = useSystemStats()
 const xrayRuntime = ref(null)
-const loading = ref(true)
+const { loading, error, exec, retry } = useApi()
+const confirmModal = ref(null)
 
 async function load() {
-  loading.value = true
-  try {
+  await exec(async () => {
     const { data } = await api.get('/api/xray/runtime')
     xrayRuntime.value = data
-  } catch (e) { console.error(e) }
-  loading.value = false
+    return data
+  })
 }
 
 onMounted(load)
 
 async function restartXray() {
-  if (!confirm('确认重启 Xray？')) return
+  const ok = await confirmModal.value?.open('确认重启 Xray？短暂中断代理服务。')
+  if (!ok) return
   try {
     await api.post('/api/xray/restart')
     toast.success('Xray 重启成功')
@@ -36,6 +41,8 @@ async function restartXray() {
     <div class="page-header">
       <h2>🛠️ 系统设置</h2>
     </div>
+
+    <ErrorBanner :error="error" :retry="retry" />
 
     <div class="stat-grid">
       <div class="stat-card">
@@ -81,10 +88,12 @@ async function restartXray() {
         <button class="btn btn-sm" @click="load(); refresh()">🔃 刷新</button>
       </div>
 
-      <div v-if="loading" class="text-muted">加载中...</div>
+      <Skeleton v-if="loading" :lines="3" />
       <div v-else-if="xrayRuntime">
         <pre class="text-mono text-xs" style="background:var(--bg);padding:12px;border-radius:var(--radius-sm);overflow-x:auto;max-height:300px;white-space:pre-wrap;">{{ JSON.stringify(xrayRuntime, null, 2) }}</pre>
       </div>
     </div>
+
+    <ConfirmModal ref="confirmModal" />
   </div>
 </template>

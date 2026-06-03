@@ -379,3 +379,107 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .justify-between { justify-content: space-between; }
 .gap-2 { gap: 8px; }
 .gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; }
+
+/* Page transitions */
+.page-enter-active { animation: fadeInUp 0.25s ease; }
+.page-leave-active { animation: fadeOut 0.15s ease; }
+@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* Responsive: tablet */
+@media (max-width: 1024px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Responsive: mobile */
+@media (max-width: 768px) {
+  .main {
+    margin-left: 0;
+    padding: 16px;
+    padding-top: 60px;
+  }
+
+  .page-header {
+    margin-bottom: 16px;
+  }
+
+  .page-header h2 {
+    font-size: 18px;
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .stat-card {
+    padding: 12px;
+  }
+
+  .stat-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+
+  .stat-value {
+    font-size: 16px;
+  }
+
+  .card {
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+
+  /* Tables: horizontal scroll on mobile */
+  .table-wrap {
+    margin: 0 -16px;
+    padding: 0 16px;
+  }
+
+  table {
+    min-width: 500px;
+  }
+
+  /* Forms: stack on mobile */
+  form[style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Buttons: full width on mobile */
+  .page-header .btn-primary {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  /* Inbound cards: compact header */
+  .flex.justify-between.items-center.mb-4 {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Client table: hide UUID column on mobile */
+  .text-mono.text-xs {
+    display: none;
+  }
+}
+
+/* Responsive: small mobile */
+@media (max-width: 480px) {
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .main {
+    padding: 12px;
+    padding-top: 56px;
+  }
+}

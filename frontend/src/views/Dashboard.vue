@@ -1,24 +1,29 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useSystemStats } from '../composables/useSystemStats.js'
+import { useApi } from '../composables/useApi.js'
+import Skeleton from '../components/Skeleton.vue'
+import ErrorBanner from '../components/ErrorBanner.vue'
 import api from '../api/index.js'
 
 const { stats } = useSystemStats()
+const { data: overview, loading, error, exec, retry } = useApi()
 const nodes = ref([])
 const inbounds = ref([])
 
-onMounted(async () => {
-  try {
+async function load() {
+  await exec(async () => {
     const [nRes, iRes] = await Promise.all([
       api.get('/api/nodes'),
       api.get('/api/inbounds'),
     ])
     nodes.value = nRes.data
     inbounds.value = iRes.data
-  } catch (e) {
-    console.error('Dashboard load error', e)
-  }
-})
+    return { nodes: nRes.data, inbounds: iRes.data }
+  })
+}
+
+onMounted(load)
 
 const enabledNodes = $computed(() => nodes.value.filter(n => n.enabled).length)
 const enabledInbounds = $computed(() => inbounds.value.filter(i => i.enabled).length)
@@ -40,6 +45,8 @@ function fmtBytes(n) {
     <div class="page-header">
       <h2>📊 仪表盘</h2>
     </div>
+
+    <ErrorBanner :error="error" :retry="retry" />
 
     <div class="stat-grid">
       <div class="stat-card">
@@ -86,7 +93,8 @@ function fmtBytes(n) {
 
     <div class="card">
       <h3>概览</h3>
-      <div class="flex gap-4" style="flex-wrap:wrap;">
+      <Skeleton v-if="loading" :lines="2" />
+      <div v-else class="flex gap-4" style="flex-wrap:wrap;">
         <div>
           <span class="text-muted text-sm">节点</span>
           <div style="font-size:24px;font-weight:700;">{{ enabledNodes }} <span class="text-muted text-sm">/ {{ nodes.length }}</span></div>

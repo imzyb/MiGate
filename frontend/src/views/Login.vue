@@ -28,10 +28,10 @@ async function login() {
 </script>
 
 <template>
-  <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--bg);">
-    <div class="card" style="width:100%;max-width:380px;text-align:center;">
+  <div class="login-page">
+    <div class="card login-card">
       <div style="font-size:36px;margin-bottom:8px;">🛡️</div>
-      <h2 style="background:linear-gradient(135deg,var(--accent2),var(--accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:24px;">MiGate</h2>
+      <h2 class="login-title">MiGate</h2>
       <form @submit.prevent="login">
         <div class="form-group mb-4">
           <input v-model="username" placeholder="用户名" required autocomplete="username">
@@ -39,11 +39,57 @@ async function login() {
         <div class="form-group mb-4">
           <input v-model="password" type="password" placeholder="密码" required autocomplete="current-password">
         </div>
-        <div v-if="error" class="text-sm mb-2" style="color:var(--danger);">{{ error }}</div>
-        <button type="submit" class="btn btn-primary" style="width:100%;" :disabled="loading">
+        <div v-if="error" class="login-error">{{ error }}</div>
+        <button type="submit" class="btn btn-primary login-btn" :disabled="loading">
           {{ loading ? '登录中...' : '登录' }}
         </button>
       </form>
     </div>
   </div>
 </template>
+
+<style scoped>
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--bg);
+  padding: 16px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  text-align: center;
+}
+
+.login-title {
+  background: linear-gradient(135deg, var(--accent2), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 24px;
+}
+
+.login-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-bottom: 8px;
+  animation: fadeIn 0.2s ease;
+}
+
+.login-btn {
+  width: 100%;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    max-width: 100%;
+  }
+}
+</style>

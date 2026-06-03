@@ -1,28 +1,31 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useToast } from '../composables/useToast.js'
+import { useApi } from '../composables/useApi.js'
+import Skeleton from '../components/Skeleton.vue'
+import ErrorBanner from '../components/ErrorBanner.vue'
+import ConfirmModal from '../components/ConfirmModal.vue'
 import api from '../api/index.js'
 
 const toast = useToast()
 const config = ref('')
-const loading = ref(true)
+const { loading, error, exec, retry } = useApi()
 const saving = ref(false)
+const confirmModal = ref(null)
 
 async function load() {
-  loading.value = true
-  try {
+  await exec(async () => {
     const { data } = await api.get('/api/xray/config/preview')
     config.value = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
-  } catch (e) {
-    config.value = '// 加载失败: ' + (e.response?.data?.detail || e.message)
-  }
-  loading.value = false
+    return data
+  })
 }
 
 onMounted(load)
 
 async function saveConfig() {
-  if (!confirm('确认保存 Xray 配置？这将覆盖当前配置。')) return
+  const ok = await confirmModal.value?.open('确认保存 Xray 配置？这将覆盖当前配置。')
+  if (!ok) return
   saving.value = true
   try {
     await api.post('/api/xray/config/save', { config: config.value })
@@ -46,10 +49,14 @@ async function saveConfig() {
       </div>
     </div>
 
+    <ErrorBanner :error="error" :retry="retry" />
+
     <div class="card">
       <h3>配置预览</h3>
-      <div v-if="loading" class="text-muted" style="text-align:center;padding:20px;">加载中...</div>
+      <Skeleton v-if="loading" :lines="8" />
       <pre v-else class="text-mono text-sm" style="background:var(--bg);padding:16px;border-radius:var(--radius-sm);overflow-x:auto;max-height:600px;white-space:pre-wrap;word-break:break-all;">{{ config }}</pre>
     </div>
+
+    <ConfirmModal ref="confirmModal" />
   </div>
 </template>
