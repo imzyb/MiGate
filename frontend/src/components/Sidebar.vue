@@ -1,9 +1,14 @@
 <script setup>
-import { ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { setAuth } from '../router.js'
+import api from '../api/index.js'
 
 const route = useRoute()
+const router = useRouter()
 const mobileOpen = ref(false)
+const version = ref('')
+const xrayStatus = ref('unknown')
 
 const navItems = [
   { path: '/dashboard', icon: '📊', label: '仪表盘' },
@@ -16,6 +21,20 @@ const navItems = [
 function closeMobile() {
   mobileOpen.value = false
 }
+
+async function logout() {
+  try { await api.post('/logout') } catch (e) { /* ignore */ }
+  setAuth(false)
+  router.push('/login')
+}
+
+onMounted(async () => {
+  try {
+    const { data } = await api.get('/api/dashboard')
+    if (data.cards?.version) version.value = data.cards.version
+    if (data.status?.xray) xrayStatus.value = data.status.xray
+  } catch (e) { /* ignore */ }
+})
 </script>
 
 <template>
@@ -33,6 +52,7 @@ function closeMobile() {
     <div class="sidebar-brand">
       <span class="sidebar-brand-icon">🛡️</span>
       <span class="sidebar-brand-text">MiGate</span>
+      <span v-if="version" class="sidebar-version">{{ version }}</span>
     </div>
     <nav class="sidebar-nav">
       <router-link
@@ -47,6 +67,18 @@ function closeMobile() {
         <span>{{ item.label }}</span>
       </router-link>
     </nav>
+
+    <!-- Bottom section -->
+    <div class="sidebar-bottom">
+      <div class="sidebar-status">
+        <span class="status-dot" :class="xrayStatus === 'running' ? 'dot-ok' : xrayStatus === 'degraded' ? 'dot-warn' : 'dot-error'"></span>
+        <span class="text-xs">Xray {{ xrayStatus }}</span>
+      </div>
+      <button class="nav-item logout-btn" @click="logout">
+        <span class="nav-icon">🚪</span>
+        <span>退出登录</span>
+      </button>
+    </div>
   </aside>
 </template>
 
@@ -93,6 +125,50 @@ function closeMobile() {
   inset: 0;
   background: rgba(0,0,0,0.5);
   z-index: 99;
+}
+
+.sidebar-bottom {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  color: var(--text-muted, #888);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot-ok { background: var(--accent2, #10b981); }
+.dot-warn { background: #f59e0b; }
+.dot-error { background: var(--danger, #ef4444); }
+
+.sidebar-version {
+  font-size: 10px;
+  color: var(--text-muted, #666);
+  margin-left: auto;
+  font-weight: 400;
+}
+
+.logout-btn {
+  color: var(--text-muted, #888) !important;
+  font-size: 13px !important;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.logout-btn:hover {
+  opacity: 1;
+  color: var(--danger, #ef4444) !important;
 }
 
 @media (max-width: 768px) {
