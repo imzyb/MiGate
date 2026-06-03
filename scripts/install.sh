@@ -263,13 +263,15 @@ normalized_panel_path() {
   local p="${MIGATE_PANEL_BASE_PATH:-/}"
   [[ "$p" != /* ]] && p="/$p"
   p="${p%/}"
-  printf '%s' "${p:-/}"
+  # "/" is the default — return empty to avoid double-slash in URLs
+  [ "$p" = "/" ] && p=""
+  printf '%s' "$p"
 }
 
 verify_webui() {
   local normalized_path url
   normalized_path="$(normalized_panel_path)"
-  url="http://127.0.0.1:${MIGATE_PANEL_PORT}${normalized_path}/"
+  url="http://127.0.0.1:${MIGATE_PANEL_PORT}${normalized_path}/spa/"
   log "verifying WebUI at $url"
 
   local attempt
@@ -376,20 +378,20 @@ print_next_steps() {
   proxy_status="$(systemctl is-active migate-proxy.service 2>/dev/null || echo 'unknown')"
 
   printf '\n'
-  printf '╔══════════════════════════════════════════════════╗\n'
-  printf '║           MiGate Install Complete ✓              ║\n'
-  printf '╠══════════════════════════════════════════════════╣\n'
-  printf '║                                                  ║\n'
-  printf '║  Services:                                       ║\n'
-  printf '║    Panel  %-10s  (migate-panel.service)    ║\n' "$panel_status"
-  printf '║    Xray   %-10s  (migate-xray.service)     ║\n' "$xray_status"
-  printf '║    Proxy  %-10s  (migate-proxy.service)    ║\n' "$proxy_status"
-  printf '║                                                  ║\n'
-  printf '║  Web UI:  http://%s:%s%s/\n' "$MIGATE_PUBLIC_HOST" "$MIGATE_PANEL_PORT" "$normalized_path"
-  printf '║  User:    %s\n' "$MIGATE_PANEL_USER"
-  printf '║  Config:  %s\n' "$MIGATE_SETUP_CONFIG_TARGET"
-  printf '║                                                  ║\n'
-  printf '╚══════════════════════════════════════════════════╝\n'
+  printf '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+  printf '  MiGate Install Complete ✓\n'
+  printf '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+  printf '\n'
+  printf '  Services:\n'
+  printf '    Panel  → %-10s  (migate-panel.service)\n' "$panel_status"
+  printf '    Xray   → %-10s  (migate-xray.service)\n' "$xray_status"
+  printf '    Proxy  → %-10s  (migate-proxy.service)\n' "$proxy_status"
+  printf '\n'
+  printf '  Web UI:   http://%s:%s%s/spa/\n' "$MIGATE_PUBLIC_HOST" "$MIGATE_PANEL_PORT" "$normalized_path"
+  printf '  Username: %s\n' "$MIGATE_PANEL_USER"
+  printf '  Config:   %s\n' "$MIGATE_SETUP_CONFIG_TARGET"
+  printf '\n'
+  printf '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
   printf '\n'
   printf 'Uninstall:  bash <(curl -Ls %s) --uninstall\n' "$MIGATE_REPO/raw/$MIGATE_REF/scripts/install.sh"
   printf 'Upgrade:    bash <(curl -Ls %s) --upgrade\n' "$MIGATE_REPO/raw/$MIGATE_REF/scripts/install.sh"
