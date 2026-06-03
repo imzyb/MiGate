@@ -25,9 +25,9 @@ def test_build_panel_unit_uses_migate_panel_cli_and_binds_to_localhost():
 
     assert unit.name == "migate-panel.service"
     assert "Description=MiGate web panel" in unit.content
-    assert "ExecStart=/usr/local/bin/migate panel --host 127.0.0.1 --port 8787" in unit.content
+    assert "ExecStart=/usr/local/bin/migate panel --host 0.0.0.0 --port 8787" in unit.content
     assert "uvicorn migate.api.app:create_app" not in unit.content
-    assert "--host 127.0.0.1" in unit.content
+    assert "--host 0.0.0.0" in unit.content
     assert "--port 8787" in unit.content
     assert "Restart=on-failure" in unit.content
     assert "WorkingDirectory" not in unit.content

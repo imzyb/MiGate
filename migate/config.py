@@ -46,7 +46,7 @@ class ProbeConfig(BaseModel):
 class SecurityConfig(BaseModel):
     leak_guard: bool = True
     fail_policy: str = "block"
-    web_bind: str = "127.0.0.1"
+    web_bind: str = "0.0.0.0"
     web_port: int = 8787
     secret_path: str = "auto"
 

@@ -1181,7 +1181,7 @@ def test_panel_home_previews_systemd_units_without_starting_services(tmp_path):
     assert "migate-xray.service" in decoded
     assert "migate-panel.service" in decoded
     assert "ExecStart=/usr/local/bin/xray run -config /etc/migate/xray/config.json" in decoded
-    assert "ExecStart=/usr/local/bin/migate panel --host 127.0.0.1 --port 8787" in decoded
+    assert "ExecStart=/usr/local/bin/migate panel --host 0.0.0.0 --port 8787" in decoded
     assert "uvicorn migate.api.app:create_app" not in decoded
     assert "保存服务文件" in decoded
     assert "systemctl" not in decoded
@@ -4153,7 +4153,7 @@ def test_panel_systemd_units_preview_api_returns_readonly_unit_contract(tmp_path
     assert "ExecStart=/usr/local/bin/xray run -config /etc/migate/xray/config.json" in payload["units"][0]["content"]
     assert payload["units"][1]["name"] == "migate-panel.service"
     assert payload["units"][1]["target_path"] == str(unit_dir / "migate-panel.service")
-    assert "ExecStart=/usr/local/bin/migate panel --host 127.0.0.1 --port 8787" in payload["units"][1]["content"]
+    assert "ExecStart=/usr/local/bin/migate panel --host 0.0.0.0 --port 8787" in payload["units"][1]["content"]
     assert payload["units"][2]["name"] == "migate-proxy.service"
     assert payload["units"][2]["target_path"] == str(unit_dir / "migate-proxy.service")
     assert "ExecStart=/usr/local/bin/migate proxy run --backend xray-tun --max-clients 0" in payload["units"][2]["content"]

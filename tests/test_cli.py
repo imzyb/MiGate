@@ -2356,7 +2356,7 @@ def test_panel_command_accepts_safe_default_host_and_port_without_starting_serve
 
     assert result.exit_code == 0
     assert "MiGate panel" in result.output
-    assert "127.0.0.1" in result.output
+    assert "0.0.0.0" in result.output
     assert "8787" in result.output
     assert "uvicorn" in result.output
 
