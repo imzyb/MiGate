@@ -167,12 +167,24 @@ ensure_swap_if_low_ram() {
       mkswap /swapfile >/dev/null 2>&1
       swapon /swapfile
     fi
+    # Make persistent across reboots
+    if ! grep -q '/swapfile' /etc/fstab; then
+      echo '/swapfile none swap sw 0 0' >> /etc/fstab
+      log 'swap added to /etc/fstab for persistence'
+    fi
     log "swap active: $(swapon --show --noheadings | awk '{print $3, $4}')"
   fi
 }
 
 cleanup_swap_if_temp() {
-  # Only remove swap we created (file-based, not partition)
+  # Keep swap on low-RAM systems — services need it to run
+  local ram_mb
+  ram_mb="$(get_total_ram_mb)"
+  if [ "$ram_mb" -lt 1536 ]; then
+    log "keeping swap (RAM=${ram_mb}MB — services need it)"
+    return 0
+  fi
+  # Only remove swap we created on systems with enough RAM
   if [ -f /swapfile ] && swapon --show --noheadings | grep -q '/swapfile'; then
     log 'cleaning up temporary swap'
     swapoff /swapfile 2>/dev/null || true
@@ -439,6 +451,14 @@ do_uninstall() {
   fi
 
   cleanup_swap_if_temp
+
+  # Remove swap fstab entry if we added it
+  if [ -f /swapfile ]; then
+    swapoff /swapfile 2>/dev/null || true
+    rm -f /swapfile
+  fi
+  sed -i '\|/swapfile|d' /etc/fstab 2>/dev/null || true
+  log 'swap removed'
 
   log 'uninstall complete ✓'
 }
