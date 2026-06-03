@@ -497,9 +497,6 @@ main() {
   esac
 
   require_root
-  require_command git
-  require_command python3
-  require_command curl
 
   local ram_mb
   ram_mb="$(get_total_ram_mb)"
@@ -511,6 +508,11 @@ main() {
   ensure_swap_if_low_ram
   install_os_packages
   install_uv
+
+  # Now verify required commands exist (after OS packages installed)
+  require_command git
+  require_command python3
+  require_command curl
   require_command systemctl
   fetch_source
   install_python_package
