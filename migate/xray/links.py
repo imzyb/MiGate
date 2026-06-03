@@ -24,7 +24,7 @@ def build_vless_link(uuid: str, host: str, port: int, name: str = "",
                      sni: str = "", alpn: str = "", fp: str = "",
                      flow: str = "", path: str = "", host_header: str = "",
                      header_type: str = "", pbk: str = "", sid: str = "",
-                     spx: str = "") -> str:
+                     spx: str = "", xhttp_mode: str = "") -> str:
     query = _build_query({
         "type": network,
         "security": security,
@@ -38,6 +38,7 @@ def build_vless_link(uuid: str, host: str, port: int, name: str = "",
         "pbk": pbk,
         "sid": sid,
         "spx": spx,
+        "mode": xhttp_mode,
     })
     return f"vless://{quote(uuid, safe='')}@{host}:{port}?{query}#{_fragment(name)}"
 

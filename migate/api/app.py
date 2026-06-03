@@ -76,19 +76,31 @@ def _parse_link_for_clash(link: str) -> dict | None:
         if link.startswith("vless://"):
             parsed = urlparse(link)
             params = parse_qs(parsed.query)
-            return {
+            net_type = params.get("type", ["tcp"])[0]
+            security = params.get("security", ["none"])[0]
+            result = {
                 "name": unquote(parsed.fragment) if parsed.fragment else "proxy",
                 "type": "vless",
                 "server": parsed.hostname or "",
                 "port": parsed.port or 443,
                 "uuid": unquote(parsed.username or ""),
-                "network": params.get("type", ["tcp"])[0],
-                "tls": params.get("security", ["none"])[0] in ("tls", "reality"),
+                "network": net_type,
+                "tls": security in ("tls", "reality"),
                 "sni": params.get("sni", [""])[0],
-                "ws_path": params.get("path", [""])[0] if params.get("type", [""])[0] == "ws" else "",
-                "ws_host": params.get("host", [""])[0] if params.get("type", [""])[0] == "ws" else "",
-                "grpc_service": params.get("path", [""])[0] if params.get("type", [""])[0] == "grpc" else "",
+                "fp": params.get("fp", [""])[0],
+                "flow": params.get("flow", [""])[0],
+                "ws_path": params.get("path", [""])[0] if net_type == "ws" else "",
+                "ws_host": params.get("host", [""])[0] if net_type == "ws" else "",
+                "grpc_service": params.get("path", [""])[0] if net_type == "grpc" else "",
+                "xhttp_path": params.get("path", [""])[0] if net_type == "xhttp" else "",
+                "xhttp_mode": params.get("mode", [""])[0] if net_type == "xhttp" else "",
             }
+            # Reality params
+            if security == "reality":
+                result["reality"] = True
+                result["reality_public_key"] = params.get("pbk", [""])[0]
+                result["reality_short_id"] = params.get("sid", [""])[0]
+            return result
         elif link.startswith("trojan://"):
             parsed = urlparse(link)
             params = parse_qs(parsed.query)
@@ -389,6 +401,7 @@ def _stream_settings_form_html(existing_json: str = "{}", uid: str = "", panel_b
             <option value="ws">WebSocket</option>
             <option value="grpc">gRPC</option>
             <option value="h2">HTTP/2</option>
+            <option value="xhttp">XHTTP (SplitHTTP)</option>
           </select>
         </label>
       </div>
@@ -462,12 +475,59 @@ def _stream_settings_form_html(existing_json: str = "{}", uid: str = "", panel_b
     </div>
   </div>
 
+  <!-- XHTTP (SplitHTTP) Transport -->
+  <div id="ss-transport-xhttp{S}" class="ss-section ss-transport ss-hidden">
+    <h4>XHTTP (SplitHTTP) 传输设置</h4>
+    <div class="form-group">
+      <label>Path
+        <input id="ss-xhttp-path{S}" value="/" placeholder="/">
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Host Header
+        <input id="ss-xhttp-host{S}" placeholder="example.com">
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Mode
+        <select id="ss-xhttp-mode{S}">
+          <option value="auto">auto</option>
+          <option value="stream">stream</option>
+          <option value="one">one</option>
+        </select>
+      </label>
+    </div>
+  </div>
+
   <!-- TLS Settings -->
   <div id="ss-tls-section{S}" class="ss-section ss-hidden">
     <h4>TLS 设置</h4>
     <div class="form-group">
       <label>Server Name (SNI)
         <input id="ss-tls-sni{S}" placeholder="example.com">
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Fingerprint (客户端指纹)
+        <select id="ss-tls-fp{S}">
+          <option value="">不设置</option>
+          <option value="chrome">chrome</option>
+          <option value="firefox">firefox</option>
+          <option value="safari">safari</option>
+          <option value="edge">edge</option>
+          <option value="ios">ios</option>
+          <option value="android">android</option>
+          <option value="random">random</option>
+          <option value="randomized">randomized</option>
+        </select>
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Flow 控制
+        <select id="ss-flow{S}">
+          <option value="">不设置</option>
+          <option value="xtls-rprx-vision">xtls-rprx-vision</option>
+        </select>
       </label>
     </div>
     <div class="form-group">
@@ -543,7 +603,7 @@ def _stream_settings_form_html(existing_json: str = "{}", uid: str = "", panel_b
 
   function ssShowTransport() {{
     sc.querySelectorAll('.ss-transport').forEach(function(el) {{ el.classList.add('ss-hidden'); }});
-    var map = {{ tcp:'ss-transport-tcp{S}', ws:'ss-transport-ws{S}', grpc:'ss-transport-grpc{S}', h2:'ss-transport-h2{S}' }};
+    var map = {{ tcp:'ss-transport-tcp{S}', ws:'ss-transport-ws{S}', grpc:'ss-transport-grpc{S}', h2:'ss-transport-h2{S}', xhttp:'ss-transport-xhttp{S}' }};
     var target = sc.querySelector('#' + map[netSel.value]);
     if (target) target.classList.remove('ss-hidden');
   }}
@@ -596,6 +656,16 @@ def _stream_settings_form_html(existing_json: str = "{}", uid: str = "", panel_b
       if (h2Path) h2Settings.path = h2Path;
       result.network = 'h2';
       result.httpSettings = h2Settings;
+    }} else if (net === 'xhttp') {{
+      var xhttpSettings = {{}};
+      var xhttpPath = sc.querySelector('#ss-xhttp-path{S}').value.trim();
+      if (xhttpPath) xhttpSettings.path = xhttpPath;
+      var xhttpHost = sc.querySelector('#ss-xhttp-host{S}').value.trim();
+      if (xhttpHost) xhttpSettings.host = xhttpHost;
+      var xhttpMode = sc.querySelector('#ss-xhttp-mode{S}').value;
+      if (xhttpMode && xhttpMode !== 'auto') xhttpSettings.mode = xhttpMode;
+      result.network = 'xhttp';
+      result.xhttpSettings = xhttpSettings;
     }}
 
     // security
@@ -604,6 +674,8 @@ def _stream_settings_form_html(existing_json: str = "{}", uid: str = "", panel_b
       var tls = {{}};
       var sni = sc.querySelector('#ss-tls-sni{S}').value.trim();
       if (sni) tls.serverName = sni;
+      var fp = sc.querySelector('#ss-tls-fp{S}').value;
+      if (fp) tls.fingerprint = fp;
       var alpnRaw = sc.querySelector('#ss-tls-alpn{S}').value.trim();
       if (alpnRaw) tls.alpn = alpnRaw.split(',').map(function(s){{ return s.trim(); }}).filter(Boolean);
       try {{
@@ -630,6 +702,10 @@ def _stream_settings_form_html(existing_json: str = "{}", uid: str = "", panel_b
     }} else {{
       result.security = 'none';
     }}
+
+    // flow (VLESS-specific, stored alongside stream settings)
+    var flow = sc.querySelector('#ss-flow{S}').value;
+    if (flow) result.flow = flow;
 
     sc.querySelector('#stream-settings-json{S}').value = JSON.stringify(result);
   }};
@@ -690,12 +766,26 @@ def _stream_settings_form_html(existing_json: str = "{}", uid: str = "", panel_b
         if (h2s.path) sc.querySelector('#ss-h2-path{S}').value = h2s.path;
       }}
 
+      // XHTTP (SplitHTTP)
+      if (data.xhttpSettings) {{
+        var xhs = data.xhttpSettings;
+        if (xhs.path) sc.querySelector('#ss-xhttp-path{S}').value = xhs.path;
+        if (xhs.host) sc.querySelector('#ss-xhttp-host{S}').value = xhs.host;
+        if (xhs.mode && ['auto','stream','one'].indexOf(xhs.mode) !== -1) sc.querySelector('#ss-xhttp-mode{S}').value = xhs.mode;
+      }}
+
       // TLS
       if (data.tlsSettings) {{
         var tls = data.tlsSettings;
         if (tls.serverName) sc.querySelector('#ss-tls-sni{S}').value = tls.serverName;
+        if (tls.fingerprint && ['chrome','firefox','safari','edge','ios','android','random','randomized'].indexOf(tls.fingerprint) !== -1) sc.querySelector('#ss-tls-fp{S}').value = tls.fingerprint;
         if (tls.alpn) sc.querySelector('#ss-tls-alpn{S}').value = (Array.isArray(tls.alpn) ? tls.alpn.join(', ') : tls.alpn);
         if (tls.certificates) sc.querySelector('#ss-tls-certs{S}').value = JSON.stringify(tls.certificates, null, 2);
+      }}
+
+      // Flow (VLESS-specific)
+      if (data.flow) {{
+        sc.querySelector('#ss-flow{S}').value = data.flow;
       }}
 
       // Reality
@@ -3901,6 +3991,17 @@ a {{ color:#4ecdc4; }}
                     yaml_lines.append(f"    tls: true")
                 if p.get("sni"):
                     yaml_lines.append(f"    servername: {p['sni']}")
+                if p.get("flow"):
+                    yaml_lines.append(f"    flow: {p['flow']}")
+                if p.get("fp"):
+                    yaml_lines.append(f"    client-fingerprint: {p['fp']}")
+                # Reality support (Clash.Meta)
+                if p.get("reality"):
+                    yaml_lines.append(f"    reality-opts:")
+                    if p.get("reality_public_key"):
+                        yaml_lines.append(f"      public-key: {p['reality_public_key']}")
+                    if p.get("reality_short_id"):
+                        yaml_lines.append(f"      short-id: {p['reality_short_id']}")
                 if p.get("ws_path"):
                     yaml_lines.append(f"    ws-opts:")
                     yaml_lines.append(f"      path: {p['ws_path']}")
@@ -3910,6 +4011,12 @@ a {{ color:#4ecdc4; }}
                 if p.get("grpc_service"):
                     yaml_lines.append(f"    grpc-opts:")
                     yaml_lines.append(f"      grpc-service-name: {p['grpc_service']}")
+                if p.get("xhttp_path") or p.get("xhttp_mode"):
+                    yaml_lines.append(f"    xhttp-opts:")
+                    if p.get("xhttp_path"):
+                        yaml_lines.append(f"      path: {p['xhttp_path']}")
+                    if p.get("xhttp_mode"):
+                        yaml_lines.append(f"      mode: {p['xhttp_mode']}")
 
             yaml_lines.append("")
             yaml_lines.append("proxy-groups:")
