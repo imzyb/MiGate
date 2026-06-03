@@ -138,6 +138,65 @@ stop_conflicting_services() {
   done
 }
 
+# ── low-memory helpers ───────────────────────────────────────────────────
+
+get_total_ram_mb() {
+  awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 512
+}
+
+ensure_swap_if_low_ram() {
+  local ram_mb
+  ram_mb="$(get_total_ram_mb)"
+
+  # Already have swap?
+  local swap_total
+  swap_total="$(awk '/SwapTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+  if [ "$swap_total" -gt 0 ]; then
+    log "swap already active (${swap_total}kB)"
+    return 0
+  fi
+
+  # Create swap for low-memory machines (< 1.5GB RAM)
+  if [ "$ram_mb" -lt 1536 ]; then
+    local swap_size=512
+    [ "$ram_mb" -lt 768 ] && swap_size=1024
+    log "low RAM detected (${ram_mb}MB) — creating ${swap_size}MB swap"
+    if [ ! -f /swapfile ]; then
+      fallocate -l "${swap_size}M" /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count="$swap_size" status=none
+      chmod 600 /swapfile
+      mkswap /swapfile >/dev/null 2>&1
+      swapon /swapfile
+    fi
+    log "swap active: $(swapon --show --noheadings | awk '{print $3, $4}')"
+  fi
+}
+
+cleanup_swap_if_temp() {
+  # Only remove swap we created (file-based, not partition)
+  if [ -f /swapfile ] && swapon --show --noheadings | grep -q '/swapfile'; then
+    log 'cleaning up temporary swap'
+    swapoff /swapfile 2>/dev/null || true
+    rm -f /swapfile
+  fi
+}
+
+install_uv() {
+  # uv is a fast, low-memory Python package installer (10-100x faster than pip)
+  if command -v uv >/dev/null 2>&1; then
+    log "uv already installed ($(uv --version 2>/dev/null || echo 'unknown'))"
+    return 0
+  fi
+  log 'installing uv (fast Python package manager)'
+  if curl -LsSf https://astral.sh/uv/install.sh | sh 2>&1 | tail -2; then
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+  fi
+  if command -v uv >/dev/null 2>&1; then
+    log "uv installed: $(uv --version)"
+  else
+    log 'uv not available, will use pip'
+  fi
+}
+
 # ── OS packages ───────────────────────────────────────────────────────────
 
 install_os_packages() {
@@ -154,8 +213,14 @@ install_os_packages() {
       python3-pip \
       rsync \
       unzip
+  elif command -v yum >/dev/null 2>&1; then
+    log 'detected yum-based system'
+    yum install -y -q curl git python3 iproute openvpn rsync unzip ca-certificates
+  elif command -v dnf >/dev/null 2>&1; then
+    log 'detected dnf-based system'
+    dnf install -y -q curl git python3 iproute openvpn rsync unzip ca-certificates
   else
-    log 'apt-get not found; skipping OS package installation'
+    log 'unknown package manager; skipping OS package installation'
   fi
 }
 
@@ -177,7 +242,7 @@ fetch_source() {
 # ── Python package install ────────────────────────────────────────────────
 
 install_python_package() {
-  log 'installing MiGate Python package system-wide'
+  log 'installing MiGate Python package'
   if [ -L "$MIGATE_BIN" ]; then
     local link_target
     link_target="$(readlink -f "$MIGATE_BIN" 2>/dev/null || true)"
@@ -186,8 +251,21 @@ install_python_package() {
       rm -f "$MIGATE_BIN"
     fi
   fi
-  python3 -m pip install --upgrade --force-reinstall "$MIGATE_INSTALL_DIR" \
-    --break-system-packages --root-user-action=ignore 2>&1 | tail -3
+
+  # Prefer uv (fast, low memory), fall back to pip
+  if command -v uv >/dev/null 2>&1; then
+    log 'using uv for package installation'
+    uv pip install --system --upgrade "$MIGATE_INSTALL_DIR" 2>&1 | tail -3
+  else
+    log 'using pip for package installation'
+    python3 -m pip install --upgrade "$MIGATE_INSTALL_DIR" \
+      --only-binary :all: --break-system-packages --root-user-action=ignore --no-cache-dir 2>&1 | tail -3 || {
+      log 'binary-only install failed, retrying with source build...'
+      python3 -m pip install --upgrade "$MIGATE_INSTALL_DIR" \
+        --break-system-packages --root-user-action=ignore --no-cache-dir 2>&1 | tail -3
+    }
+  fi
+
   local installed_bin
   installed_bin="$(command -v migate 2>/dev/null || true)"
   if [ -n "$installed_bin" ] && [ "$installed_bin" != "$MIGATE_BIN" ]; then
@@ -244,7 +322,7 @@ start_services() {
 
   # Verify xray is actually running before starting panel
   if systemctl is-active migate-xray.service >/dev/null 2>&1; then
-    log 'migate-xray.service is active'
+    log 'migate-xray.service is active ✓'
   else
     log 'WARNING: migate-xray.service is not active — panel will start but xray features will be degraded'
   fi
@@ -254,7 +332,13 @@ start_services() {
     journalctl -u migate-panel.service -n 5 --no-pager 2>/dev/null || true
   }
 
-  systemctl enable --now migate-proxy.service 2>/dev/null || true
+  # Proxy service is optional (only needed for egress tunnel mode)
+  # Enable it but don't fail if it can't start
+  if systemctl enable --now migate-proxy.service 2>/dev/null; then
+    log 'migate-proxy.service is active ✓'
+  else
+    log 'migate-proxy.service inactive (optional — only needed for egress tunnel mode)'
+  fi
 }
 
 # ── verification ──────────────────────────────────────────────────────────
@@ -348,6 +432,8 @@ do_uninstall() {
     rm -rf "$MIGATE_INSTALL_DIR"
   fi
 
+  cleanup_swap_if_temp
+
   log 'uninstall complete ✓'
 }
 
@@ -356,6 +442,8 @@ do_uninstall() {
 do_upgrade() {
   log 'upgrading MiGate (fetching latest source + reinstalling package)'
   validate_install_dir
+  stop_conflicting_services
+  ensure_swap_if_low_ram
   fetch_source
   install_python_package
   save_runtime_units
@@ -364,6 +452,7 @@ do_upgrade() {
   sleep 1
   systemctl restart migate-panel.service 2>/dev/null || true
   systemctl restart migate-proxy.service 2>/dev/null || true
+  cleanup_swap_if_temp
   verify_webui || true
   print_next_steps
 }
@@ -411,16 +500,24 @@ main() {
   require_command git
   require_command python3
   require_command curl
+
+  local ram_mb
+  ram_mb="$(get_total_ram_mb)"
+  log "system: $(uname -srm) | RAM: ${ram_mb}MB | Disk: $(df -h / | awk 'NR==2{print $4}') free"
+
   collect_panel_inputs
   ensure_panel_port_available
   stop_conflicting_services
+  ensure_swap_if_low_ram
   install_os_packages
+  install_uv
   require_command systemctl
   fetch_source
   install_python_package
   run_setup
   save_runtime_units
   start_services
+  cleanup_swap_if_temp
   verify_webui || true   # non-fatal: diagnostics already printed
   print_next_steps
 }
