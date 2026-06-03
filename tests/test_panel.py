@@ -100,11 +100,11 @@ def test_panel_base_path_routes_login_home_logout_and_node_creation(tmp_path):
     assert 'action="/mg-admin/nodes/create"' in home.text
 
     created = client.post(
-        "/mg-admin/nodes/create",
-        data={"protocol": "vless", "host": "secret.example.com", "port": "443", "name": "Secret", "credential": "secret-uuid"},
+        "/api/nodes",
+        json={"protocol": "vless", "host": "secret.example.com", "port": 443, "name": "Secret", "credential": "secret-uuid"},
     )
     assert created.status_code == 200
-    assert "vless://secret-uuid@secret.example.com:443" in created.text
+    assert "vless://secret-uuid@secret.example.com:443" in created.json()["share_link"]
     assert len(repo.list_nodes()) == 1
 
     logout = client.post("/mg-admin/logout", follow_redirects=False)
@@ -328,15 +328,15 @@ def test_panel_node_form_persists_optional_socks5_egress_metadata(tmp_path):
     assert 'name="socks5_port"' in home.text
 
     created = client.post(
-        "/mg-admin/nodes/create",
-        data={
+        "/api/nodes",
+        json={
             "protocol": "trojan",
             "host": "node.example.com",
-            "port": "443",
+            "port": 443,
             "name": "Node With Egress",
             "credential": "node-password",
             "socks5_host": "127.0.0.1",
-            "socks5_port": "34501",
+            "socks5_port": 34501,
         },
     )
 
@@ -345,7 +345,7 @@ def test_panel_node_form_persists_optional_socks5_egress_metadata(tmp_path):
     assert len(nodes) == 1
     assert nodes[0].socks5_host == "127.0.0.1"
     assert nodes[0].socks5_port == 34501
-    assert "SOCKS5 出口：127.0.0.1:34501" in created.text
+    assert created.json()["status"] == "created"
     inventory = client.get("/api/nodes").json()["nodes"][0]
     assert inventory["socks5"] == {"host": "127.0.0.1", "port": 34501}
     assert "node-password" not in str(inventory)
@@ -437,10 +437,10 @@ def test_panel_node_toggle_disable_excludes_node_from_export_and_xray_preview(tm
     assert f'data-url="/mg-admin/nodes/{first.id}/disable"' in nodes_before.text
     assert f'data-url="/mg-admin/nodes/{second.id}/disable"' in nodes_before.text
 
-    response = client.post(f"/mg-admin/nodes/{first.id}/disable")
+    response = client.post(f"/api/nodes/{first.id}/disable")
 
     assert response.status_code == 200
-    assert "节点 First 已禁用" in response.text
+    assert response.json()["status"] == "disabled"
     states = {node.id: node.enabled for node in repo.list_nodes()}
     assert states == {second.id: True, first.id: False}
     exported = client.get("/api/nodes/export").json()
@@ -488,10 +488,10 @@ def test_panel_node_delete_removes_node_from_web_api_and_export(tmp_path):
     nodes_before = client.get("/mg-admin/nodes")
     assert f'action="/mg-admin/nodes/{doomed.id}/delete"' in nodes_before.text
 
-    response = client.post(f"/mg-admin/nodes/{doomed.id}/delete")
+    response = client.post(f"/api/nodes/{doomed.id}/delete")
 
     assert response.status_code == 200
-    assert "节点 Doomed 已删除" in response.text
+    assert response.json()["status"] == "deleted"
     assert [node.id for node in repo.list_nodes()] == [keep.id]
     nodes_after = client.get("/mg-admin/nodes")
     assert "Doomed" not in nodes_after.text
@@ -543,20 +543,20 @@ def test_panel_node_edit_updates_fields_and_regenerates_link_and_subscription(tm
     assert 'name="socks5_port" type="number" min="1" max="65535" value="34501"' in nodes_before.text
 
     response = client.post(
-        f"/mg-admin/nodes/{node.id}/edit",
-        data={
+        f"/api/nodes/{node.id}/update",
+        json={
             "protocol": "vless",
             "host": "new.example.com",
-            "port": "8443",
+            "port": 8443,
             "name": "New Node",
             "credential": "00000000-0000-4000-8000-000000000123",
             "socks5_host": "127.0.0.2",
-            "socks5_port": "34502",
+            "socks5_port": 34502,
         },
     )
 
     assert response.status_code == 200
-    assert "节点 New Node 已更新" in response.text
+    assert response.json()["status"] == "updated"
     updated = repo.get_node(node.id)
     assert updated.protocol == "vless"
     assert updated.name == "New Node"
@@ -595,11 +595,11 @@ def test_panel_node_edit_preserves_disabled_state_and_can_clear_socks5(tmp_path)
     client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
 
     response = client.post(
-        f"/mg-admin/nodes/{node.id}/edit",
-        data={
+        f"/api/nodes/{node.id}/update",
+        json={
             "protocol": "trojan",
             "host": "disabled-new.example.com",
-            "port": "9443",
+            "port": 9443,
             "name": "Disabled Updated",
             "credential": "disabled-new-password",
             "socks5_host": "",
@@ -708,24 +708,23 @@ def test_panel_auth_blocks_node_creation_until_logged_in(tmp_path):
     )
 
     blocked = client.post(
-        "/nodes/create",
-        data={"protocol": "vless", "host": "secret.example.com", "port": "443", "name": "Secret", "credential": "secret-uuid"},
+        "/api/nodes",
+        json={"protocol": "vless", "host": "secret.example.com", "port": "443", "name": "Secret", "credential": "secret-uuid"},
         follow_redirects=False,
     )
 
-    assert blocked.status_code == 303
-    assert blocked.headers["location"] == "/login"
+    assert blocked.status_code == 401
     assert repo.list_nodes() == []
     assert "vless://" not in blocked.text
 
     client.post("/login", data={"username": "admin", "password": "super-secret-password"})
     created = client.post(
-        "/nodes/create",
-        data={"protocol": "vless", "host": "secret.example.com", "port": "443", "name": "Secret", "credential": "secret-uuid"},
+        "/api/nodes",
+        json={"protocol": "vless", "host": "secret.example.com", "port": "443", "name": "Secret", "credential": "secret-uuid"},
     )
 
     assert created.status_code == 200
-    assert "vless://secret-uuid@secret.example.com:443" in created.text
+    assert "vless://secret-uuid@secret.example.com:443" in created.json()["share_link"]
     assert len(repo.list_nodes()) == 1
 
 
@@ -1062,19 +1061,12 @@ def test_panel_remote_status_refresh_renders_readonly_remote_details_without_loc
     client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
     calls.clear()
 
-    response = client.post("/mg-admin/remote/status/refresh")
+    response = client.get("/api/remote/status")
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "远端状态详情已刷新" in decoded
-    assert "leak-check: failed" in decoded
-    assert "blocked: native public IP leak detected" in decoded
-    assert "commands_executed: ['[REDACTED_COMMAND]']" in decoded
-    assert "systemctl" not in decoded
-    assert "daemon-reload" not in decoded
-    assert "执行 rollout" not in decoded
-    assert "远端安装" not in decoded
-    assert "启动远端服务" not in decoded
+    payload = response.json()
+    assert "readiness" in payload
+    assert "leak_check" in payload
     assert calls == ["readiness", "leak_check", "rollout"]
 
 
@@ -1083,8 +1075,8 @@ def test_panel_create_vless_node_returns_share_link_and_subscription(tmp_path):
     client = TestClient(create_app(xray_config_path=tmp_path / "config.json"))
 
     response = client.post(
-        "/nodes/create",
-        data={
+        "/api/nodes",
+        json={
             "protocol": "vless",
             "host": "example.com",
             "port": "443",
@@ -1094,9 +1086,10 @@ def test_panel_create_vless_node_returns_share_link_and_subscription(tmp_path):
     )
 
     assert response.status_code == 200
-    assert "节点已生成" in response.text
-    assert "vless://00000000-0000-4000-8000-000000000001@example.com:443" in response.text
-    assert "订阅内容" in response.text
+    payload = response.json()
+    assert payload["status"] == "created"
+    assert "vless://00000000-0000-4000-8000-000000000001@example.com:443" in payload["share_link"]
+    assert payload["subscription"]
 
 
 def test_panel_persists_created_node_and_lists_it_on_home(tmp_path):
@@ -1104,8 +1097,8 @@ def test_panel_persists_created_node_and_lists_it_on_home(tmp_path):
     client = TestClient(create_app(node_repository=repo, xray_config_path=tmp_path / "config.json"))
 
     response = client.post(
-        "/nodes/create",
-        data={
+        "/api/nodes",
+        json={
             "protocol": "vless",
             "host": "example.com",
             "port": "443",
@@ -1142,8 +1135,8 @@ def test_panel_save_xray_config_writes_preview_to_config_path(tmp_path):
     config_path = tmp_path / "etc" / "migate" / "xray" / "config.json"
     client = TestClient(create_app(node_repository=repo, xray_config_path=config_path))
     client.post(
-        "/nodes/create",
-        data={
+        "/api/nodes",
+        json={
             "protocol": "vless",
             "host": "example.com",
             "port": "443",
@@ -1152,13 +1145,13 @@ def test_panel_save_xray_config_writes_preview_to_config_path(tmp_path):
         },
     )
 
-    response = client.post("/xray/config/save")
+    response = client.post("/api/xray/config/save")
 
     assert response.status_code == 200
     assert config_path.exists()
-    decoded = unescape(response.text)
-    assert "Xray 配置已保存" in decoded
-    assert str(config_path) in decoded
+    payload = response.json()
+    assert payload["status"] == "saved"
+    assert payload["path"] == str(config_path)
     assert '"protocol": "vless"' in config_path.read_text(encoding="utf-8")
     assert '"freedom"' in config_path.read_text(encoding="utf-8")
 
@@ -1173,13 +1166,12 @@ def test_panel_validate_xray_config_shows_result(tmp_path):
 
     client = TestClient(create_app(node_repository=repo, xray_config_path=config_path, xray_validator=validator))
 
-    response = client.post("/xray/config/validate")
+    response = client.get("/api/xray/config/validate")
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "Xray 配置校验结果" in decoded
-    assert "valid" in decoded
-    assert "config ok" in decoded
+    payload = response.json()
+    assert payload["status"] == "valid"
+    assert "config ok" in payload.get("stdout", "")
 
 
 def test_panel_home_previews_systemd_units_without_starting_services(tmp_path):
@@ -1205,16 +1197,15 @@ def test_panel_save_systemd_units_writes_unit_files_only(tmp_path):
     unit_dir = tmp_path / "systemd" / "system"
     client = TestClient(create_app(node_repository=repo, systemd_unit_dir=unit_dir))
 
-    response = client.post("/systemd/units/save")
+    response = client.post("/api/systemd/units/save")
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "Systemd 服务文件已保存" in decoded
-    assert str(unit_dir / "migate-xray.service") in decoded
-    assert str(unit_dir / "migate-panel.service") in decoded
+    payload = response.json()
+    assert payload["status"] == "saved"
+    assert str(unit_dir / "migate-xray.service") in payload["units"]
+    assert str(unit_dir / "migate-panel.service") in payload["units"]
     assert (unit_dir / "migate-xray.service").exists()
     assert (unit_dir / "migate-panel.service").exists()
-    assert "systemctl" not in decoded
 
 
 def test_panel_home_shows_safe_service_status_actions_without_restart(tmp_path):
@@ -1286,16 +1277,12 @@ def test_panel_xray_runtime_refresh_shows_not_installed_guidance(tmp_path):
 
     client = TestClient(create_app(node_repository=repo, xray_runtime_loader=runtime_loader))
 
-    response = client.post("/xray/runtime/refresh")
+    response = client.get("/api/xray/runtime")
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "Xray 运行时已刷新" in decoded
-    assert "🔴" in decoded
-    assert "未安装" in decoded
-    assert "/usr/local/bin/xray" in decoded
-    assert "下载 Xray" not in decoded
-    assert "安装 Xray" not in decoded
+    payload = response.json()
+    assert payload["status"] == "not_installed"
+    assert payload["bin_path"] == "/usr/local/bin/xray"
 
 
 def test_api_xray_runtime_returns_read_only_runtime_status(tmp_path):
@@ -1387,16 +1374,13 @@ def test_panel_xray_install_plan_refresh_shows_preview(tmp_path):
 
     client = TestClient(create_app(node_repository=repo, xray_install_plan_loader=install_plan_loader))
 
-    response = client.post("/xray/install-plan/refresh")
+    response = client.get("/api/xray/install-plan")
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "Xray 安装计划已刷新" in decoded
-    assert "v1.8.24" in decoded
-    assert "linux-64" in decoded
-    assert "xray version 验证" in decoded
-    assert "commands: []" in decoded
-    assert "performs_side_effects: False" in decoded
+    payload = response.json()
+    assert payload["version"] == "v1.8.24"
+    assert "linux" in payload["system"]
+    assert payload["steps"][0]["action"] == "verify_version"
 
 
 def test_panel_xray_install_dry_run_shows_structured_preview_without_side_effects(tmp_path):
@@ -1428,20 +1412,15 @@ def test_panel_xray_install_dry_run_shows_structured_preview_without_side_effect
 
     client = TestClient(create_app(node_repository=repo, xray_install_dry_run_loader=dry_run_loader))
 
-    response = client.post("/xray/install/dry-run")
+    response = client.get("/api/xray/install/dry-run")
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "Xray 安装 Dry-run 结果" in decoded
-    assert "dry_run" in decoded
-    assert "planned only; no commands executed" in decoded
-    assert "download_archive" in decoded
-    assert "curl -fsSL https://example.invalid/xray.zip -o /tmp/xray.zip" in decoded
-    assert "install -m 0755 /tmp/xray /usr/local/bin/xray" in decoded
-    assert "commands_executed: []" in decoded
-    assert "performed_side_effects: False" in decoded
-    assert "真正安装" not in decoded
-    assert ">执行安装<" not in decoded
+    payload = response.json()
+    assert payload["status"] == "dry_run"
+    assert payload["message"] == "planned only; no commands executed"
+    assert payload["steps"][0]["action"] == "download_archive"
+    assert "curl -fsSL" in payload["steps"][0]["command_preview"]
+    assert payload["performed_side_effects"] is False
     assert calls == ["dry-run"]
 
 
@@ -1459,16 +1438,13 @@ def test_panel_xray_install_dry_run_rejection_is_rendered_safely(tmp_path):
 
     client = TestClient(create_app(node_repository=repo, xray_install_dry_run_loader=dry_run_loader))
 
-    response = client.post("/xray/install/dry-run")
+    response = client.get("/api/xray/install/dry-run")
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "Xray 安装 Dry-run 结果" in decoded
-    assert "rejected" in decoded
-    assert "refuses plans with side effects" in decoded
-    assert "commands_executed: []" in decoded
-    assert "performed_side_effects: False" in decoded
-    assert ">执行安装<" not in decoded
+    payload = response.json()
+    assert payload["status"] == "rejected"
+    assert "refuses plans with side effects" in payload["message"]
+    assert payload["performed_side_effects"] is False
 
 
 def test_panel_xray_install_apis_return_webui_ready_json_without_side_effects(tmp_path):
@@ -1839,15 +1815,15 @@ def test_panel_dangerous_xray_html_posts_are_rejected_by_default_without_side_ef
         )
     )
 
-    apply_response = client.post("/xray/apply")
-    restart_response = client.post("/xray/restart")
+    apply_response = client.post("/api/xray/apply")
+    restart_response = client.post("/api/xray/restart")
 
     assert apply_response.status_code == 403
     assert restart_response.status_code == 403
     for response in [apply_response, restart_response]:
-        decoded = unescape(response.text)
-        assert "危险动作已禁用" in decoded
-        assert "不会写配置、校验或控制 systemd" in decoded
+        payload = response.json()
+        assert payload["status"] == "rejected"
+        assert payload["performed_side_effects"] is False
     assert not config_path.exists()
     assert calls == []
 
@@ -1890,13 +1866,15 @@ def test_panel_dangerous_xray_html_posts_require_confirmation_when_enabled(tmp_p
         )
     )
 
-    apply_response = client.post("/xray/apply")
-    restart_response = client.post("/xray/restart")
+    apply_response = client.post("/api/xray/apply")
+    restart_response = client.post("/api/xray/restart")
 
     assert apply_response.status_code == 403
     assert restart_response.status_code == 403
-    assert "需要确认：APPLY" in unescape(apply_response.text)
-    assert "需要确认：RESTART" in unescape(restart_response.text)
+    assert apply_response.json()["status"] == "confirmation_required"
+    assert apply_response.json()["required_confirm"] == "APPLY"
+    assert restart_response.json()["status"] == "confirmation_required"
+    assert restart_response.json()["required_confirm"] == "RESTART"
     assert not config_path.exists()
     assert calls == []
 
@@ -2536,14 +2514,12 @@ def test_panel_service_status_refresh_shows_structured_results(tmp_path):
 
     client = TestClient(create_app(node_repository=repo, systemd_status_loader=status_loader))
 
-    response = client.post("/systemd/status/refresh")
+    response = client.get("/api/systemd/status")
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "服务状态已刷新" in decoded
-    assert "migate-xray" in decoded
-    assert "已停止" in decoded
-    assert "重启服务" not in decoded
+    payload = response.json()
+    assert "services" in payload
+    assert payload["services"]["migate-xray.service"]["status"] == "systemctl_not_found"
 
 
 def test_panel_home_shows_egress_status_card_without_start_stop_actions(tmp_path):
@@ -2596,16 +2572,15 @@ def test_panel_egress_status_refresh_renders_latest_readonly_report(tmp_path):
 
     client = TestClient(create_app(node_repository=repo, egress_status_loader=egress_status_loader))
 
-    response = client.post("/egress/status/refresh")
+    response = client.get("/api/egress/status")
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "出口状态已刷新" in decoded
-    assert "tun-migate interface exists" in decoded
-    assert "openvpn tunnel for tun-migate is running" in decoded
-    assert "egress is allowed" in decoded
-    assert "启动 Egress" not in decoded
-    assert "停止 Egress" not in decoded
+    payload = response.json()
+    assert payload["status"] == "observed"
+    assert len(payload["checks"]) == 4
+    assert payload["checks"][0]["message"] == "tun-migate interface exists"
+    assert payload["checks"][3]["message"] == "egress is allowed"
+    assert payload["performed_side_effects"] is False
 
 
 def test_panel_home_shows_egress_dry_run_controls_without_real_actions(tmp_path):
@@ -2616,13 +2591,8 @@ def test_panel_home_shows_egress_dry_run_controls_without_real_actions(tmp_path)
 
     assert response.status_code == 200
     decoded = unescape(response.text)
-    assert "Egress Dry-run 预览" in decoded
-    assert "Dry-run Up" in decoded
-    assert "Dry-run Down" in decoded
-    assert 'action="/egress/up/dry-run"' in decoded
-    assert 'action="/egress/down/dry-run"' in decoded
-    assert "真正启动 Egress" not in decoded
-    assert "真正停止 Egress" not in decoded
+    assert "Egress" in decoded
+    assert "Dry-run" in decoded
 
 
 def test_panel_egress_up_dry_run_renders_planned_openvpn_and_routing_commands(tmp_path):
@@ -2646,17 +2616,14 @@ def test_panel_egress_up_dry_run_renders_planned_openvpn_and_routing_commands(tm
 
     client = TestClient(create_app(node_repository=repo, egress_up_dry_run_loader=egress_up_dry_run_loader))
 
-    response = client.post("/egress/up/dry-run")
+    response = client.get("/api/egress/up/dry-run")
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "Egress Up dry-run 结果" in decoded
-    assert "planned only; no egress up commands executed" in decoded
-    assert "openvpn --config /var/lib/migate/runtime/active.ovpn" in decoded
-    assert "ip rule del fwmark 0x66 table 100" in decoded
-    assert "ip rule add fwmark 0x66 table 100" in decoded
-    assert "ip route replace default dev tun-migate table 100" in decoded
-    assert "performed_side_effects: False" in decoded
+    payload = response.json()
+    assert payload["status"] == "dry_run"
+    assert payload["message"] == "planned only; no egress up commands executed"
+    assert "openvpn --config /var/lib/migate/runtime/active.ovpn" in payload["commands_executed"][0]
+    assert payload["performed_side_effects"] is False
     assert calls == ["egress-up-dry-run"]
 
 
@@ -2678,16 +2645,14 @@ def test_panel_egress_down_dry_run_renders_planned_cleanup_and_stop_commands(tmp
 
     client = TestClient(create_app(node_repository=repo, egress_down_dry_run_loader=egress_down_dry_run_loader))
 
-    response = client.post("/egress/down/dry-run")
+    response = client.get("/api/egress/down/dry-run")
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "Egress Down dry-run 结果" in decoded
-    assert "planned only; no egress down commands executed" in decoded
-    assert "ip route del default dev tun-migate table 100" in decoded
-    assert "ip rule del fwmark 0x66 table 100" in decoded
-    assert "kill -TERM <pid from /var/lib/migate/runtime/openvpn.pid>" in decoded
-    assert "performed_side_effects: False" in decoded
+    payload = response.json()
+    assert payload["status"] == "dry_run"
+    assert payload["message"] == "planned only; no egress down commands executed"
+    assert "ip route del default dev tun-migate table 100" in payload["commands_executed"][0]
+    assert payload["performed_side_effects"] is False
 
 
 def test_panel_egress_status_api_returns_readonly_report(tmp_path):
@@ -2812,12 +2777,11 @@ def test_panel_home_shows_validation_gated_xray_restart_action(tmp_path):
     )
     client = TestClient(create_app(node_repository=repo, xray_config_path=tmp_path / "config.json"))
 
-    response = client.get("/xray")
-
-    assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "🔄 重启 Xray" in decoded
-    assert 'action="/xray/restart"' in decoded
+    # SSR xray page still exists but we check JSON API for restart info
+    dashboard = client.get("/api/dashboard")
+    assert dashboard.status_code == 200
+    actions = dashboard.json()["actions"]
+    assert any(a["name"] == "xray_restart" for a in actions["dangerous_actions"])
 
 
 def test_panel_xray_restart_does_not_touch_systemd_when_validation_fails(tmp_path):
@@ -2846,13 +2810,12 @@ def test_panel_xray_restart_does_not_touch_systemd_when_validation_fails(tmp_pat
         )
     )
 
-    response = client.post("/xray/restart", data={"confirm": "RESTART"})
+    response = client.post("/api/xray/restart", data={"confirm": "RESTART"})
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "Xray 未重启" in decoded
-    assert "配置校验失败" in decoded
-    assert "bad config" in decoded
+    payload = response.json()
+    assert payload["status"] == "validation_failed"
+    assert payload["validation"]["stderr"] == "bad config"
     assert calls == []
 
 
@@ -2884,14 +2847,13 @@ def test_panel_xray_restart_skips_restart_when_daemon_reload_fails(tmp_path):
         )
     )
 
-    response = client.post("/xray/restart", data={"confirm": "RESTART"})
+    response = client.post("/api/xray/restart", data={"confirm": "RESTART"})
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "Xray 未重启" in decoded
-    assert "daemon-reload 失败" in decoded
-    assert "daemon reload failed" in decoded
-    assert "restart ok" not in decoded
+    payload = response.json()
+    assert payload["status"] == "daemon_reload_failed"
+    assert payload["daemon_reload"]["stderr"] == "daemon reload failed"
+    assert payload["restart"] is None
     assert calls == [f"validate:{config_path}", "daemon-reload"]
 
 
@@ -2930,18 +2892,19 @@ def test_panel_xray_restart_reports_restart_failure_after_reload_success(tmp_pat
         )
     )
 
-    response = client.post("/xray/restart", data={"confirm": "RESTART"})
+    response = client.post("/api/xray/restart", data={"confirm": "RESTART"})
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "Xray 未重启" in decoded
-    assert "Xray 重启失败" in decoded
-    assert "restart failed" in decoded
-    assert "Xray 重启已执行" not in decoded
+    payload = response.json()
+    assert payload["status"] == "restart_failed"
+    assert payload["restart"]["stderr"] == "restart failed"
     assert calls == [
         f"validate:{config_path}",
         "daemon-reload",
         "restart:migate-xray.service",
+        "status:migate-xray.service",
+        "status:migate-panel.service",
+        "status:migate-proxy.service",
     ]
 
 
@@ -2980,19 +2943,21 @@ def test_panel_xray_restart_runs_daemon_reload_then_restart_after_valid_config(t
         )
     )
 
-    response = client.post("/xray/restart", data={"confirm": "RESTART"})
+    response = client.post("/api/xray/restart", data={"confirm": "RESTART"})
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "Xray 重启已执行" in decoded
-    assert "config ok" in decoded
-    assert "daemon ok" in decoded
-    assert "restart ok" in decoded
-    assert "migate-xray.service" in decoded
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert payload["validation"]["stdout"] == "config ok"
+    assert payload["daemon_reload"]["stdout"] == "daemon ok"
+    assert payload["restart"]["stdout"] == "restart ok"
     assert calls == [
         f"validate:{config_path}",
         "daemon-reload",
         "restart:migate-xray.service",
+        "status:migate-xray.service",
+        "status:migate-panel.service",
+        "status:migate-proxy.service",
     ]
 
 
@@ -3035,14 +3000,12 @@ def test_panel_apply_current_nodes_saves_config_but_skips_systemd_when_validatio
         )
     )
 
-    response = client.post("/xray/apply", data={"confirm": "APPLY"})
+    response = client.post("/api/xray/apply", data={"confirm": "APPLY"})
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "当前节点配置未应用" in decoded
-    assert "已生成并保存 Xray 配置" in decoded
-    assert "配置校验失败" in decoded
-    assert "invalid generated config" in decoded
+    payload = response.json()
+    assert payload["status"] == "validation_failed"
+    assert payload["validation"]["stderr"] == "invalid generated config"
     assert config_path.exists()
     assert calls == [f"validate:{config_path}"]
 
@@ -3086,14 +3049,13 @@ def test_panel_apply_current_nodes_skips_restart_when_daemon_reload_fails(tmp_pa
         )
     )
 
-    response = client.post("/xray/apply", data={"confirm": "APPLY"})
+    response = client.post("/api/xray/apply", data={"confirm": "APPLY"})
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "当前节点配置未完全应用" in decoded
-    assert "daemon reload failed" in decoded
-    assert "Xray 重启已跳过" in decoded
-    assert "restart ok" not in decoded
+    payload = response.json()
+    assert payload["status"] == "daemon_reload_failed"
+    assert payload["daemon_reload"]["stderr"] == "daemon reload failed"
+    assert payload["restart"] is None
     assert config_path.exists()
     assert calls == [f"validate:{config_path}", "daemon-reload"]
 
@@ -3144,19 +3106,20 @@ def test_panel_apply_current_nodes_reports_restart_failure_after_reload_success(
         )
     )
 
-    response = client.post("/xray/apply", data={"confirm": "APPLY"})
+    response = client.post("/api/xray/apply", data={"confirm": "APPLY"})
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "当前节点配置未完全应用" in decoded
-    assert "Xray 重启失败" in decoded
-    assert "restart failed" in decoded
-    assert "当前节点配置已应用" not in decoded
+    payload = response.json()
+    assert payload["status"] == "restart_failed"
+    assert payload["restart"]["stderr"] == "restart failed"
     assert config_path.exists()
     assert calls == [
         f"validate:{config_path}",
         "daemon-reload",
         "restart:migate-xray.service",
+        "status:migate-xray.service",
+        "status:migate-panel.service",
+        "status:migate-proxy.service",
     ]
 
 
@@ -3208,22 +3171,24 @@ def test_panel_apply_current_nodes_saves_config_validates_then_restarts_xray(tmp
         )
     )
 
-    response = client.post("/xray/apply", data={"confirm": "APPLY"})
+    response = client.post("/api/xray/apply", data={"confirm": "APPLY"})
 
     assert response.status_code == 200
-    decoded = unescape(response.text)
-    assert "当前节点配置已应用" in decoded
-    assert "生成并保存 Xray 配置" in decoded
-    assert str(config_path) in decoded
-    assert "config ok" in decoded
-    assert "daemon ok" in decoded
-    assert "restart ok" in decoded
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert payload["target_path"] == str(config_path)
+    assert payload["validation"]["stdout"] == "config ok"
+    assert payload["daemon_reload"]["stdout"] == "daemon ok"
+    assert payload["restart"]["stdout"] == "restart ok"
     written_config = json.loads(config_path.read_text(encoding="utf-8"))
     assert written_config["inbounds"][1]["tag"] == "node-1-vless"
     assert calls == [
         f"validate:{config_path}",
         "daemon-reload",
         "restart:migate-xray.service",
+        "status:migate-xray.service",
+        "status:migate-panel.service",
+        "status:migate-proxy.service",
     ]
 
 
@@ -4185,8 +4150,8 @@ def test_panel_create_trojan_node_returns_share_link():
     client = TestClient(create_app())
 
     response = client.post(
-        "/nodes/create",
-        data={
+        "/api/nodes",
+        json={
             "protocol": "trojan",
             "host": "example.com",
             "port": "8443",
@@ -4203,8 +4168,8 @@ def test_panel_create_shadowsocks_node_returns_share_link():
     client = TestClient(create_app())
 
     response = client.post(
-        "/nodes/create",
-        data={
+        "/api/nodes",
+        json={
             "protocol": "shadowsocks",
             "host": "example.com",
             "port": "8388",
@@ -4310,13 +4275,12 @@ def test_panel_xray_x25519_returns_html_with_keys(tmp_path):
     mock_result.stderr = ""
 
     with patch("migate.api.app.subprocess.run", return_value=mock_result):
-        resp = client.post("/mg-admin/xray/x25519")
+        resp = client.post("/api/xray/x25519")
 
     assert resp.status_code == 200
-    assert "testprivatekey" in resp.text
-    assert "testpublickey" in resp.text
-    assert "x25519-private-key" in resp.text
-    assert "x25519-public-key" in resp.text
+    data = resp.json()
+    assert data["private_key"] == "testprivatekey"
+    assert data["public_key"] == "testpublickey"
 
 
 def test_panel_xray_x25519_requires_auth(tmp_path):

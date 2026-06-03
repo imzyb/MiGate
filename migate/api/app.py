@@ -25,13 +25,11 @@ from migate.systemd.units import build_panel_unit, build_xray_unit, write_unit_f
 from migate.xray.runtime import XrayRuntimeStatus, detect_xray_runtime
 from migate.system.monitor import TrafficHistory, get_system_resources
 
-
 # ---------------------------------------------------------------------------
 # Lazy import helper — avoids loading heavy modules at module import time.
 # Modules are cached on first call, so subsequent access is O(1).
 # ---------------------------------------------------------------------------
 _LAZY_IMPORT_CACHE: dict[str, object] = {}
-
 
 def _lazy_import(module_name: str, symbol_name: str | None = None) -> object:
     """Import a module/symbol lazily and cache it."""
@@ -52,21 +50,17 @@ DEFAULT_OPENVPN_STATUS_PATH = DEFAULT_RUNTIME_DIR / "openvpn.status"
 DEFAULT_OPENVPN_LOG_PATH = DEFAULT_RUNTIME_DIR / "openvpn.log"
 MIGATE_SYSTEMD_SERVICES = ("migate-xray.service", "migate-panel.service", "migate-proxy.service")
 
-
 def _load_migate_systemd_services(status_loader: Callable[[str], SystemdResult]) -> dict[str, SystemdResult]:
     return {service_name: status_loader(service_name) for service_name in MIGATE_SYSTEMD_SERVICES}
 
-
 def _hash_panel_password(password: str) -> str:
     return "sha256:" + hashlib.sha256(password.encode()).hexdigest()
-
 
 def _normalize_panel_base_path(base_path: object | None) -> str:
     value = str(base_path or "/").strip() or "/"
     if not value.startswith("/"):
         value = f"/{value}"
     return value.rstrip("/") or "/"
-
 
 def _parse_link_for_clash(link: str) -> dict | None:
     """Parse a share link (vless://, vmess://, trojan://, ss://) into a Clash proxy dict."""
@@ -154,7 +148,6 @@ def _parse_link_for_clash(link: str) -> dict | None:
         pass
     return None
 
-
 def load_panel_auth_config(path: str | Path | None) -> dict[str, object] | None:
     if path is None:
         return None
@@ -172,37 +165,30 @@ def load_panel_auth_config(path: str | Path | None) -> dict[str, object] | None:
     data["base_path"] = _normalize_panel_base_path(data.get("base_path"))
     return data
 
-
 def _panel_auth_enabled(panel_auth_config: dict[str, object] | None) -> bool:
     if panel_auth_config is None:
         return False
     return bool(panel_auth_config.get("admin_user")) and str(panel_auth_config.get("password_hash", "")).startswith("sha256:")
 
-
 def _dangerous_actions_enabled(panel_auth_config: dict[str, object] | None) -> bool:
     return bool((panel_auth_config or {}).get("dangerous_actions_enabled", False))
-
 
 def _get_remote_host(panel_auth_config: dict[str, object] | None) -> str | None:
     """Return configured remote target host, or None if not set."""
     host = (panel_auth_config or {}).get("remote_host", "")
     return str(host).strip() if host else None
 
-
 def _empty_remote_readiness() -> "RemoteReadinessReport":
     from migate.remote.readiness import RemoteReadinessReport
     return RemoteReadinessReport(status="skipped", target="(未配置)", checks=[], commands_executed=[], performed_side_effects=False)
-
 
 def _empty_remote_leak_check() -> "RemoteLeakCheckReport":
     from migate.remote.leak_check import RemoteLeakCheckReport
     return RemoteLeakCheckReport(status="skipped", target="(未配置)", native_public_ip=None, egress_public_ip=None, checks=[], commands_executed=[], performed_side_effects=False)
 
-
 def _empty_remote_rollout_plan() -> "RemoteRolloutPlan":
     from migate.remote.rollout_plan import RemoteRolloutPlan
     return RemoteRolloutPlan(status="skipped", message="未配置远端 VPS", target="(未配置)", credential_hint="", staging_dir="", steps=[], commands_executed=[], performed_side_effects=False)
-
 
 def _dangerous_action_rejected_json() -> dict[str, object]:
     return {
@@ -210,7 +196,6 @@ def _dangerous_action_rejected_json() -> dict[str, object]:
         "message": "dangerous actions are disabled in panel config",
         "performed_side_effects": False,
     }
-
 
 def _dangerous_action_confirmation_required_json(required_confirm: str) -> dict[str, object]:
     return {
@@ -220,7 +205,6 @@ def _dangerous_action_confirmation_required_json(required_confirm: str) -> dict[
         "performed_side_effects": False,
     }
 
-
 def _dangerous_action_rejected_html() -> str:
     return """
   <section class="card">
@@ -228,7 +212,6 @@ def _dangerous_action_rejected_html() -> str:
     <p>panel.json 未启用 dangerous_actions_enabled，因此不会写配置、校验或控制 systemd。</p>
   </section>
 """
-
 
 def _dangerous_action_confirmation_required_html(required_confirm: str) -> str:
     return f"""
@@ -238,24 +221,20 @@ def _dangerous_action_confirmation_required_html(required_confirm: str) -> str:
   </section>
 """
 
-
 def _confirm_dangerous_action(confirm: str | None, required_confirm: str) -> JSONResponse | None:
     if confirm == required_confirm:
         return None
     return JSONResponse(_dangerous_action_confirmation_required_json(required_confirm), status_code=403)
-
 
 def _session_token_for_auth_config(panel_auth_config: dict[str, object]) -> str:
     admin_user = str(panel_auth_config.get("admin_user", ""))
     password_hash = str(panel_auth_config.get("password_hash", ""))
     return hashlib.sha256(f"{admin_user}:{password_hash}".encode()).hexdigest()
 
-
 def _is_authenticated(request: Request, panel_auth_config: dict[str, object] | None) -> bool:
     if not _panel_auth_enabled(panel_auth_config):
         return True
     return request.cookies.get("migate_session") == _session_token_for_auth_config(panel_auth_config or {})
-
 
 def _panel_url(base_path: str, path: str = "/") -> str:
     normalized_base = _normalize_panel_base_path(base_path)
@@ -265,7 +244,6 @@ def _panel_url(base_path: str, path: str = "/") -> str:
     if normalized_path == "/":
         return f"{normalized_base}/"
     return f"{normalized_base}{normalized_path}"
-
 
 def _login_html(message: str = "", *, base_path: str = "/") -> str:
     message_html = f'<div class="toast toast-error">{escape(message)}</div>' if message else ""
@@ -289,7 +267,6 @@ def _login_html(message: str = "", *, base_path: str = "/") -> str:
         show_sidebar=False, title="登录", base_path=base_path,
     )
 
-
 def _logout_html(*, base_path: str = "/") -> str:
     logout_action = _panel_url(base_path, "/logout")
     return f"""
@@ -297,7 +274,6 @@ def _logout_html(*, base_path: str = "/") -> str:
     <button type="submit">退出登录</button>
   </form>
 """
-
 
 def _page_shell(body: str, *, active: str = "dashboard", title: str = "MiGate 面板", subtitle: str = "", base_path: str = "/", show_sidebar: bool = True, user: str = "", flash: str = "", flash_type: str = "ok") -> str:
     if not show_sidebar:
@@ -321,7 +297,6 @@ def _page_shell(body: str, *, active: str = "dashboard", title: str = "MiGate �
         base_path=base_path, flash=flash, flash_type=flash_type, user=user,
     )
 
-
 def _node_create_form_html(base_path: str = "/") -> str:
     return f"""
   <section class="card">
@@ -344,7 +319,6 @@ def _node_create_form_html(base_path: str = "/") -> str:
     </details>
   </section>
 """
-
 
 def _stream_settings_form_html(existing_json: str = "{}", uid: str = "", panel_base_path: str = "/") -> str:
     """Generate a visual Stream Settings configuration form.
@@ -808,7 +782,6 @@ def _stream_settings_form_html(existing_json: str = "{}", uid: str = "", panel_b
 </script>
 """
 
-
 def _inbound_create_form_html(base_path: str = "/") -> str:
     return f"""
   <section class="card">
@@ -828,14 +801,12 @@ def _inbound_create_form_html(base_path: str = "/") -> str:
   </section>
 """
 
-
 def _protocol_badge_class(protocol: str) -> str:
     """Return CSS class for protocol-specific badge coloring."""
     proto = protocol.lower()
     if proto in ("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "wireguard"):
         return f"badge-{proto}"
     return "badge-traffic"
-
 
 def _traffic_bar_html(up_bytes: int, down_bytes: int, limit_bytes: int | None = None) -> str:
     """Render a traffic progress bar if limit is set, or subtle bar for unlimited."""
@@ -847,7 +818,6 @@ def _traffic_bar_html(up_bytes: int, down_bytes: int, limit_bytes: int | None = 
     if total > 0:
         return '<div class="traffic-bar-wrap"><div class="traffic-bar unlimited" style="width:100%;opacity:.3"></div></div>'
     return ""
-
 
 def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
     if not nodes:
@@ -941,7 +911,6 @@ def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
   </section>
 """
 
-
 def _subscription_url_html(ct: dict, base_path: str, cl_email: str) -> str:
     """Generate subscription URL HTML for a client if they have a token."""
     token = ct.get("subscription_token") if ct else None
@@ -956,7 +925,6 @@ def _subscription_url_html(ct: dict, base_path: str, cl_email: str) -> str:
         f'<button type="button" class="btn btn-sm" onclick="navigator.clipboard.writeText(window.location.origin+\'{sub_url}\')">📋</button>'
         f'</div>'
     )
-
 
 def _load_client_traffic_map(db_path: str | Path | None, inbound_id: int) -> dict[str, dict]:
     """Load per-client traffic data from client_traffic table. Returns {email: row_dict}."""
@@ -975,7 +943,6 @@ def _load_client_traffic_map(db_path: str | Path | None, inbound_id: int) -> dic
         return {row["email"]: dict(row) for row in rows}
     except Exception:
         return {}
-
 
 def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/", db_path: str | Path | None = None) -> str:
     if not inbounds:
@@ -1170,7 +1137,6 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/", db_pa
   </section>
 """
 
-
 def _format_bytes(n: int) -> str:
     value = float(n)
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -1179,11 +1145,9 @@ def _format_bytes(n: int) -> str:
         value /= 1024
     return f"{value:.1f} PB"
 
-
 def _xray_config_for_nodes(nodes: list[NodeRecord], *, inbounds: list[InboundRecord] | None = None) -> dict[str, object]:
     build_combined = _lazy_import('migate.xray.node_adapter', 'build_config_from_nodes_and_inbounds')
     return build_combined(MiGateConfig(), nodes=[n for n in nodes if n.enabled], inbounds=inbounds or [])
-
 
 def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/", inbounds: list[InboundRecord] | None = None) -> str:
     enabled_nodes = [node for node in nodes if node.enabled]
@@ -1223,7 +1187,6 @@ def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/", inbound
   </section>
 """
 
-
 def _rewrite_panel_actions(html: str, *, base_path: str) -> str:
     normalized_base = _normalize_panel_base_path(base_path)
     if normalized_base == "/":
@@ -1240,7 +1203,6 @@ def _rewrite_panel_actions(html: str, *, base_path: str) -> str:
         rewritten = rewritten.replace(f'action="{prefix}', f'action="{normalized_base}{prefix}')
     return rewritten
 
-
 def _action_page(
     result_html: str,
     *,
@@ -1256,7 +1218,6 @@ def _action_page(
         active=active, title=title, subtitle=subtitle,
         content=result_html, base_path=base_path, user=user,
     )
-
 
 def _home_body(
     *,
@@ -1285,7 +1246,6 @@ def _home_body(
     </div>
     {auth_html}
   </section>
-
 
   <section class="card">
     <h3>创建节点</h3>
@@ -1365,14 +1325,12 @@ def _home_body(
 """
     return _rewrite_panel_actions(html, base_path=base_path)
 
-
 def _credential_for_protocol(protocol: str, credential: str) -> str:
     if credential:
         return credential
     if protocol == "vless":
         return str(uuid4())
     return uuid4().hex
-
 
 def _build_link(protocol: str, host: str, port: int, name: str, credential: str) -> str:
     build_shadowsocks_link = _lazy_import('migate.xray.links', 'build_shadowsocks_link')
@@ -1388,7 +1346,6 @@ def _build_link(protocol: str, host: str, port: int, name: str, credential: str)
     if protocol == "shadowsocks":
         return build_shadowsocks_link(method="aes-128-gcm", password=credential, host=host, port=port, name=name)
     raise ValueError(f"unsupported protocol: {protocol}")
-
 
 def _systemd_preview_html(config: MiGateConfig) -> str:
     xray_unit = build_xray_unit(config)
@@ -1411,7 +1368,6 @@ def _systemd_preview_html(config: MiGateConfig) -> str:
   </section>
 """
 
-
 def _service_status_row(service_name: str, result: SystemdResult) -> str:
     is_active = result.status.lower() in ("active", "running")
     icon = "🟢" if is_active else "🔴"
@@ -1429,7 +1385,6 @@ def _service_status_row(service_name: str, result: SystemdResult) -> str:
     </div>
 """
 
-
 def _service_statuses_html(services: dict[str, SystemdResult], *, refreshed: bool = False) -> str:
     heading = "服务状态已刷新" if refreshed else "服务状态"
     rows = "\n".join(_service_status_row(name, result) for name, result in services.items())
@@ -1443,10 +1398,8 @@ def _service_statuses_html(services: dict[str, SystemdResult], *, refreshed: boo
   </section>
 """
 
-
 def _service_status_html(status_loader: Callable[[str], SystemdResult], *, refreshed: bool = False) -> str:
     return _service_statuses_html(_load_migate_systemd_services(status_loader), refreshed=refreshed)
-
 
 def _xray_runtime_status_html(status: XrayRuntimeStatus, *, refreshed: bool = False) -> str:
     heading = "Xray 运行时已刷新" if refreshed else "Xray 运行时"
@@ -1467,10 +1420,8 @@ def _xray_runtime_status_html(status: XrayRuntimeStatus, *, refreshed: bool = Fa
   </section>
 """
 
-
 def _xray_runtime_html(runtime_loader: Callable[[], XrayRuntimeStatus], *, refreshed: bool = False) -> str:
     return _xray_runtime_status_html(runtime_loader(), refreshed=refreshed)
-
 
 def _xray_install_plan_json(plan: XrayInstallPlan) -> dict[str, object]:
     XrayInstallPlan = _lazy_import('migate.xray.install_plan', 'XrayInstallPlan')
@@ -1490,7 +1441,6 @@ def _xray_install_plan_json(plan: XrayInstallPlan) -> dict[str, object]:
         "performs_side_effects": plan.performs_side_effects,
     }
 
-
 def _xray_install_dry_run_json(result: XrayInstallDryRunResult) -> dict[str, object]:
     XrayInstallDryRunResult = _lazy_import('migate.xray.install_executor', 'XrayInstallDryRunResult')
     return {
@@ -1508,7 +1458,6 @@ def _xray_install_dry_run_json(result: XrayInstallDryRunResult) -> dict[str, obj
         "commands_executed": result.commands_executed,
         "performed_side_effects": result.performed_side_effects,
     }
-
 
 def _xray_install_plan_html(plan_loader: Callable[[], XrayInstallPlan], *, refreshed: bool = False) -> str:
     XrayInstallPlan = _lazy_import('migate.xray.install_plan', 'XrayInstallPlan')
@@ -1548,7 +1497,6 @@ def _xray_install_plan_html(plan_loader: Callable[[], XrayInstallPlan], *, refre
   </section>
 """
 
-
 def _xray_install_dry_run_html(dry_run_loader: Callable[[], XrayInstallDryRunResult]) -> str:
     XrayInstallDryRunResult = _lazy_import('migate.xray.install_executor', 'XrayInstallDryRunResult')
     result = dry_run_loader()
@@ -1576,7 +1524,6 @@ def _xray_install_dry_run_html(dry_run_loader: Callable[[], XrayInstallDryRunRes
   </section>
 """
 
-
 def _remote_check_rows_html(checks: object) -> str:
     rows = []
     if isinstance(checks, list):
@@ -1589,7 +1536,6 @@ def _remote_check_rows_html(checks: object) -> str:
             rows.append(f"{name}: {status} - {message}")
     return "\n".join(rows)
 
-
 def _remote_rollout_steps_html(steps: list[RemoteRolloutStep]) -> str:
     RemoteRolloutStep = _lazy_import('migate.remote.rollout_plan', 'RemoteRolloutStep')
     return "\n".join(
@@ -1597,11 +1543,9 @@ def _remote_rollout_steps_html(steps: list[RemoteRolloutStep]) -> str:
         for step in steps
     )
 
-
 def _remote_commands_preview(commands: list[str]) -> list[str]:
     hidden_terms = ("systemctl", "daemon-reload", "restart", "start ", " stop ")
     return ["[REDACTED_COMMAND]" if any(term in command for term in hidden_terms) else command for command in commands]
-
 
 def _remote_status_detail_html(
     *,
@@ -1660,7 +1604,6 @@ def _remote_status_detail_html(
   </section>
 """
 
-
 def _egress_status_report_html(report: EgressStatusReport, *, refreshed: bool = False) -> str:
     heading = "出口状态已刷新" if refreshed else "出口状态"
     is_ok = report.status.lower() in ("ok", "healthy", "active")
@@ -1687,10 +1630,8 @@ def _egress_status_report_html(report: EgressStatusReport, *, refreshed: bool = 
   </section>
 """
 
-
 def _egress_status_html(status_loader: Callable[[], EgressStatusReport], *, refreshed: bool = False) -> str:
     return _egress_status_report_html(status_loader(), refreshed=refreshed)
-
 
 def _egress_dry_run_controls_html() -> str:
     return """
@@ -1708,7 +1649,6 @@ def _egress_dry_run_controls_html() -> str:
   </section>
 """
 
-
 def _xray_runtime_status_json(runtime: XrayRuntimeStatus, *, include_output: bool = True) -> dict[str, object]:
     result: dict[str, object] = {
         "status": runtime.status,
@@ -1723,7 +1663,6 @@ def _xray_runtime_status_json(runtime: XrayRuntimeStatus, *, include_output: boo
         result["performed_side_effects"] = False
     return result
 
-
 def _xray_validation_result_json(result: XrayValidationResult, *, target_path: Path) -> dict[str, object]:
     XrayValidationResult = _lazy_import('migate.xray.validator', 'XrayValidationResult')
     return {
@@ -1736,7 +1675,6 @@ def _xray_validation_result_json(result: XrayValidationResult, *, target_path: P
         "performed_side_effects": False,
     }
 
-
 def _systemd_result_json(result: SystemdResult) -> dict[str, object]:
     return {
         "status": result.status,
@@ -1745,10 +1683,8 @@ def _systemd_result_json(result: SystemdResult) -> dict[str, object]:
         "stderr": result.stderr,
     }
 
-
 def _systemd_services_status_json(services: dict[str, SystemdResult]) -> dict[str, object]:
     return {name: _systemd_result_json(result) for name, result in services.items()}
-
 
 def _xray_validation_summary_json(result: XrayValidationResult) -> dict[str, object]:
     XrayValidationResult = _lazy_import('migate.xray.validator', 'XrayValidationResult')
@@ -1758,7 +1694,6 @@ def _xray_validation_summary_json(result: XrayValidationResult) -> dict[str, obj
         "stdout": result.stdout,
         "stderr": result.stderr,
     }
-
 
 def build_xray_apply_dry_run_plan(*, nodes: Sized, enabled_nodes: Sized, config_path: Path) -> dict[str, object]:
     return {
@@ -1778,7 +1713,6 @@ def build_xray_apply_dry_run_plan(*, nodes: Sized, enabled_nodes: Sized, config_
         "performed_side_effects": False,
     }
 
-
 def build_xray_restart_dry_run_plan(*, config_path: Path) -> dict[str, object]:
     return {
         "status": "dry_run",
@@ -1794,7 +1728,6 @@ def build_xray_restart_dry_run_plan(*, config_path: Path) -> dict[str, object]:
         "systemctl_commands_executed": [],
         "performed_side_effects": False,
     }
-
 
 def _safe_preview_actions_json() -> list[dict[str, str]]:
     return [
@@ -1812,13 +1745,11 @@ def _safe_preview_actions_json() -> list[dict[str, str]]:
         {"name": "proxy_service_preview", "method": "GET", "path": "/api/proxy/service/preview"},
     ]
 
-
 def _dangerous_actions_json(*, enabled: bool = False) -> list[dict[str, object]]:
     return [
         {"name": "xray_apply", "method": "POST", "path": "/api/xray/apply", "enabled": enabled},
         {"name": "xray_restart", "method": "POST", "path": "/api/xray/restart", "enabled": enabled},
     ]
-
 
 def _egress_status_report_json(report: EgressStatusReport) -> dict[str, object]:
     return {
@@ -1833,7 +1764,6 @@ def _egress_status_report_json(report: EgressStatusReport) -> dict[str, object]:
         ],
         "performed_side_effects": report.performed_side_effects,
     }
-
 
 def _proxy_run_result_json(result: ProxyRunResult) -> dict[str, object]:
     ProxyRunResult = _lazy_import('migate.proxy.run', 'ProxyRunResult')
@@ -1859,7 +1789,6 @@ def _proxy_run_result_json(result: ProxyRunResult) -> dict[str, object]:
         "performed_side_effects": result.performed_side_effects,
     }
 
-
 def _egress_lifecycle_result_json(result: EgressLifecycleResult) -> dict[str, object]:
     return {
         "status": result.status,
@@ -1876,7 +1805,6 @@ def _egress_lifecycle_result_json(result: EgressLifecycleResult) -> dict[str, ob
         "performed_side_effects": result.performed_side_effects,
     }
 
-
 def _remote_readiness_report_json(report: RemoteReadinessReport) -> dict[str, object]:
     RemoteReadinessReport = _lazy_import('migate.remote.readiness', 'RemoteReadinessReport')
     return {
@@ -1889,7 +1817,6 @@ def _remote_readiness_report_json(report: RemoteReadinessReport) -> dict[str, ob
         "commands_executed": report.commands_executed,
         "performed_side_effects": report.performed_side_effects,
     }
-
 
 def _remote_leak_check_report_json(report: RemoteLeakCheckReport) -> dict[str, object]:
     RemoteLeakCheckReport = _lazy_import('migate.remote.leak_check', 'RemoteLeakCheckReport')
@@ -1905,7 +1832,6 @@ def _remote_leak_check_report_json(report: RemoteLeakCheckReport) -> dict[str, o
         "commands_executed": report.commands_executed,
         "performed_side_effects": report.performed_side_effects,
     }
-
 
 def _remote_rollout_plan_json(plan: RemoteRolloutPlan) -> dict[str, object]:
     RemoteRolloutPlan = _lazy_import('migate.remote.rollout_plan', 'RemoteRolloutPlan')
@@ -1927,7 +1853,6 @@ def _remote_rollout_plan_json(plan: RemoteRolloutPlan) -> dict[str, object]:
         "commands_executed": plan.commands_executed,
         "performed_side_effects": plan.performed_side_effects,
     }
-
 
 def _dashboard_snapshot_json(
     *,
@@ -1977,10 +1902,8 @@ def _dashboard_snapshot_json(
         "performed_side_effects": False,
     }
 
-
 def _card_status_class(status: object) -> str:
     return "ok" if str(status) in {"ok", "installed", "observed", "running", "dry_run", "success"} else "warn"
-
 
 def _dashboard_card_html(label: str, value: object, detail: object = "") -> str:
     value_text = str(value)
@@ -1993,7 +1916,6 @@ def _dashboard_card_html(label: str, value: object, detail: object = "") -> str:
     </div>
 """
 
-
 def _quick_actions_html(base_path: str = "/") -> str:
     return f"""
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
@@ -2003,7 +1925,6 @@ def _quick_actions_html(base_path: str = "/") -> str:
     <a href="{escape(_panel_url(base_path, '/system'))}" class="btn btn-sm">🔧 系统设置</a>
   </div>
 """
-
 
 def _dashboard_html(snapshot: dict[str, object]) -> str:
     cards = snapshot["cards"]
@@ -2169,7 +2090,6 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
 {_dangerous_actions_html(snapshot)}
 """
 
-
 def _dangerous_actions_html(snapshot: dict[str, object]) -> str:
     actions = snapshot.get("actions", {})
     assert isinstance(actions, dict)
@@ -2193,7 +2113,6 @@ def _dangerous_actions_html(snapshot: dict[str, object]) -> str:
   </section>
 """
 
-
 def _egress_dry_run_result_html(title: str, result_loader: Callable[[], EgressLifecycleResult]) -> str:
     result = result_loader()
     commands = "\n".join(result.commands_executed)
@@ -2214,7 +2133,6 @@ def _egress_dry_run_result_html(title: str, result_loader: Callable[[], EgressLi
   </section>
 """
 
-
 def _default_egress_up_dry_run(config: MiGateConfig) -> EgressLifecycleResult:
     build_openvpn_start_plan = _lazy_import('migate.vpn.process_plan', 'build_openvpn_start_plan')
     build_policy_routing_plan = _lazy_import('migate.routing.policy_plan', 'build_policy_routing_plan')
@@ -2234,7 +2152,6 @@ def _default_egress_up_dry_run(config: MiGateConfig) -> EgressLifecycleResult:
         performed_side_effects=False,
     )
 
-
 def _default_egress_down_dry_run(config: MiGateConfig) -> EgressLifecycleResult:
     build_openvpn_stop_plan = _lazy_import('migate.vpn.process_stop', 'build_openvpn_stop_plan')
     build_policy_routing_cleanup_plan = _lazy_import('migate.routing.policy_cleanup', 'build_policy_routing_cleanup_plan')
@@ -2251,7 +2168,6 @@ def _default_egress_down_dry_run(config: MiGateConfig) -> EgressLifecycleResult:
         performed_side_effects=False,
     )
 
-
 def _result_output(*parts: object) -> str:
     XrayValidationResult = _lazy_import('migate.xray.validator', 'XrayValidationResult')
     values = []
@@ -2261,7 +2177,6 @@ def _result_output(*parts: object) -> str:
         elif part:
             values.append(str(part))
     return "\n".join(value for value in values if value)
-
 
 def _xray_control_diagnostics_html(
     *,
@@ -2283,7 +2198,6 @@ def _xray_control_diagnostics_html(
     <div class="label">{escape(restart_label)}：{escape(restart_result.status)}</div>
     <pre>{escape(_result_output(restart_result))}</pre>"""
     return html
-
 
 def _telegram_settings_html(notifications_config: object, base_path: str = "/") -> str:
     """Generate Telegram notification settings form for the system page."""
@@ -2307,7 +2221,6 @@ def _telegram_settings_html(notifications_config: object, base_path: str = "/") 
     </form>
   </section>
 """
-
 
 def _backup_section_html(base_path: str = "/") -> str:
     """Generate backup management section for the system page."""
@@ -2352,7 +2265,6 @@ def _backup_section_html(base_path: str = "/") -> str:
     </script>
   </section>
 """
-
 
 def create_app(
     node_repository: NodeRepository | None = None,
@@ -3183,6 +3095,122 @@ a {{ color:#4ecdc4; }}
     def api_dashboard() -> dict[str, object]:
         return dashboard_snapshot()
 
+    @app.get("/api/remote/status")
+    def api_remote_status() -> dict[str, object]:
+        _remote_host = _get_remote_host(loaded_panel_auth_config)
+        if _remote_host:
+            readiness = readiness_loader(host=_remote_host, port=22, user="root")
+            leak_check = leak_check_loader(host=_remote_host, port=22, user="root", socks_port=34501)
+            rollout = remote_rollout_loader(host=_remote_host, port=22, user="root", staging_dir="/tmp/migate-install", backend=None)
+        else:
+            readiness = _empty_remote_readiness()
+            leak_check = _empty_remote_leak_check()
+            rollout = _empty_remote_rollout_plan()
+        return {
+            "readiness": readiness.__dict__ if hasattr(readiness, '__dict__') else str(readiness),
+            "leak_check": leak_check.__dict__ if hasattr(leak_check, '__dict__') else str(leak_check),
+            "rollout": rollout.__dict__ if hasattr(rollout, '__dict__') else str(rollout),
+        }
+
+    # ---- Node CRUD JSON API ----
+
+    @app.post("/api/nodes")
+    def api_create_node(request: Request, body: dict[str, object]) -> dict[str, object]:
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        protocol = str(body.get("protocol", "vless"))
+        host = str(body.get("host", "")).strip()
+        port = int(body.get("port", 443))
+        name = str(body.get("name", "MiGate Node")).strip() or "MiGate Node"
+        credential = str(body.get("credential", "")).strip()
+        socks5_host = str(body.get("socks5_host", "")).strip()
+        socks5_port_raw = body.get("socks5_port")
+        socks5_port = int(socks5_port_raw) if socks5_host and socks5_port_raw else None
+        cleaned_credential = _credential_for_protocol(protocol, credential)
+        link = _build_link(protocol=protocol, host=host, port=port, name=name, credential=cleaned_credential)
+        subscription = build_base64_subscription([link])
+        node = repo.create_node(
+            protocol=protocol, name=name, host=host, port=port,
+            credential=cleaned_credential, share_link=link, subscription=subscription,
+            socks5_host=socks5_host, socks5_port=socks5_port,
+        )
+        return {"status": "created", "node_id": node.id, "share_link": link, "subscription": subscription}
+
+    @app.post("/api/nodes/{node_id}/update")
+    def api_update_node(node_id: int, request: Request, body: dict[str, object]) -> dict[str, object]:
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        existing = repo.get_node(node_id)
+        if existing is None:
+            return JSONResponse({"detail": "not found"}, status_code=404)
+        protocol = str(body.get("protocol", existing.protocol))
+        host = str(body.get("host", existing.host)).strip()
+        port = int(body.get("port", existing.port))
+        name = str(body.get("name", existing.name)).strip() or "MiGate Node"
+        credential = str(body.get("credential", existing.credential)).strip()
+        socks5_host = str(body.get("socks5_host", "")).strip()
+        socks5_port_raw = body.get("socks5_port")
+        socks5_port = int(socks5_port_raw) if socks5_host and socks5_port_raw else None
+        cleaned_credential = _credential_for_protocol(protocol, credential)
+        link = _build_link(protocol=protocol, host=host, port=port, name=name, credential=cleaned_credential)
+        subscription = build_base64_subscription([link])
+        node = repo.update_node(
+            node_id, protocol=protocol, name=name, host=host, port=port,
+            credential=cleaned_credential, share_link=link, subscription=subscription,
+            socks5_host=socks5_host, socks5_port=socks5_port,
+        )
+        return {"status": "updated", "node_id": node_id, "share_link": link, "subscription": subscription}
+
+    @app.post("/api/nodes/{node_id}/enable")
+    def api_enable_node(node_id: int, request: Request) -> dict[str, object]:
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        node = repo.set_node_enabled(node_id, True)
+        if node is None:
+            return JSONResponse({"detail": "not found"}, status_code=404)
+        return {"status": "enabled", "node_id": node_id}
+
+    @app.post("/api/nodes/{node_id}/disable")
+    def api_disable_node(node_id: int, request: Request) -> dict[str, object]:
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        node = repo.set_node_enabled(node_id, False)
+        if node is None:
+            return JSONResponse({"detail": "not found"}, status_code=404)
+        return {"status": "disabled", "node_id": node_id}
+
+    @app.post("/api/nodes/{node_id}/delete")
+    def api_delete_node(node_id: int, request: Request) -> dict[str, object]:
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        node = repo.delete_node(node_id)
+        if node is None:
+            return JSONResponse({"detail": "not found"}, status_code=404)
+        return {"status": "deleted", "node_id": node_id}
+
+    @app.post("/api/xray/config/save")
+    def api_xray_config_save(request: Request) -> dict[str, object]:
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        nodes = repo.list_nodes()
+        written = write_xray_config(_xray_config_for_nodes(nodes, inbounds=inbound_repo.list_inbounds()), config_path)
+        return {"status": "saved", "path": str(written)}
+
+    @app.post("/api/systemd/units/save")
+    def api_systemd_units_save(request: Request) -> dict[str, object]:
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        written_xray = write_unit_file(build_xray_unit(migate_config), unit_dir)
+        written_panel = write_unit_file(build_panel_unit(migate_config), unit_dir)
+        return {"status": "saved", "units": [str(written_xray), str(written_panel)]}
+
     if panel_base_path != "/":
         @app.get("/")
         def root_redirect() -> RedirectResponse:
@@ -3257,366 +3285,6 @@ a {{ color:#4ecdc4; }}
             base_path=panel_base_path, user=_panel_user,
         )
 
-    def remote_status_detail() -> str:
-        _remote_host = _get_remote_host(loaded_panel_auth_config)
-        if _remote_host:
-            _readiness = readiness_loader(host=_remote_host, port=22, user="root")
-            _leak_check = leak_check_loader(host=_remote_host, port=22, user="root", socks_port=34501)
-            _rollout = remote_rollout_loader(host=_remote_host, port=22, user="root", staging_dir="/tmp/migate-install", backend=None)
-        else:
-            _readiness = _empty_remote_readiness()
-            _leak_check = _empty_remote_leak_check()
-            _rollout = _empty_remote_rollout_plan()
-        return _remote_status_detail_html(
-            readiness=_readiness,
-            leak_check=_leak_check,
-            rollout=_rollout,
-        )
-
-    @app.post(_panel_url(panel_base_path, "/remote/status/refresh"), response_class=HTMLResponse)
-    def refresh_remote_status() -> str:
-        result = remote_status_detail().replace("远端状态详情", "远端状态详情已刷新", 1)
-        return _action_page(result, active="system", title="远端状态", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/nodes/create"), response_class=HTMLResponse)
-    def create_node(
-        request: Request,
-        protocol: str = Form(...),
-        host: str = Form(...),
-        port: int = Form(...),
-        name: str = Form("MiGate Node"),
-        credential: str = Form(""),
-        socks5_host: str = Form(""),
-        socks5_port: int | None = Form(None),
-    ):
-        auth_redirect = require_panel_auth(request)
-        if auth_redirect is not None:
-            return auth_redirect
-        cleaned_name = name.strip() or "MiGate Node"
-        cleaned_host = host.strip()
-        cleaned_socks5_host = socks5_host.strip()
-        cleaned_credential = _credential_for_protocol(protocol, credential.strip())
-        link = _build_link(protocol=protocol, host=cleaned_host, port=port, name=cleaned_name, credential=cleaned_credential)
-        subscription = build_base64_subscription([link])
-        node = repo.create_node(
-            protocol=protocol,
-            name=cleaned_name,
-            host=cleaned_host,
-            port=port,
-            credential=cleaned_credential,
-            share_link=link,
-            subscription=subscription,
-            socks5_host=cleaned_socks5_host,
-            socks5_port=socks5_port if cleaned_socks5_host else None,
-        )
-        socks5_html = f"<div class=\"label\">SOCKS5 出口：{escape(node.socks5_host)}:{node.socks5_port}</div>" if node.socks5_host and node.socks5_port else "<div class=\"label\">SOCKS5 出口：默认 MiGate 本地出口</div>"
-        result = f"""
-  <section class="card">
-    <h3>节点已生成</h3>
-    <p>节点 #{node.id} 已保存。复制下面的分享链接，或复制订阅内容导入客户端。</p>
-    {socks5_html}
-    <div class="label">分享链接</div>
-    <pre>{escape(link)}</pre>
-    <div class="label">订阅内容</div>
-    <pre>{escape(subscription)}</pre>
-  </section>
-"""
-        return _action_page(result, active="nodes", title="创建节点", base_path=panel_base_path, user=_panel_user)
-
-    def _node_action_result(title: str, message: str) -> str:
-        result = f"""
-  <section class="card">
-    <h3>{escape(title)}</h3>
-    <p>{escape(message)}</p>
-  </section>
-"""
-        return _action_page(result, active="nodes", title="节点管理", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/nodes/{node_id}/edit"), response_class=HTMLResponse)
-    def edit_node(
-        node_id: int,
-        protocol: str = Form(...),
-        host: str = Form(...),
-        port: int = Form(...),
-        name: str = Form("MiGate Node"),
-        credential: str = Form(""),
-        socks5_host: str = Form(""),
-        socks5_port: str = Form(""),
-    ) -> str:
-        existing = repo.get_node(node_id)
-        if existing is None:
-            return _node_action_result("节点不存在", f"节点 #{node_id} 不存在。")
-        cleaned_name = name.strip() or "MiGate Node"
-        cleaned_host = host.strip()
-        cleaned_credential = _credential_for_protocol(protocol, credential.strip())
-        cleaned_socks5_host = socks5_host.strip()
-        cleaned_socks5_port = int(socks5_port) if cleaned_socks5_host and socks5_port.strip() else None
-        link = _build_link(protocol=protocol, host=cleaned_host, port=port, name=cleaned_name, credential=cleaned_credential)
-        subscription = build_base64_subscription([link])
-        node = repo.update_node(
-            node_id,
-            protocol=protocol,
-            name=cleaned_name,
-            host=cleaned_host,
-            port=port,
-            credential=cleaned_credential,
-            share_link=link,
-            subscription=subscription,
-            socks5_host=cleaned_socks5_host,
-            socks5_port=cleaned_socks5_port,
-        )
-        if node is None:
-            return _node_action_result("节点不存在", f"节点 #{node_id} 不存在。")
-        return _node_action_result("节点已更新", f"节点 {node.name} 已更新。")
-
-    @app.post(_panel_url(panel_base_path, "/nodes/{node_id}/enable"), response_class=HTMLResponse)
-    def enable_node(node_id: int) -> str:
-        node = repo.set_node_enabled(node_id, True)
-        if node is None:
-            return _node_action_result("节点不存在", f"节点 #{node_id} 不存在。")
-        return _node_action_result("节点已启用", f"节点 {node.name} 已启用。")
-
-    @app.post(_panel_url(panel_base_path, "/nodes/{node_id}/disable"), response_class=HTMLResponse)
-    def disable_node(node_id: int) -> str:
-        node = repo.set_node_enabled(node_id, False)
-        if node is None:
-            return _node_action_result("节点不存在", f"节点 #{node_id} 不存在。")
-        return _node_action_result("节点已禁用", f"节点 {node.name} 已禁用。")
-
-    @app.post(_panel_url(panel_base_path, "/nodes/{node_id}/delete"), response_class=HTMLResponse)
-    def delete_node(node_id: int) -> str:
-        node = repo.delete_node(node_id)
-        if node is None:
-            return _node_action_result("节点不存在", f"节点 #{node_id} 不存在。")
-        return _node_action_result("节点已删除", f"节点 {node.name} 已删除。")
-
-    def _inbound_action_result(title: str, message: str) -> str:
-        result = f"""
-  <section class="card">
-    <h3>{escape(title)}</h3>
-    <p>{escape(message)}</p>
-  </section>
-"""
-        return _action_page(result, active="inbounds", title="入站规则", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/inbounds/create"), response_class=HTMLResponse)
-    def create_inbound(
-        remark: str = Form(...),
-        protocol: str = Form(...),
-        port: int = Form(...),
-        listen: str = Form("0.0.0.0"),
-        settings: str = Form("{}"),
-        stream_settings: str = Form("{}"),
-    ) -> str:
-        ib = inbound_repo.create_inbound(
-            remark=remark, protocol=protocol, port=port, listen=listen,
-            settings=settings, stream_settings=stream_settings,
-        )
-        return _inbound_action_result("入站已创建", f"入站 #{ib.id} ({ib.remark}) 已创建，端口 {ib.port}。")
-
-    @app.post(_panel_url(panel_base_path, "/inbounds/{inbound_id}/edit"), response_class=HTMLResponse)
-    def edit_inbound(
-        inbound_id: int,
-        remark: str = Form(...),
-        protocol: str = Form(...),
-        port: int = Form(...),
-        listen: str = Form("0.0.0.0"),
-        settings: str = Form("{}"),
-        stream_settings: str = Form("{}"),
-    ) -> str:
-        ib = inbound_repo.update_inbound(
-            inbound_id, remark=remark, protocol=protocol, port=port, listen=listen,
-            settings=settings, stream_settings=stream_settings,
-        )
-        if ib is None:
-            return _inbound_action_result("入站不存在", f"入站 #{inbound_id} 不存在。")
-        return _inbound_action_result("入站已更新", f"入站 #{ib.id} ({ib.remark}) 已更新。")
-
-    @app.post(_panel_url(panel_base_path, "/inbounds/{inbound_id}/enable"), response_class=HTMLResponse)
-    def enable_inbound(inbound_id: int) -> str:
-        ib = inbound_repo.set_inbound_enabled(inbound_id, enabled=True)
-        if ib is None:
-            return _inbound_action_result("入站不存在", f"入站 #{inbound_id} 不存在。")
-        return _inbound_action_result("入站已启用", f"入站 #{ib.id} ({ib.remark}) 已启用。")
-
-    @app.post(_panel_url(panel_base_path, "/inbounds/{inbound_id}/disable"), response_class=HTMLResponse)
-    def disable_inbound(inbound_id: int) -> str:
-        ib = inbound_repo.set_inbound_enabled(inbound_id, enabled=False)
-        if ib is None:
-            return _inbound_action_result("入站不存在", f"入站 #{inbound_id} 不存在。")
-        return _inbound_action_result("入站已禁用", f"入站 #{ib.id} ({ib.remark}) 已禁用。")
-
-    @app.post(_panel_url(panel_base_path, "/inbounds/{inbound_id}/delete"), response_class=HTMLResponse)
-    def delete_inbound(inbound_id: int) -> str:
-        ib = inbound_repo.get_inbound(inbound_id)
-        if ib is None:
-            return _inbound_action_result("入站不存在", f"入站 #{inbound_id} 不存在。")
-        inbound_repo.delete_inbound(inbound_id)
-        return _inbound_action_result("入站已删除", f"入站 #{ib.id} ({ib.remark}) 已删除。")
-
-    @app.post(_panel_url(panel_base_path, "/xray/config/save"), response_class=HTMLResponse)
-    def save_xray_config() -> str:
-        nodes = repo.list_nodes()
-        written = write_xray_config(_xray_config_for_nodes(nodes, inbounds=inbound_repo.list_inbounds()), config_path)
-        result = f"""
-  <section class="card">
-    <h3>Xray 配置已保存</h3>
-    <p>配置已写入：{escape(str(written))}</p>
-    <p>当前步骤仅写盘，不会自动重载 Xray 服务。</p>
-  </section>
-"""
-        return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/xray/config/validate"), response_class=HTMLResponse)
-    def validate_saved_xray_config() -> str:
-        result_value = validator(config_path)
-        output = _result_output(result_value)
-        result = f"""
-  <section class="card">
-    <h3>Xray 配置校验结果</h3>
-    <p>状态：{escape(result_value.status)}</p>
-    <p>返回码：{escape(str(result_value.returncode))}</p>
-    <pre>{escape(output)}</pre>
-  </section>
-"""
-        return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/xray/apply"), response_class=HTMLResponse)
-    def apply_current_nodes_to_xray(confirm: str = Form("")):
-        if not _dangerous_actions_enabled(loaded_panel_auth_config):
-            return HTMLResponse(
-                _action_page(_dangerous_action_rejected_html(), active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user),
-                status_code=403,
-            )
-        if confirm != "APPLY":
-            return HTMLResponse(
-                _action_page(_dangerous_action_confirmation_required_html("APPLY"), active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user),
-                status_code=403,
-            )
-        nodes = repo.list_nodes()
-        written = write_xray_config(_xray_config_for_nodes(nodes, inbounds=inbound_repo.list_inbounds()), config_path)
-        validation = validator(config_path)
-        if validation.status != "valid":
-            result = f"""
-  <section class="card">
-    <h3>当前节点配置未应用</h3>
-    <p>已生成并保存 Xray 配置：{escape(str(written))}</p>
-    <p>配置校验失败，未执行服务重载或重启。</p>
-    <p>校验状态：{escape(validation.status)}</p>
-    <pre>{escape(_result_output(validation))}</pre>
-  </section>
-"""
-            return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
-        reload_result = daemon_reloader()
-        if reload_result.status != "success":
-            result = f"""
-  <section class="card">
-    <h3>当前节点配置未完全应用</h3>
-    <p>已生成并保存 Xray 配置：{escape(str(written))}</p>
-    <p>配置校验通过，但 systemd daemon-reload 失败，Xray 重启已跳过。</p>
-{_xray_control_diagnostics_html(validation=validation, reload_result=reload_result)}
-  </section>
-"""
-            return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
-        restart_result = restarter("migate-xray.service")
-        if restart_result.status != "success":
-            result = f"""
-  <section class="card">
-    <h3>当前节点配置未完全应用</h3>
-    <p>已生成并保存 Xray 配置：{escape(str(written))}</p>
-    <p>配置校验和 systemd daemon-reload 已通过，但 Xray 重启失败。</p>
-{_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result, restart_label="Xray 重启失败")}
-  </section>
-"""
-            return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
-        result = f"""
-  <section class="card">
-    <h3>当前节点配置已应用</h3>
-    <p>生成并保存 Xray 配置：{escape(str(written))}</p>
-{_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result)}
-  </section>
-"""
-        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/xray/restart"), response_class=HTMLResponse)
-    def restart_xray_after_validation(confirm: str = Form("")):
-        if not _dangerous_actions_enabled(loaded_panel_auth_config):
-            return HTMLResponse(
-                _action_page(_dangerous_action_rejected_html(), active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user),
-                status_code=403,
-            )
-        if confirm != "RESTART":
-            return HTMLResponse(
-                _action_page(_dangerous_action_confirmation_required_html("RESTART"), active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user),
-                status_code=403,
-            )
-        validation = validator(config_path)
-        if validation.status != "valid":
-            result = f"""
-  <section class="card">
-    <h3>Xray 未重启</h3>
-    <p>配置校验失败，未执行服务重载或重启。</p>
-    <p>校验状态：{escape(validation.status)}</p>
-    <pre>{escape(_result_output(validation))}</pre>
-  </section>
-"""
-            return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
-
-        reload_result = daemon_reloader()
-        if reload_result.status != "success":
-            result = f"""
-  <section class="card">
-    <h3>Xray 未重启</h3>
-    <p>配置校验通过，但 daemon-reload 失败，未执行 Xray 重启。</p>
-{_xray_control_diagnostics_html(validation=validation, reload_result=reload_result)}
-  </section>
-"""
-            return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
-        restart_result = restarter("migate-xray.service")
-        if restart_result.status != "success":
-            result = f"""
-  <section class="card">
-    <h3>Xray 未重启</h3>
-    <p>配置校验和 systemd daemon-reload 已通过，但 Xray 重启失败。</p>
-{_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result, restart_label="Xray 重启失败")}
-  </section>
-"""
-            return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
-        result = f"""
-  <section class="card">
-    <h3>Xray 重启已执行</h3>
-    <p>配置校验通过后，已执行服务重载并重启 migate-xray.service。</p>
-{_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result)}
-  </section>
-"""
-        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/systemd/units/save"), response_class=HTMLResponse)
-    def save_systemd_units() -> str:
-        written_xray = write_unit_file(build_xray_unit(migate_config), unit_dir)
-        written_panel = write_unit_file(build_panel_unit(migate_config), unit_dir)
-        result = f"""
-  <section class="card">
-    <h3>Systemd 服务文件已保存</h3>
-    <p>已写入：{escape(str(written_xray))}</p>
-    <p>已写入：{escape(str(written_panel))}</p>
-    <p>当前步骤仅写服务文件，不会执行服务重载或启动。</p>
-  </section>
-"""
-        return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/systemd/status/refresh"), response_class=HTMLResponse)
-    def refresh_systemd_status() -> str:
-        services = {n: status_loader(n) for n in MIGATE_SYSTEMD_SERVICES}
-        result = _service_statuses_html(services, refreshed=True) + _systemd_preview_html(migate_config)
-        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/egress/status/refresh"), response_class=HTMLResponse)
-    def refresh_egress_status() -> str:
-        egress = egress_loader()
-        result = _egress_status_report_html(egress, refreshed=True) + _systemd_preview_html(migate_config)
-        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
-
     @app.get("/api/egress/status")
     def api_egress_status() -> dict[str, object]:
         return _egress_status_report_json(egress_loader())
@@ -3629,111 +3297,7 @@ a {{ color:#4ecdc4; }}
     def api_egress_down_dry_run() -> dict[str, object]:
         return _egress_lifecycle_result_json(egress_down_loader())
 
-    @app.post(_panel_url(panel_base_path, "/egress/up/dry-run"), response_class=HTMLResponse)
-    def dry_run_egress_up() -> str:
-        result = _egress_status_report_html(egress_loader()) + _egress_dry_run_result_html("Egress Up dry-run 结果", egress_up_loader)
-        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/egress/down/dry-run"), response_class=HTMLResponse)
-    def dry_run_egress_down() -> str:
-        result = _egress_status_report_html(egress_loader()) + _egress_dry_run_result_html("Egress Down dry-run 结果", egress_down_loader)
-        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/xray/runtime/refresh"), response_class=HTMLResponse)
-    def refresh_xray_runtime() -> str:
-        result = _xray_runtime_status_html(runtime_loader(), refreshed=True)
-        return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/xray/install-plan/refresh"), response_class=HTMLResponse)
-    def refresh_xray_install_plan() -> str:
-        result = _xray_install_plan_html(plan_loader, refreshed=True)
-        return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/xray/install/dry-run"), response_class=HTMLResponse)
-    def dry_run_xray_install() -> str:
-        result = _xray_install_dry_run_html(dry_run_loader)
-        return _action_page(result, active="xray", title="Xray 配置", base_path=panel_base_path, user=_panel_user)
-
-    @app.post(_panel_url(panel_base_path, "/xray/x25519"), response_class=HTMLResponse)
-    def panel_xray_x25519(request: Request):
-        auth_redirect = require_panel_auth(request)
-        if auth_redirect is not None:
-            return auth_redirect
-        try:
-            result = subprocess.run(["xray", "x25519"], capture_output=True, text=True, timeout=10)
-            if result.returncode != 0:
-                body = f"""<div class="card"><h3>❌ x25519 生成失败</h3><pre>{escape(result.stderr)}</pre></div>"""
-                return _action_page(body, active="xray", title="X25519", base_path=panel_base_path, user=_panel_user)
-            private_key = ""
-            public_key = ""
-            for line in result.stdout.strip().splitlines():
-                if line.startswith("Private key:"):
-                    private_key = line.split(":", 1)[1].strip()
-                elif line.startswith("Public key:"):
-                    public_key = line.split(":", 1)[1].strip()
-            body = f"""
-  <section class="card">
-    <h3>🔑 X25519 密钥对已生成</h3>
-    <div class="form-group">
-      <label>Private Key
-        <div style="display:flex;gap:8px;align-items:center;">
-          <code id="x25519-private-key" style="flex:1;padding:8px;background:var(--bg-input);border-radius:var(--radius-sm);word-break:break-all;">{escape(private_key)}</code>
-          <button type="button" class="btn btn-sm" onclick="navigator.clipboard.writeText('{escape(private_key)}')">📋</button>
-        </div>
-      </label>
-    </div>
-    <div class="form-group">
-      <label>Public Key
-        <div style="display:flex;gap:8px;align-items:center;">
-          <code id="x25519-public-key" style="flex:1;padding:8px;background:var(--bg-input);border-radius:var(--radius-sm);word-break:break-all;">{escape(public_key)}</code>
-          <button type="button" class="btn btn-sm" onclick="navigator.clipboard.writeText('{escape(public_key)}')">📋</button>
-        </div>
-      </label>
-    </div>
-  </section>
-"""
-            return _action_page(body, active="xray", title="X25519", base_path=panel_base_path, user=_panel_user)
-        except FileNotFoundError:
-            body = """<div class="card"><h3>❌ xray 未安装</h3><p>请先安装 xray。</p></div>"""
-            return _action_page(body, active="xray", title="X25519", base_path=panel_base_path, user=_panel_user)
-        except Exception as exc:
-            body = f"""<div class="card"><h3>❌ 错误</h3><p>{escape(str(exc))}</p></div>"""
-            return _action_page(body, active="xray", title="X25519", base_path=panel_base_path, user=_panel_user)
-
     # --- Notification API endpoints ---
-    @app.post(_panel_url(panel_base_path, "/notifications/telegram/save"), response_class=HTMLResponse)
-    def save_telegram_notification(
-        request: Request,
-        bot_token: str = Form(""),
-        chat_id: str = Form(""),
-    ):
-        auth_redirect = require_panel_auth(request)
-        if auth_redirect is not None:
-            return auth_redirect
-        # Update in-memory config
-        migate_config.notifications.telegram_bot_token = bot_token.strip()
-        migate_config.notifications.telegram_chat_id = chat_id.strip()
-        # Persist to config file if panel_config_path exists
-        if panel_config_path:
-            config_file = Path(panel_config_path)
-            if config_file.exists():
-                data = json.loads(config_file.read_text())
-            else:
-                data = {}
-            data["notifications"] = {
-                "telegram_bot_token": migate_config.notifications.telegram_bot_token,
-                "telegram_chat_id": migate_config.notifications.telegram_chat_id,
-            }
-            config_file.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-        is_configured = bool(migate_config.notifications.telegram_bot_token and migate_config.notifications.telegram_chat_id)
-        status = '✅ Telegram 通知已配置' if is_configured else '⚠️ Telegram 配置已清空'
-        result = f"""
-  <section class="card">
-    <h3>📱 Telegram 通知设置</h3>
-    <p>{status}</p>
-  </section>
-"""
-        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
 
     @app.post("/api/notifications/telegram/save")
     def api_save_telegram_notification(
@@ -3762,20 +3326,6 @@ a {{ color:#4ecdc4; }}
     from migate.backup.manager import BackupManager as _BackupManager
     _backup_manager = _BackupManager(DEFAULT_DB_PATH)
 
-    @app.post(_panel_url(panel_base_path, "/backup/create"), response_class=HTMLResponse)
-    def create_backup_page(request: Request):
-        auth_redirect = require_panel_auth(request)
-        if auth_redirect is not None:
-            return auth_redirect
-        backup_path = _backup_manager.create_backup()
-        result = f"""
-  <section class="card">
-    <h3>💾 备份已创建</h3>
-    <p>备份文件：{escape(backup_path.name)}</p>
-  </section>
-"""
-        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
-
     @app.post("/api/backup/create")
     def api_create_backup():
         backup_path = _backup_manager.create_backup()
@@ -3785,54 +3335,10 @@ a {{ color:#4ecdc4; }}
     def api_list_backups():
         return {"backups": _backup_manager.list_backups()}
 
-    @app.post(_panel_url(panel_base_path, "/backup/restore/{backup_name}"), response_class=HTMLResponse)
-    def restore_backup_page(request: Request, backup_name: str):
-        auth_redirect = require_panel_auth(request)
-        if auth_redirect is not None:
-            return auth_redirect
-        success = _backup_manager.restore_backup(backup_name)
-        if success:
-            result = f"""
-  <section class="card">
-    <h3>💾 备份已恢复</h3>
-    <p>已从 {escape(backup_name)} 恢复数据库。</p>
-  </section>
-"""
-        else:
-            result = f"""
-  <section class="card">
-    <h3>❌ 恢复失败</h3>
-    <p>备份文件 {escape(backup_name)} 不存在。</p>
-  </section>
-"""
-        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
-
     @app.post("/api/backup/restore/{backup_name}")
     def api_restore_backup(backup_name: str):
         success = _backup_manager.restore_backup(backup_name)
         return {"status": "ok" if success else "error", "restored": success}
-
-    @app.post(_panel_url(panel_base_path, "/backup/delete/{backup_name}"), response_class=HTMLResponse)
-    def delete_backup_page(request: Request, backup_name: str):
-        auth_redirect = require_panel_auth(request)
-        if auth_redirect is not None:
-            return auth_redirect
-        success = _backup_manager.delete_backup(backup_name)
-        if success:
-            result = f"""
-  <section class="card">
-    <h3>💾 备份已删除</h3>
-    <p>已删除备份 {escape(backup_name)}。</p>
-  </section>
-"""
-        else:
-            result = f"""
-  <section class="card">
-    <h3>❌ 删除失败</h3>
-    <p>备份文件 {escape(backup_name)} 不存在。</p>
-  </section>
-"""
-        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
 
     @app.post("/api/backup/delete/{backup_name}")
     def api_delete_backup(backup_name: str):
