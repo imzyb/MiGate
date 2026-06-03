@@ -223,14 +223,17 @@ def _login_html(message: str = "", *, base_path: str = "/") -> str:
     login_action = _panel_url(base_path, "/login")
     return _page_shell(
         f"""
-  <section class="card">
-    <h2 style="margin-bottom:8px;">MiGate 登录</h2>
-    <p class="text-muted text-sm" style="margin-bottom:16px;">请输入 setup 配置中的管理员账号和密码。</p>
+  <section class="card" style="max-width:420px;margin:0 auto;">
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="font-size:48px;margin-bottom:12px;">🔐</div>
+      <h2 style="margin-bottom:4px;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">MiGate</h2>
+      <p class="text-muted text-sm">Xray 智能出站网关</p>
+    </div>
     {message_html}
-    <form method="post" action="{escape(login_action)}" style="display:grid;gap:14px;">
-      <div class="form-group"><label>用户名<input name="username" required></label></div>
-      <div class="form-group"><label>密码<input name="password" type="password" required></label></div>
-      <button class="btn btn-primary btn-block" type="submit">登录</button>
+    <form method="post" action="{escape(login_action)}" style="display:grid;gap:16px;">
+      <div class="form-group"><label>👤 用户名<input name="username" required placeholder="admin"></label></div>
+      <div class="form-group"><label>🔑 密码<input name="password" type="password" required placeholder="••••••••"></label></div>
+      <button class="btn btn-primary btn-block" type="submit" style="margin-top:8px;padding:12px;">登录</button>
     </form>
   </section>
 """,
@@ -273,21 +276,23 @@ def _page_shell(body: str, *, active: str = "dashboard", title: str = "MiGate �
 def _node_create_form_html(base_path: str = "/") -> str:
     return f"""
   <section class="card">
-    <h3>创建节点</h3>
-    <p class="text-muted text-sm">推荐新手先使用 VLESS TCP；Trojan 和 Shadowsocks 也已支持链接生成。</p>
-    <form method="post" action="{escape(_panel_url(base_path, '/nodes/create'))}" class="form-grid">
-      <div class="form-group"><label>节点协议<select name="protocol"><option value="vless">VLESS</option><option value="trojan">Trojan</option><option value="shadowsocks">Shadowsocks</option></select></label></div>
-      <div class="form-group"><label>节点名称<input name="name" value="MiGate Node" placeholder="MiGate JP"></label></div>
-      <div class="form-group"><label>服务器域名/IP<input name="host" placeholder="example.com" required></label></div>
-      <div class="form-group"><label>端口<input name="port" type="number" value="443" min="1" max="65535" required></label></div>
-      <div class="form-group"><label>UUID / 密码（留空自动生成）<input name="credential" placeholder="VLESS 填 UUID；Trojan/SS 填密码"></label></div>
-      <details style="grid-column:1/-1;">
-        <summary style="cursor:pointer;color:var(--text-muted);margin-bottom:8px;">⚙️ 高级选项（SOCKS5 出口）</summary>
-        <div class="form-group"><label>SOCKS5 出口主机<input name="socks5_host" placeholder="127.0.0.1"></label></div>
-        <div class="form-group"><label>SOCKS5 出口端口<input name="socks5_port" type="number" min="1" max="65535" placeholder="34501"></label></div>
-      </details>
-      <button class="btn btn-primary btn-block" type="submit">生成并保存节点</button>
-    </form>
+    <details>
+      <summary style="cursor:pointer;font-weight:600;font-size:15px;color:var(--text);margin-bottom:12px;">➕ 创建新节点</summary>
+      <p class="text-muted text-sm" style="margin-bottom:12px;">推荐新手先使用 VLESS TCP；Trojan 和 Shadowsocks 也已支持链接生成。</p>
+      <form method="post" action="{escape(_panel_url(base_path, '/nodes/create'))}" class="form-grid">
+        <div class="form-group"><label>节点协议<select name="protocol"><option value="vless">VLESS</option><option value="trojan">Trojan</option><option value="shadowsocks">Shadowsocks</option></select></label></div>
+        <div class="form-group"><label>节点名称<input name="name" value="MiGate Node" placeholder="MiGate JP"></label></div>
+        <div class="form-group"><label>服务器域名/IP<input name="host" placeholder="example.com" required></label></div>
+        <div class="form-group"><label>端口<input name="port" type="number" value="443" min="1" max="65535" required></label></div>
+        <div class="form-group"><label>UUID / 密码（留空自动生成）<input name="credential" placeholder="VLESS 填 UUID；Trojan/SS 填密码"></label></div>
+        <details style="grid-column:1/-1;">
+          <summary style="cursor:pointer;color:var(--muted);margin-bottom:8px;">⚙️ 高级选项（SOCKS5 出口）</summary>
+          <div class="form-group"><label>SOCKS5 出口主机<input name="socks5_host" placeholder="127.0.0.1"></label></div>
+          <div class="form-group"><label>SOCKS5 出口端口<input name="socks5_port" type="number" min="1" max="65535" placeholder="34501"></label></div>
+        </details>
+        <button class="btn btn-primary btn-block" type="submit">生成并保存节点</button>
+      </form>
+    </details>
   </section>
 """
 
@@ -1215,13 +1220,15 @@ def _service_status_row(service_name: str, result: SystemdResult) -> str:
     icon = "🟢" if is_active else "🔴"
     label = "运行中" if is_active else "已停止"
     friendly_name = service_name.replace("migate-", "").replace(".service", "")
+    status_class = "badge-ok" if is_active else "badge-off"
     return f"""
-    <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);">
-      <span style="font-size:20px;">{icon}</span>
+    <div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border);">
+      <span style="font-size:22px;">{icon}</span>
       <div style="flex:1;">
-        <div style="font-weight:600;">{escape(friendly_name)}</div>
-        <div class="label">{label}</div>
+        <div style="font-weight:600;font-size:14px;">{escape(friendly_name)}</div>
+        <div class="text-muted text-xs">{escape(service_name)}</div>
       </div>
+      <span class="badge {status_class}">{label}</span>
     </div>
 """
 

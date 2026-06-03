@@ -858,3 +858,47 @@ details[open] summary {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(139,148,158,.5);
 }
+
+/* ── Details / Collapsible ─────────────────────────── */
+details {
+  margin: 4px 0;
+}
+details summary {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  transition: background .2s;
+  user-select: none;
+}
+details summary:hover {
+  background: rgba(59,130,246,.08);
+}
+details[open] > summary {
+  margin-bottom: 10px;
+}
+
+/* ── Login page animation ─────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+body:not([data-base-path]) .card,
+body[data-base-path] .main-content > .card:first-child {
+  animation: fadeInUp .4s ease-out;
+}
+
+/* ── Sidebar brand glow ───────────────────────────── */
+.sidebar-brand h1 {
+  text-shadow: 0 0 20px rgba(59,130,246,.3);
+}
+
+/* ── Stat-card shimmer on hover ───────────────────── */
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%; width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.03), transparent);
+  transition: left .5s;
+}
+.stat-card:hover::before {
+  left: 100%;
+}
