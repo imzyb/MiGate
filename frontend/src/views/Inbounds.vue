@@ -6,6 +6,7 @@ import { useApi } from '../composables/useApi.js'
 import Skeleton from '../components/Skeleton.vue'
 import ErrorBanner from '../components/ErrorBanner.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
+import StreamSettingsForm from '../components/StreamSettingsForm.vue'
 
 const toast = useToast()
 const inbounds = ref([])
@@ -18,6 +19,7 @@ const form = ref({
   remark: '', protocol: 'vless', port: 443, listen: '0.0.0.0',
   settings: '{"clients":[]}', stream_settings: '{}',
 })
+const streamData = ref({ network: 'tcp', security: 'none' })
 
 const protoBadge = {
   vless: 'badge-vless',
@@ -38,8 +40,10 @@ onMounted(load)
 
 async function createInbound() {
   try {
-    await api.post('/api/inbounds', form.value)
+    const payload = { ...form.value, stream_settings: JSON.stringify(streamData.value) }
+    await api.post('/api/inbounds', payload)
     form.value = { remark: '', protocol: 'vless', port: 443, listen: '0.0.0.0', settings: '{"clients":[]}', stream_settings: '{}' }
+    streamData.value = { network: 'tcp', security: 'none' }
     showCreate.value = false
     toast.success('入站创建成功')
     await load()
@@ -148,10 +152,14 @@ function toggleClientExpand(ibId, email) {
             <label>端口</label>
             <input v-model.number="form.port" type="number" min="1" max="65535" required>
           </div>
-          <div style="display:flex;align-items:flex-end;">
-            <button type="submit" class="btn btn-primary" style="width:100%;">创建</button>
-          </div>
         </form>
+        <!-- Stream Settings -->
+        <div style="margin-top:16px;">
+          <StreamSettingsForm v-model="streamData" />
+        </div>
+        <div style="margin-top:12px;">
+          <button @click="createInbound" class="btn btn-primary" style="width:100%;">创建入站</button>
+        </div>
       </div>
     </Transition>
 

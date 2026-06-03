@@ -37,6 +37,8 @@ async function loadTraffic() {
 onMounted(() => {
   load()
   loadTraffic()
+  // Auto-refresh traffic every 30s
+  setInterval(loadTraffic, 30000)
 })
 
 const enabledNodes = $computed(() => nodes.value.filter(n => n.enabled).length)
