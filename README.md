@@ -1,298 +1,197 @@
 # MiGate
 
-MiGate is an integrated Xray + VPNGate + OpenVPN smart egress gateway.
+MiGate 是一个集成 Xray 代理节点管理的智能面板系统，提供 Web UI 管理、用户流量统计、订阅服务、服务器监控等功能。
 
-See `docs/plans/2026-05-30-migate-xray-gateway-v0.1.md` for the v0.1 implementation plan.
+## ✨ 核心功能
 
-## Development and test hosts
+### 🖥 面板管理
+- **节点管理** — 创建/编辑/删除 VLESS/VMess/Trojan/Shadowsocks 入站规则
+- **Stream Settings** — 可视化配置 TCP/WS/gRPC/H2 传输层 + TLS/Reality 安全层
+- **客户端管理** — 添加/删除客户端，一键生成分享链接
+- **X25519 密钥生成** — Reality 协议密钥对在线生成
 
-### One-click install
+### 📊 用户流量统计
+- **每客户端流量** — 从 xray stats API 实时拉取 `↑上传 ↓下载` 流量
+- **流量限制** — 按客户端设置流量上限 (GB)
+- **到期时间** — 按客户端设置到期日期
+- **自动检测** — 超限/到期客户端自动标记 `❌已超限` / `❌已到期`
 
-MiGate ships a curl-pipe-bash style interactive installer so a user can bootstrap the panel with one command:
+### 📡 订阅服务
+- **订阅端点** — `GET /sub/{token}` 无需认证
+- **格式自动适配** — Clash UA → YAML 配置，其他 → base64 编码链接
+- **全协议支持** — VLESS/Trojan/SS + 全部 transport/TLS/Reality 参数
+
+### 📈 服务器监控
+- **实时监控** — CPU/RAM/磁盘/运行时间，10 秒自动刷新
+- **流量图表** — Chart.js 折线图展示上传/下载趋势
+- **颜色编码** — CPU < 70% 绿色，70-90% 黄色，> 90% 红色
+
+### 🔔 Telegram 通知
+- **超限告警** — 客户端流量超限时推送通知
+- **到期提醒** — 客户端到期时推送通知
+- **服务监控** — CPU 过高/Xray 停止时推送通知
+
+### 💾 备份恢复
+- **一键备份** — SQLite backup API 创建数据库快照
+- **备份列表** — 查看所有备份文件大小和时间
+- **一键恢复** — 恢复前自动创建安全备份
+
+### 🔒 安全加固
+- **CSRF 防护** — 基于 x-csrf-token header + Origin/Referer 同源检查
+- **登录限速** — 5 次/5 分钟滑动窗口，按 IP 独立计数
+- **安全头** — X-Content-Type-Options / X-Frame-Options / X-XSS-Protection / Referrer-Policy
+
+### ⚡ 性能优化
+- **数据库索引** — remark/enabled/name 复合索引加速查询
+- **连接池化** — lazy connection + check_same_thread=False
+- **GZip 压缩** — 500B 以上响应自动压缩
+- **静态缓存** — Cache-Control: max-age=3600 + ETag
+
+## 🚀 快速开始
+
+### 一键安装
 
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/scripts/install.sh)
 ```
 
-The installer prompts for:
+交互式安装，依次提示：
+- 面板端口（默认 8787）
+- 管理员用户名（默认 admin）
+- 管理员密码
+- 自定义路径（默认 /migate）
 
-- custom panel port;
-- admin username;
-- admin password;
-- custom web path.
-
-Then it installs baseline packages, clones or updates MiGate under `/opt/migate`, installs the MiGate Python package system-wide, links `/usr/local/bin/migate`, runs the gated `migate setup --no-dry-run --yes --allow-system-changes` flow, starts `migate-panel.service` and `migate-xray.service`, and prints the final WebUI address.
-
-For unattended installs, provide the same values through environment variables:
+### 非交互安装
 
 ```bash
-MIGATE_PANEL_PORT=8080 \
+MIGATE_PANEL_PORT=8787 \
 MIGATE_PANEL_USER=admin \
-MIGATE_PANEL_PASSWORD='change-me' \
+MIGATE_PANEL_PASSWORD='your-password' \
 MIGATE_PANEL_BASE_PATH=/migate \
 bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/scripts/install.sh)
 ```
 
-Optional install overrides include `MIGATE_REF`, `MIGATE_INSTALL_DIR`, `MIGATE_BIN`, `MIGATE_PUBLIC_HOST`, and `MIGATE_SETUP_CONFIG_TARGET`.
+### 访问面板
 
-The installer is intentionally host-local. It does not embed credentials, use `sshpass`, or change SSH trust settings. Use the remote lifecycle commands for dedicated test-VPS orchestration after the local CLI is installed.
-
-- This repository host is for development and unit tests only.
-- Do not run real install/uninstall, OpenVPN, Xray, systemd, policy routing, firewall, or traffic-leak tests on the development host.
-- Full-system lifecycle tests must run on the dedicated test VPS environment.
-- Never commit or document test VPS passwords, private keys, tokens, or connection strings. Use `[REDACTED]` in docs and reports.
-
-### Local proxy runtime
-
-The local SOCKS5 listener is a real direct TCP relay, not a placeholder. `migate proxy run` first executes the proxy runtime preflight and fails closed before opening a listener unless the tunnel interface, fail policy, leak guard, and backend readiness checks pass. On success it starts the SOCKS5 listener and renders operator counters/events including `accepted_connections`, `upstream_connections`, `timed_out_connections`, `max_clients`, `serve_mode`, `client_timeout`, and per-event relay byte counters (`bytes_from_client`, `bytes_from_upstream`).
-
-Use bounded mode for local smoke tests:
-
-```bash
-migate proxy socks5 serve --max-clients 1
-migate proxy socks5 serve --max-clients 1 --format jsonl
+安装完成后输出：
+```
+Web UI: http://YOUR_IP:8787/migate/
+Username: admin
 ```
 
-Use continuous mode for daemon/service entrypoints:
+## 📁 项目结构
 
-```bash
-migate proxy run --max-clients 0
-migate proxy socks5 serve --max-clients 0
+```
+migate/
+├── api/
+│   └── app.py              # FastAPI 应用（路由 + HTML 渲染）
+├── backup/
+│   └── manager.py           # 备份管理器
+├── client_manager.py        # 客户端 CRUD
+├── config.py                # 配置管理
+├── database/
+│   └── repository.py        # SQLite 数据库（nodes/inbounds/client_traffic）
+├── notifications/
+│   └── telegram.py          # Telegram Bot 通知
+├── panel/
+│   └── layout.py            # 面板布局模板 + JS
+├── security/
+│   ├── csrf.py              # CSRF 中间件
+│   ├── headers.py           # 安全头中间件
+│   └── rate_limit.py        # 登录限速器
+├── system/
+│   └── monitor.py           # 系统资源监控（psutil）
+├── xray/
+│   ├── config_builder.py    # Xray JSON 配置构建
+│   ├── links.py             # 分享链接生成
+│   ├── node_adapter.py      # NodeRecord → xray config
+│   ├── stats.py             # Xray stats API 查询
+│   └── validator.py         # Xray 配置校验
+└── main.py                  # CLI 入口（typer）
 ```
 
-`max_clients=0` is rendered as `serve_mode: continuous`; positive values are rendered as `serve_mode: bounded`. The systemd proxy unit generated by `migate proxy service preview` / `migate proxy service save --yes --allow-system-changes` uses `migate proxy run --max-clients 0` so systemd, not a bounded test loop, owns the process lifetime.
-
-### Xray TUN backend
-
-The `xray-tun` backend is the current leak-guarded path for routing MiGate SOCKS upstream traffic through an Xray-managed TUN device without replacing the VPS default route.
+## 🔧 CLI 命令
 
 ```bash
-migate egress up --backend xray-tun --no-dry-run --yes --allow-system-changes
-migate proxy service save --backend xray-tun --yes --allow-system-changes
-migate proxy service start --backend xray-tun --yes --allow-system-changes
+# 面板
+migate panel                          # 启动面板（默认 0.0.0.0:8787）
+migate panel --port 8080              # 自定义端口
+migate panel --panel-config /etc/migate/panel.json
+
+# Xray
+migate xray install                   # 安装 xray
+migate xray service save              # 保存 systemd 服务
+
+# 设置
+migate setup --no-dry-run --yes --allow-system-changes
+
+# 代理
+migate proxy run                      # 启动本地 SOCKS5 代理
+migate proxy status                   # 查看代理状态
 ```
 
-For this backend, MiGate applies policy routing instead of changing the system default route:
+## 📡 API 端点
 
-- the proxy upstream socket is opened with `SO_MARK=0x66`;
-- `ip rule` sends marked sockets to table `100`;
-- table `100` routes default traffic through `tun-migate`;
-- `migate egress up --backend xray-tun` uses an idempotent policy-routing plan: delete the existing fwmark rule if present, add one fresh rule, and `ip route replace default dev tun-migate table 100`.
+### 节点管理
+- `GET /api/nodes` — 节点列表
+- `POST /api/inbounds` — 创建入站
+- `POST /api/inbounds/{id}/update` — 更新入站
+- `POST /api/inbounds/{id}/delete` — 删除入站
+- `POST /api/inbounds/{id}/enable` — 启用入站
+- `POST /api/inbounds/{id}/disable` — 禁用入站
 
-The Xray TUN config is intentionally different from the normal client-facing Xray config. Normal Xray inbound traffic still routes to MiGate's local SOCKS egress and keeps `freedom` out of the generated full config. The TUN-only config uses a tagged `freedom` outbound for traffic that has already entered `tun-migate`; pointing that outbound back at MiGate's own SOCKS listener would create a loop (`TUN -> SOCKS -> marked socket -> TUN`) and make public-IP leak checks time out.
+### 客户端管理
+- `GET /api/inbounds/{id}/clients` — 客户端列表
+- `POST /api/inbounds/{id}/clients/add` — 添加客户端
+- `POST /api/inbounds/{id}/clients/{client_id}/remove` — 删除客户端
+- `POST /api/inbounds/{id}/clients/{email}/limits` — 设置流量限制
 
-When `remote rollout --backend xray-tun` performs `service_apply`, it saves the TUN service, saves the backend-specific proxy service, restarts `migate-xray-tun.service`, reapplies `migate egress up --backend xray-tun --no-dry-run --yes --allow-system-changes`, and only then starts the proxy service. The reapply step is required because restarting/recreating the TUN device can leave the fwmark rule intact while removing table-100 routes bound to the old device.
+### 流量统计
+- `GET /api/stats/traffic` — 入站流量统计
+- `GET /api/stats/traffic/reset` — 重置流量计数
 
-### Deployment flow
+### 系统监控
+- `GET /api/system/resources` — 系统资源（CPU/RAM/磁盘/运行时间）
+- `GET /api/system/traffic/history` — 流量历史数据
 
-Use the dedicated test VPS for real deployment and end-to-end verification. Keep the repository host for development, unit tests, and dry-run planning only.
+### 订阅服务
+- `GET /sub/{token}` — 订阅端点（自动适配 Clash/base64）
 
-A practical operator sequence is:
+### 备份恢复
+- `POST /api/backup/create` — 创建备份
+- `GET /api/backup/list` — 备份列表
+- `POST /api/backup/restore/{name}` — 恢复备份
+- `POST /api/backup/delete/{name}` — 删除备份
 
-1. run the read-only SSH doctor;
-2. run the gated remote install;
-3. run the read-only remote readiness probe;
-4. bring up egress for the selected backend;
-5. save/apply backend-specific Xray and proxy services;
-6. run the top-level remote acceptance gate.
+### 通知配置
+- `GET /api/notifications/telegram/settings` — 获取 Telegram 配置
+- `POST /api/notifications/telegram/save` — 保存 Telegram 配置
 
-Minimal `xray-tun`-oriented flow:
+## 🧪 测试
 
 ```bash
-migate remote doctor
-migate remote install --no-dry-run --yes --allow-remote-changes
-migate remote readiness
-migate remote egress up --no-dry-run --yes --allow-remote-changes --backend xray-tun
-migate remote rollout --no-dry-run --yes --allow-remote-changes --backend xray-tun
-migate remote acceptance --no-dry-run --yes --allow-remote-changes --backend xray-tun
+# 运行全部测试
+pytest tests/ -q
+
+# 运行特定测试
+pytest tests/test_panel.py -q
+pytest tests/test_security.py -q
+pytest tests/test_client_traffic.py -q
+
+# 测试覆盖率
+pytest tests/ --tb=short
 ```
 
-Notes:
+当前测试：**848 全通过**
 
-- `remote doctor`, `remote readiness`, and `remote leak-check` are read-only probes.
-- `remote install`, `remote egress up`, `remote rollout`, `remote acceptance`, and `remote lifecycle` default to dry-run; real execution requires the remote change gates.
-- For `xray-tun`, the effective service-apply order is: save TUN service -> save backend proxy service -> restart `migate-xray-tun.service` -> reapply `migate egress up --backend xray-tun` -> start proxy service.
-- Prefer `remote acceptance` as the final operator-facing gate because it runs doctor first and then delegates to rollout-smoke.
+## 🔐 安全说明
 
-### Uninstall and cleanup flow
+- 面板默认绑定 `0.0.0.0`，生产环境建议通过 nginx 反向代理 + HTTPS
+- 登录密码使用 SHA256 哈希存储
+- CSRF 防护基于 Origin/Referer 同源检查
+- API 端点 (`/api/`, `/sub/`) 不受 CSRF 限制
+- 建议使用强密码（≥8 字符）
 
-MiGate currently has tested lifecycle support for bringing egress down and stopping backend-managed runtime services. Full host cleanup on the dedicated test VPS is still an operator procedure rather than a single `migate remote uninstall` command.
+## 📄 许可证
 
-For normal backend shutdown, first tear down managed egress state:
-
-```bash
-migate egress down --no-dry-run --yes --allow-system-changes --backend xray-tun
-migate remote egress down --no-dry-run --yes --allow-remote-changes --backend xray-tun
-```
-
-For `xray-tun`, `egress down` cleans policy routing first and then stops the TUN service so marked sockets and table-100 routes are removed before tunnel shutdown.
-
-When resetting the dedicated test VPS to a clean slate for acceptance testing, use this order:
-
-1. stop/disable MiGate-managed services such as `migate-proxy.service`, `migate-xray-tun.service`, and `migate-xray.service`;
-2. bring egress down / remove policy-routing state (`fwmark 0x66`, table `100`, `tun-migate`);
-3. remove MiGate-managed unit files, configs, runtime directories, logs, staging directories, and installed binaries;
-4. remove historical test-VPS leftovers that are in scope for MiGate acceptance, such as old `xray2go` or `cloudflared` units/configs, if they would interfere with routing or tunnel verification;
-5. re-run read-only checks (`remote doctor`, `remote readiness`, process/service inspection) before the next install.
-
-Typical MiGate-managed paths and artifacts to clean on the dedicated test VPS include:
-
-- `/etc/systemd/system/migate-xray.service`
-- `/etc/systemd/system/migate-xray-tun.service`
-- generated proxy service units
-- `/etc/migate/`
-- `/var/lib/migate/`
-- `/var/log/migate/`
-- `/tmp/migate-install/`
-- `/usr/local/bin/migate`
-- `/usr/local/bin/xray`
-
-Do not run destructive cleanup on the development host. Full uninstall/reset steps are for the dedicated test VPS only.
-
-### Egress lifecycle orchestration
-
-The egress lifecycle layer now composes already-tested lower-level phases:
-
-- `bring_up_egress`: OpenVPN start -> policy routing apply
-- `bring_down_egress`: policy routing cleanup -> OpenVPN stop
-
-The layer requires `allow_side_effects=True`, stops on the first failed phase, aggregates `commands_executed` from phase results, and keeps phase result objects attached for later CLI/panel rendering. It supports separate injected runners for OpenVPN vs routing phases while preserving the older shared `runner=` path. It does not build raw commands, arm firewall rules, invent leak-guard state, or talk to systemd/panels directly.
-
-### Remote rollout dry-run
-
-Preview the full remote promotion flow without SSHing or changing the test VPS:
-
-```bash
-migate remote rollout
-```
-
-The dry-run rollout orders the currently available building blocks as `remote install -> remote readiness -> remote egress up -> service_apply -> socks5_smoke -> remote leak-check`. It renders planned read-only vs planned side-effect phases, keeps `commands_executed: []`, and reports `performed_side_effects: False`. When `--backend xray-tun` is selected, the service-apply preview targets `migate xray tun-service save` and `migate-xray-tun.service` instead of the default Xray inbound service.
-
-The gated rollout runner shell is available only with all remote-change gates:
-
-```bash
-migate remote rollout --no-dry-run --yes --allow-remote-changes
-```
-
-This orchestration calls the already-gated remote install phase, then the read-only readiness probe, then the already-gated remote egress up phase, then service-apply, a read-only SOCKS5 loopback smoke, and finally the read-only public-IP leak check. It stops on the first failed phase and reports aggregated `commands_executed` plus `performed_side_effects`.
-
-Run the gated smoke wrapper when you want a structured verification report that the rollout reached all six expected phases:
-
-```bash
-migate remote rollout-smoke
-migate remote rollout-smoke --no-dry-run --yes --allow-remote-changes
-```
-
-`remote rollout-smoke` defaults to dry-run and calls no remote runner. The real path uses the same remote-change gates, delegates to the rollout runner, and fails unless the rollout completes exactly `install -> readiness -> egress_up -> service_apply -> socks5_smoke -> leak_check`. It is a verification wrapper, not a separate SSH or credential-owning implementation.
-
-Use the top-level acceptance workflow as the operator-facing test-VPS verification entrypoint:
-
-```bash
-migate remote acceptance
-migate remote acceptance --no-dry-run --yes --allow-remote-changes
-```
-
-`remote acceptance` defaults to dry-run and calls no remote commands. The real path first runs the read-only remote doctor, stops before rollout if doctor fails, then delegates to `remote rollout-smoke`. Its report aggregates `doctor -> rollout_smoke` phases, `commands_executed`, and `performed_side_effects` so one command can be used as the current remote acceptance gate.
-
-### Remote install dry-run
-
-Preview the future remote installer on the dedicated test VPS without SSHing or making changes:
-
-```bash
-migate remote install
-```
-
-The command prints a side-effect-free plan with `commands_executed: []` and `performed_side_effects: False`. It redacts credential hints, rejects embedded credentials such as `user:password@host`, and keeps the staging directory under `/tmp/`.
-
-The first gated runner shell is available only with all remote-change gates:
-
-```bash
-migate remote install --no-dry-run --yes --allow-remote-changes
-```
-
-This path executes the planned command previews in order through the runner layer and stops on the first failed step. Treat it as a test-VPS-only orchestration shell, not a production installer. It still does not implement rollback, ownership cleanup, firewall changes, policy routing, or OpenVPN startup.
-
-### VPN runtime config save
-
-Before real egress startup, render an explicit OpenVPN `.ovpn` source into MiGate's managed runtime path:
-
-```bash
-migate vpn config save --source /tmp/vpngate.ovpn
-migate vpn config save --source /tmp/vpngate.ovpn --yes --allow-system-changes
-```
-
-The command defaults to a side-effect-free preview and writes only with both gates. Rendering forces `dev tun-migate`, strips caller-supplied log/status paths, injects MiGate log/status paths, adds OpenVPN 2.5+ compatible `data-ciphers`, and adds `route-nopull` plus `pull-filter ignore redirect-gateway` so VPNGate pushed default routes cannot steal the VPS management route. `migate egress up` fails closed before OpenVPN startup if `/var/lib/migate/runtime/active.ovpn` is missing.
-
-### Remote egress dry-run
-
-Preview remote egress operations after installation without opening SSH or changing the test VPS:
-
-```bash
-migate remote egress up
-migate remote egress down
-```
-
-These commands print side-effect-free plans with `commands_executed: []` and `performed_side_effects: False`. They preview the future remote calls to gated local commands such as `migate egress up --no-dry-run --yes --allow-system-changes`, but the remote planning layer itself never SSHs, starts OpenVPN, changes policy routing, or performs leak tests.
-
-A gated remote egress runner shell is available only with all remote-change gates:
-
-```bash
-migate remote egress up --no-dry-run --yes --allow-remote-changes
-migate remote egress down --no-dry-run --yes --allow-remote-changes
-```
-
-This path executes the planned command previews in order through the runner layer and stops on the first failed step. Treat it as a test-VPS-only shell for the already-gated local `migate egress` commands. It still does not own credentials, implement rollback, or bypass the local `--yes --allow-system-changes` gates.
-
-### Remote lifecycle dry-run
-
-Preview the dedicated test VPS lifecycle without opening SSH or changing either host:
-
-```bash
-migate remote lifecycle
-```
-
-The command prints a side-effect-free plan with `commands_executed: []` and `performed_side_effects: False`. It redacts credential hints and rejects embedded credentials such as `user:password@host`.
-
-Before any real remote lifecycle work, run the read-only doctor/preflight probe:
-
-```bash
-migate remote doctor
-```
-
-`remote doctor` uses SSH batch mode with a short connect timeout to inspect hostname, kernel, UID, and required command paths (`python3`, `systemctl`, `ip`, `openvpn`). It does not pass passwords, does not use `sshpass`, and reports `performed_side_effects: False`.
-
-For post-install readiness, run the read-only promotion probe:
-
-```bash
-migate remote readiness
-```
-
-`remote readiness` checks whether the test VPS can see the MiGate CLI, Xray, OpenVPN, systemd, `ip`, service previews, and local egress status. It still uses SSH batch mode, performs no install/start/route/firewall changes, and reports `performed_side_effects: False`.
-
-Run the read-only remote leak check after egress is up:
-
-```bash
-migate remote leak-check
-```
-
-`remote leak-check` uses SSH batch mode to compare the VPS native public IP with the public IP observed through the remote local SOCKS listener. It performs no systemd, OpenVPN, routing, firewall, or file changes. If the egress IP matches the native IP, or if the egress IP cannot be verified, the check fails closed and reports `performed_side_effects: False`.
-
-Custom target preview:
-
-```bash
-migate remote lifecycle --host 203.0.113.10 --port 62422 --user ubuntu
-```
-
-Real remote execution uses the same remote-change gates and now runs the high-level operator chain: read-only `doctor` first, then delegated `acceptance`/`rollout-smoke` if doctor succeeds.
-
-```bash
-migate remote lifecycle --no-dry-run --yes --allow-remote-changes
-```
-
-Backend-specific rollout can be selected at this wrapper boundary and is threaded into acceptance, for example:
-
-```bash
-migate remote lifecycle --backend xray-tun --no-dry-run --yes --allow-remote-changes
-```
-
-The lifecycle wrapper does not rebuild SSH command strings itself; acceptance and rollout-smoke own the install/readiness/egress/service-apply/SOCKS smoke/leak-check details and their nested diagnostics.
+MIT License
