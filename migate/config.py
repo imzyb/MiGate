@@ -51,6 +51,11 @@ class SecurityConfig(BaseModel):
     secret_path: str = "auto"
 
 
+class NotificationConfig(BaseModel):
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
+
 class MiGateConfig(BaseModel):
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     xray: XrayConfig = Field(default_factory=XrayConfig)
@@ -59,3 +64,4 @@ class MiGateConfig(BaseModel):
     collector: CollectorConfig = Field(default_factory=CollectorConfig)
     probe: ProbeConfig = Field(default_factory=ProbeConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+    notifications: NotificationConfig = Field(default_factory=NotificationConfig)

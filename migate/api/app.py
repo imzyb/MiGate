@@ -19,6 +19,7 @@ from migate.egress.status import EgressStatusReport, run_egress_status
 from migate.systemd.manager import SystemdResult, daemon_reload, restart_service, service_status
 from migate.systemd.units import build_panel_unit, build_xray_unit, write_unit_file
 from migate.xray.runtime import XrayRuntimeStatus, detect_xray_runtime
+from migate.system.monitor import TrafficHistory, get_system_resources
 
 
 # ---------------------------------------------------------------------------
@@ -1788,6 +1789,25 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
     svc_ok = sum(1 for v in services.values() if isinstance(v, dict) and str(v.get("status", "")).lower() in ("active", "running"))
     svc_total = len(services)
 
+    # System resource snapshot
+    sys_res = get_system_resources()
+    def _fmt_bytes(b):
+        if b > 1073741824: return f"{b/1073741824:.1f} GB"
+        if b > 1048576: return f"{b/1048576:.1f} MB"
+        if b > 1024: return f"{b/1024:.1f} KB"
+        return f"{b} B"
+    ram_used_str = _fmt_bytes(sys_res.ram_used)
+    ram_total_str = _fmt_bytes(sys_res.ram_total)
+    disk_used_str = _fmt_bytes(sys_res.disk_used)
+    disk_total_str = _fmt_bytes(sys_res.disk_total)
+    uptime_s = sys_res.uptime_seconds
+    uptime_d = uptime_s // 86400
+    uptime_h = (uptime_s % 86400) // 3600
+    uptime_m = (uptime_s % 3600) // 60
+    uptime_str = f"{uptime_d}天 {uptime_h}时 {uptime_m}分" if uptime_d > 0 else f"{uptime_h}时 {uptime_m}分"
+    cpu_pct = sys_res.cpu_percent
+    cpu_color = "#4ecdc4" if cpu_pct < 70 else ("#f0c040" if cpu_pct < 90 else "#e74c3c")
+
     return f"""
   <section class="card">
     <h2>系统状态</h2>
@@ -1807,7 +1827,95 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
         <div style="font-weight:600;margin:8px 0 4px;">服务</div>
         <div class="label">{svc_ok}/{svc_total} 正常</div>
       </div>
+      <div class="card" style="text-align:center;">
+        <div style="font-size:32px;">🖥</div>
+        <div style="font-weight:600;margin:8px 0 4px;">CPU</div>
+        <div class="value" id="sys-cpu">{cpu_pct}%</div>
+        <div style="background:#1a2a3a;border-radius:4px;height:6px;margin-top:6px;overflow:hidden;">
+          <div id="sys-cpu-bar" style="background:{cpu_color};height:100%;width:{cpu_pct}%;transition:width 0.5s;"></div>
+        </div>
+        <div class="label" id="sys-cpu-count">{sys_res.cpu_count} 核心</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div style="font-size:32px;">💾</div>
+        <div style="font-weight:600;margin:8px 0 4px;">RAM</div>
+        <div class="value" id="sys-ram">{ram_used_str}/{ram_total_str}</div>
+        <div style="background:#1a2a3a;border-radius:4px;height:6px;margin-top:6px;overflow:hidden;">
+          <div id="sys-ram-bar" style="background:#4ecdc4;height:100%;width:{sys_res.ram_percent}%;transition:width 0.5s;"></div>
+        </div>
+        <div class="label" id="sys-ram-pct">{sys_res.ram_percent}%</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div style="font-size:32px;">💿</div>
+        <div style="font-weight:600;margin:8px 0 4px;">Disk</div>
+        <div class="value" id="sys-disk">{disk_used_str}/{disk_total_str}</div>
+        <div style="background:#1a2a3a;border-radius:4px;height:6px;margin-top:6px;overflow:hidden;">
+          <div id="sys-disk-bar" style="background:#4ecdc4;height:100%;width:{sys_res.disk_percent}%;transition:width 0.5s;"></div>
+        </div>
+        <div class="label" id="sys-disk-pct">{sys_res.disk_percent}%</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div style="font-size:32px;">⏱</div>
+        <div style="font-weight:600;margin:8px 0 4px;">Uptime</div>
+        <div class="value" id="sys-uptime">{uptime_str}</div>
+        <div class="label" id="sys-load">负载: {sys_res.load_avg[0]:.2f} / {sys_res.load_avg[1]:.2f} / {sys_res.load_avg[2]:.2f}</div>
+      </div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+    (function(){{
+      function fmt(v){{if(v>1073741824)return(v/1073741824).toFixed(2)+' GB';if(v>1048576)return(v/1048576).toFixed(2)+' MB';if(v>1024)return(v/1024).toFixed(2)+' KB';return v+' B';}}
+      function uptimeFmt(s){{var d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60);return d>0?d+'天 '+h+'时 '+m+'分':h+'时 '+m+'分';}}
+      setInterval(function(){{
+        fetch('/api/system/resources').then(r=>r.json()).then(d=>{{
+          var cpuColor=d.cpu_percent<70?'#4ecdc4':(d.cpu_percent<90?'#f0c040':'#e74c3c');
+          var el=document.getElementById('sys-cpu');if(el)el.textContent=d.cpu_percent+'%';
+          var bar=document.getElementById('sys-cpu-bar');if(bar){{bar.style.width=d.cpu_percent+'%';bar.style.background=cpuColor;}}
+          var el2=document.getElementById('sys-ram');if(el2)el2.textContent=fmt(d.ram_used)+'/'+fmt(d.ram_total);
+          var rbar=document.getElementById('sys-ram-bar');if(rbar)rbar.style.width=d.ram_percent+'%';
+          var rpct=document.getElementById('sys-ram-pct');if(rpct)rpct.textContent=d.ram_percent+'%';
+          var el3=document.getElementById('sys-disk');if(el3)el3.textContent=fmt(d.disk_used)+'/'+fmt(d.disk_total);
+          var dbar=document.getElementById('sys-disk-bar');if(dbar)dbar.style.width=d.disk_percent+'%';
+          var dpct=document.getElementById('sys-disk-pct');if(dpct)dpct.textContent=d.disk_percent+'%';
+          var el4=document.getElementById('sys-uptime');if(el4)el4.textContent=uptimeFmt(d.uptime_seconds);
+          var el5=document.getElementById('sys-load');if(el5)el5.textContent='负载: '+d.load_avg[0].toFixed(2)+' / '+d.load_avg[1].toFixed(2)+' / '+d.load_avg[2].toFixed(2);
+        }}).catch(function(){{}});
+      }}, 10000);
+
+      // Traffic chart
+      var tc=document.getElementById('trafficChart');
+      var chart=null;
+      function updateTrafficChart(){{
+        fetch('/api/system/traffic/history').then(r=>r.json()).then(samples=>{{
+          if(!samples||samples.length===0)return;
+          var labels=samples.map(function(s){{var d=new Date(s.t*1000);return d.getHours()+':'+('0'+d.getMinutes()).slice(-2)+':'+('0'+d.getSeconds()).slice(-2);}});
+          var upData=samples.map(function(s){{return(s.up/(1024*1024)).toFixed(2);}});
+          var downData=samples.map(function(s){{return(s.down/(1024*1024)).toFixed(2);}});
+          if(chart){{
+            chart.data.labels=labels;
+            chart.data.datasets[0].data=upData;
+            chart.data.datasets[1].data=downData;
+            chart.update();
+          }}else if(tc){{
+            chart=new Chart(tc,{{
+              type:'line',
+              data:{{labels:labels,datasets:[
+                {{label:'↑ Upload (MB)',data:upData,borderColor:'#4ecdc4',backgroundColor:'rgba(78,205,196,0.1)',fill:true,tension:0.3,pointRadius:0,borderWidth:2}},
+                {{label:'↓ Download (MB)',data:downData,borderColor:'#ff6b6b',backgroundColor:'rgba(255,107,107,0.1)',fill:true,tension:0.3,pointRadius:0,borderWidth:2}}
+              ]}},
+              options:{{
+                responsive:true,maintainAspectRatio:false,
+                scales:{{x:{{ticks:{{color:'#8899a6',maxTicksLimit:10}},grid:{{color:'rgba(136,153,166,0.1)'}}}},y:{{ticks:{{color:'#8899a6'}},grid:{{color:'rgba(136,153,166,0.1)'}},beginAtZero:true}}}},
+                plugins:{{legend:{{labels:{{color:'#e0e0e0'}}}}}}
+              }}
+            }});
+          }}
+        }}).catch(function(){{}});
+      }}
+      updateTrafficChart();
+      setInterval(updateTrafficChart, 30000);
+    }})();
+    </script>
     <h3 style="margin-top:24px;">📊 流量统计</h3>
     <div class="grid" id="traffic-stats">
       <div class="card"><div class="label">加载中...</div></div>
@@ -1822,6 +1930,10 @@ def _dashboard_html(snapshot: dict[str, object]) -> str:
   }}).catch(()=>{{document.getElementById('traffic-stats').innerHTML='<div class="card"><div class="label">流量数据获取失败</div></div>';}});
     }})();
     </script>
+    <h3 style="margin-top:24px;">📈 流量趋势</h3>
+    <div style="position:relative;height:300px;margin:16px 0;">
+      <canvas id="trafficChart"></canvas>
+    </div>
   </section>
 {_dangerous_actions_html(snapshot)}
 """
@@ -1941,6 +2053,71 @@ def _xray_control_diagnostics_html(
     return html
 
 
+def _telegram_settings_html(notifications_config: object, base_path: str = "/") -> str:
+    """Generate Telegram notification settings form for the system page."""
+    bot_token = getattr(notifications_config, 'telegram_bot_token', '') or ''
+    chat_id = getattr(notifications_config, 'telegram_chat_id', '') or ''
+    is_configured = bool(bot_token and chat_id)
+    status = '✅ 已配置' if is_configured else '⚠️ 未配置'
+    masked_token = (bot_token[:8] + '...' + bot_token[-4:]) if len(bot_token) > 12 else bot_token
+    return f"""
+  <section class="card">
+    <h2>📱 Telegram 通知</h2>
+    <p>状态：{status}</p>
+    <form method="post" action="{escape(_panel_url(base_path, '/notifications/telegram/save'))}" style="display:grid;gap:14px;">
+      <div class="form-group"><label>Bot Token<input name="bot_token" value="{escape(bot_token)}" placeholder="123456:ABC-DEF..." autocomplete="off"></label></div>
+      <div class="form-group"><label>Chat ID<input name="chat_id" value="{escape(chat_id)}" placeholder="123456789"></label></div>
+      <button class="btn btn-primary" type="submit">保存 Telegram 配置</button>
+    </form>
+  </section>
+"""
+
+
+def _backup_section_html(base_path: str = "/") -> str:
+    """Generate backup management section for the system page."""
+    create_action = escape(_panel_url(base_path, '/backup/create'))
+    return f"""
+  <section class="card">
+    <h2>💾 数据备份与恢复</h2>
+    <form method="post" action="{create_action}">
+      <button class="btn btn-primary" type="submit">创建备份</button>
+    </form>
+    <div id="backup-list-container" style="margin-top:16px;">
+      <p class="text-muted">加载中...</p>
+    </div>
+    <script>
+    (function() {{
+      var basePath = '{escape(base_path.rstrip("/"))}';
+      function loadBackups() {{
+        fetch(basePath + '/api/backup/list')
+          .then(function(r) {{ return r.json(); }})
+          .then(function(data) {{
+            var c = document.getElementById('backup-list-container');
+            if (!data.backups || data.backups.length === 0) {{
+              c.innerHTML = '<p class="text-muted">暂无备份</p>';
+              return;
+            }}
+            var html = '<ul style="list-style:none;padding:0;">';
+            data.backups.forEach(function(b) {{
+              var sizeMB = (b.size / 1024 / 1024).toFixed(2);
+              html += '<li style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border,#333);">';
+              html += '<span>' + b.name + ' (' + sizeMB + ' MB, ' + b.created.split('T')[0] + ')</span>';
+              html += '<span>';
+              html += '<form method="post" action="' + basePath + '/backup/restore/' + b.name + '" style="display:inline;" onsubmit="return confirm(\\'确定要恢复此备份？当前数据将先自动备份。\\');"><button class="btn" type="submit" style="margin-right:4px;">恢复</button></form>';
+              html += '<form method="post" action="' + basePath + '/backup/delete/' + b.name + '" style="display:inline;" onsubmit="return confirm(\\'确定要删除此备份？\\');"><button class="btn" type="submit" style="color:#e74c3c;">删除</button></form>';
+              html += '</span></li>';
+            }});
+            html += '</ul>';
+            c.innerHTML = html;
+          }});
+      }}
+      loadBackups();
+    }})();
+    </script>
+  </section>
+"""
+
+
 def create_app(
     node_repository: NodeRepository | None = None,
     inbound_repository: InboundRepository | None = None,
@@ -2025,6 +2202,22 @@ def create_app(
     repo.initialize()
     inbound_repo.initialize()
     app = FastAPI(title="MiGate Panel")
+    traffic_history = TrafficHistory()
+
+    @app.on_event("startup")
+    async def _start_traffic_sampler():
+        import asyncio
+        async def _sample():
+            while True:
+                try:
+                    stats = query_xray_stats(pattern="inbound>>>", reset=False)
+                    total_up = sum(e.value for e in stats.entries if "uplink" in e.name)
+                    total_down = sum(e.value for e in stats.entries if "downlink" in e.name)
+                    traffic_history.add(total_up, total_down)
+                except Exception:
+                    pass
+                await asyncio.sleep(30)
+        asyncio.create_task(_sample())
 
     # Static files
     _static_dir = Path(__file__).resolve().parent.parent / "panel" / "static"
@@ -2364,6 +2557,28 @@ a {{ color:#4ecdc4; }}
     def api_stats_traffic_reset() -> dict[str, object]:
         query_xray_stats(pattern="inbound>>>", reset=True)
         return {"status": "reset", "performed_side_effects": True}
+
+    @app.get("/api/system/resources")
+    def api_system_resources() -> dict[str, object]:
+        res = get_system_resources()
+        return {
+            "cpu_percent": res.cpu_percent,
+            "cpu_count": res.cpu_count,
+            "ram_total": res.ram_total,
+            "ram_used": res.ram_used,
+            "ram_percent": res.ram_percent,
+            "disk_total": res.disk_total,
+            "disk_used": res.disk_used,
+            "disk_percent": res.disk_percent,
+            "net_sent": res.net_sent,
+            "net_recv": res.net_recv,
+            "uptime_seconds": res.uptime_seconds,
+            "load_avg": list(res.load_avg),
+        }
+
+    @app.get("/api/system/traffic/history")
+    def api_system_traffic_history() -> list[dict]:
+        return traffic_history.get_all()
 
     @app.get("/api/xray/config/preview")
     def api_xray_config_preview() -> dict[str, object]:
@@ -2748,8 +2963,10 @@ a {{ color:#4ecdc4; }}
             return auth_redirect
         services = {n: status_loader(n) for n in MIGATE_SYSTEMD_SERVICES}
         egress = egress_loader()
+        notification_html = _telegram_settings_html(migate_config.notifications, base_path=panel_base_path)
+        backup_html = _backup_section_html(base_path=panel_base_path)
         return _page_shell(
-            _service_statuses_html(services) + _egress_status_report_html(egress) + _egress_dry_run_controls_html() + _systemd_preview_html(migate_config),
+            _service_statuses_html(services) + _egress_status_report_html(egress) + _egress_dry_run_controls_html() + notification_html + backup_html + _systemd_preview_html(migate_config),
             active="system", title="系统设置", subtitle="服务管理、Egress 状态和系统配置",
             base_path=panel_base_path, user=_panel_user,
         )
@@ -3193,6 +3410,145 @@ a {{ color:#4ecdc4; }}
         except Exception as exc:
             body = f"""<div class="card"><h3>❌ 错误</h3><p>{escape(str(exc))}</p></div>"""
             return _action_page(body, active="xray", title="X25519", base_path=panel_base_path, user=_panel_user)
+
+    # --- Notification API endpoints ---
+    @app.post(_panel_url(panel_base_path, "/notifications/telegram/save"), response_class=HTMLResponse)
+    def save_telegram_notification(
+        request: Request,
+        bot_token: str = Form(""),
+        chat_id: str = Form(""),
+    ):
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return auth_redirect
+        # Update in-memory config
+        migate_config.notifications.telegram_bot_token = bot_token.strip()
+        migate_config.notifications.telegram_chat_id = chat_id.strip()
+        # Persist to config file if panel_config_path exists
+        if panel_config_path:
+            config_file = Path(panel_config_path)
+            if config_file.exists():
+                data = json.loads(config_file.read_text())
+            else:
+                data = {}
+            data["notifications"] = {
+                "telegram_bot_token": migate_config.notifications.telegram_bot_token,
+                "telegram_chat_id": migate_config.notifications.telegram_chat_id,
+            }
+            config_file.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        is_configured = bool(migate_config.notifications.telegram_bot_token and migate_config.notifications.telegram_chat_id)
+        status = '✅ Telegram 通知已配置' if is_configured else '⚠️ Telegram 配置已清空'
+        result = f"""
+  <section class="card">
+    <h2>📱 Telegram 通知设置</h2>
+    <p>{status}</p>
+  </section>
+"""
+        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
+
+    @app.post("/api/notifications/telegram/save")
+    def api_save_telegram_notification(
+        bot_token: str = Form(""),
+        chat_id: str = Form(""),
+    ):
+        migate_config.notifications.telegram_bot_token = bot_token.strip()
+        migate_config.notifications.telegram_chat_id = chat_id.strip()
+        if panel_config_path:
+            config_file = Path(panel_config_path)
+            if config_file.exists():
+                data = json.loads(config_file.read_text())
+            else:
+                data = {}
+            data["notifications"] = {
+                "telegram_bot_token": migate_config.notifications.telegram_bot_token,
+                "telegram_chat_id": migate_config.notifications.telegram_chat_id,
+            }
+            config_file.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        return {
+            "status": "ok",
+            "configured": bool(migate_config.notifications.telegram_bot_token and migate_config.notifications.telegram_chat_id),
+        }
+
+    # --- Backup API endpoints ---
+    from migate.backup.manager import BackupManager as _BackupManager
+    _backup_manager = _BackupManager(DEFAULT_DB_PATH)
+
+    @app.post(_panel_url(panel_base_path, "/backup/create"), response_class=HTMLResponse)
+    def create_backup_page(request: Request):
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return auth_redirect
+        backup_path = _backup_manager.create_backup()
+        result = f"""
+  <section class="card">
+    <h2>💾 备份已创建</h2>
+    <p>备份文件：{escape(backup_path.name)}</p>
+  </section>
+"""
+        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
+
+    @app.post("/api/backup/create")
+    def api_create_backup():
+        backup_path = _backup_manager.create_backup()
+        return {"status": "ok", "filename": backup_path.name}
+
+    @app.get("/api/backup/list")
+    def api_list_backups():
+        return {"backups": _backup_manager.list_backups()}
+
+    @app.post(_panel_url(panel_base_path, "/backup/restore/{backup_name}"), response_class=HTMLResponse)
+    def restore_backup_page(request: Request, backup_name: str):
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return auth_redirect
+        success = _backup_manager.restore_backup(backup_name)
+        if success:
+            result = f"""
+  <section class="card">
+    <h2>💾 备份已恢复</h2>
+    <p>已从 {escape(backup_name)} 恢复数据库。</p>
+  </section>
+"""
+        else:
+            result = f"""
+  <section class="card">
+    <h2>❌ 恢复失败</h2>
+    <p>备份文件 {escape(backup_name)} 不存在。</p>
+  </section>
+"""
+        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
+
+    @app.post("/api/backup/restore/{backup_name}")
+    def api_restore_backup(backup_name: str):
+        success = _backup_manager.restore_backup(backup_name)
+        return {"status": "ok" if success else "error", "restored": success}
+
+    @app.post(_panel_url(panel_base_path, "/backup/delete/{backup_name}"), response_class=HTMLResponse)
+    def delete_backup_page(request: Request, backup_name: str):
+        auth_redirect = require_panel_auth(request)
+        if auth_redirect is not None:
+            return auth_redirect
+        success = _backup_manager.delete_backup(backup_name)
+        if success:
+            result = f"""
+  <section class="card">
+    <h2>💾 备份已删除</h2>
+    <p>已删除备份 {escape(backup_name)}。</p>
+  </section>
+"""
+        else:
+            result = f"""
+  <section class="card">
+    <h2>❌ 删除失败</h2>
+    <p>备份文件 {escape(backup_name)} 不存在。</p>
+  </section>
+"""
+        return _action_page(result, active="system", title="系统设置", base_path=panel_base_path, user=_panel_user)
+
+    @app.post("/api/backup/delete/{backup_name}")
+    def api_delete_backup(backup_name: str):
+        success = _backup_manager.delete_backup(backup_name)
+        return {"status": "ok" if success else "error", "deleted": success}
 
     # --- Subscription endpoint (public, no auth) ---
     traffic_repo = ClientTrafficRepository(inbound_repo.db_path)
