@@ -264,24 +264,41 @@ install_python_package() {
     fi
   fi
 
-  # Prefer uv (fast, low memory), fall back to pip
-  if command -v uv >/dev/null 2>&1; then
-    log 'using uv for package installation'
-    uv pip install --system --break-system-packages --upgrade "$MIGATE_INSTALL_DIR" 2>&1 | tail -3 || {
-      log 'uv failed, falling back to pip'
+  local ram_mb
+  ram_mb="$(get_total_ram_mb)"
+
+  # On low-memory VPS: binary-only wheels, NEVER compile from source
+  if [ "$ram_mb" -lt 1536 ]; then
+    log "low RAM (${ram_mb}MB) — binary-only install (no source compilation)"
+    if command -v uv >/dev/null 2>&1; then
+      uv pip install --system --break-system-packages --upgrade \
+        --only-binary :all: "$MIGATE_INSTALL_DIR" 2>&1 | tail -3 || \
+        die "binary-only install failed on low-RAM VPS (psutil needs compilation). Add swap or use a VPS with ≥1.5GB RAM."
+    else
       python3 -m pip install --upgrade "$MIGATE_INSTALL_DIR" \
         --only-binary :all: --break-system-packages --root-user-action=ignore --no-cache-dir 2>&1 | tail -3 || \
-      python3 -m pip install --upgrade "$MIGATE_INSTALL_DIR" \
-        --break-system-packages --root-user-action=ignore --no-cache-dir 2>&1 | tail -3
-    }
+        die "binary-only install failed on low-RAM VPS. Add swap or use a VPS with ≥1.5GB RAM."
+    fi
   else
-    log 'using pip for package installation'
-    python3 -m pip install --upgrade "$MIGATE_INSTALL_DIR" \
-      --only-binary :all: --break-system-packages --root-user-action=ignore --no-cache-dir 2>&1 | tail -3 || {
-      log 'binary-only install failed, retrying with source build...'
+    # Normal VPS: prefer uv, fall back to pip (source build OK)
+    if command -v uv >/dev/null 2>&1; then
+      log 'using uv for package installation'
+      uv pip install --system --break-system-packages --upgrade "$MIGATE_INSTALL_DIR" 2>&1 | tail -3 || {
+        log 'uv failed, falling back to pip'
+        python3 -m pip install --upgrade "$MIGATE_INSTALL_DIR" \
+          --only-binary :all: --break-system-packages --root-user-action=ignore --no-cache-dir 2>&1 | tail -3 || \
+        python3 -m pip install --upgrade "$MIGATE_INSTALL_DIR" \
+          --break-system-packages --root-user-action=ignore --no-cache-dir 2>&1 | tail -3
+      }
+    else
+      log 'using pip for package installation'
       python3 -m pip install --upgrade "$MIGATE_INSTALL_DIR" \
-        --break-system-packages --root-user-action=ignore --no-cache-dir 2>&1 | tail -3
-    }
+        --only-binary :all: --break-system-packages --root-user-action=ignore --no-cache-dir 2>&1 | tail -3 || {
+        log 'binary-only install failed, retrying with source build...'
+        python3 -m pip install --upgrade "$MIGATE_INSTALL_DIR" \
+          --break-system-packages --root-user-action=ignore --no-cache-dir 2>&1 | tail -3
+      }
+    fi
   fi
 
   local installed_bin
@@ -323,7 +340,8 @@ save_runtime_units() {
   log 'saving MiGate runtime service units'
   "$MIGATE_BIN" panel-service save --yes --allow-system-changes 2>&1 | tail -2
   "$MIGATE_BIN" xray service save --yes --allow-system-changes 2>&1 | tail -2
-  "$MIGATE_BIN" proxy service save --yes --allow-system-changes 2>&1 | tail -2
+  # migate-proxy.service NOT saved by default — only needed for egress tunnel mode
+  # Users can manually run: migate proxy service save --yes --allow-system-changes
 }
 
 start_services() {
@@ -350,13 +368,10 @@ start_services() {
     journalctl -u migate-panel.service -n 5 --no-pager 2>/dev/null || true
   }
 
-  # Proxy service is optional (only needed for egress tunnel mode)
-  # Enable it but don't fail if it can't start
-  if systemctl enable --now migate-proxy.service 2>/dev/null; then
-    log 'migate-proxy.service is active ✓'
-  else
-    log 'migate-proxy.service inactive (optional — only needed for egress tunnel mode)'
-  fi
+  # migate-proxy.service NOT started by default — only 2 services needed: xray + panel
+  # To enable proxy tunnel mode manually:
+  #   migate proxy service save --yes --allow-system-changes
+  #   systemctl enable --now migate-proxy.service
 }
 
 # ── verification ──────────────────────────────────────────────────────────
@@ -490,7 +505,6 @@ print_next_steps() {
   normalized_path="$(normalized_panel_path)"
   panel_status="$(systemctl is-active migate-panel.service 2>/dev/null || echo 'unknown')"
   xray_status="$(systemctl is-active migate-xray.service 2>/dev/null || echo 'unknown')"
-  proxy_status="$(systemctl is-active migate-proxy.service 2>/dev/null || echo 'unknown')"
 
   printf '\n'
   printf '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
@@ -500,7 +514,6 @@ print_next_steps() {
   printf '  Services:\n'
   printf '    Panel  → %-10s  (migate-panel.service)\n' "$panel_status"
   printf '    Xray   → %-10s  (migate-xray.service)\n' "$xray_status"
-  printf '    Proxy  → %-10s  (migate-proxy.service)\n' "$proxy_status"
   printf '\n'
   printf '  Web UI:   http://%s:%s%s/spa/\n' "$MIGATE_PUBLIC_HOST" "$MIGATE_PANEL_PORT" "$normalized_path"
   printf '  Username: %s\n' "$MIGATE_PANEL_USER"
