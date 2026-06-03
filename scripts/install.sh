@@ -242,14 +242,22 @@ install_failure_diagnostics() {
 
 do_uninstall() {
   require_root
+
+  log 'stopping MiGate processes'
+  # Kill any running openvpn/migate processes
+  pkill -f 'openvpn.*migate' 2>/dev/null || true
+  pkill -f 'xray.*migate' 2>/dev/null || true
+
   log 'stopping MiGate services'
   systemctl disable --now migate-panel.service 2>/dev/null || true
   systemctl disable --now migate-xray.service 2>/dev/null || true
+  systemctl disable --now migate-xray-tun.service 2>/dev/null || true
   systemctl disable --now migate-proxy.service 2>/dev/null || true
 
   log 'removing service unit files'
   rm -f /etc/systemd/system/migate-panel.service
   rm -f /etc/systemd/system/migate-xray.service
+  rm -f /etc/systemd/system/migate-xray-tun.service
   rm -f /etc/systemd/system/migate-proxy.service
   systemctl daemon-reload
 
@@ -257,8 +265,14 @@ do_uninstall() {
   rm -rf /etc/migate
   rm -rf /var/lib/migate
 
+  log 'removing logs'
+  rm -rf /var/log/migate
+
   log 'removing binary'
   rm -f "$MIGATE_BIN"
+
+  log 'removing pip package'
+  python3 -m pip uninstall -y migate 2>/dev/null || true
 
   log 'removing source directory'
   if [ -n "$MIGATE_INSTALL_DIR" ] && [ "$MIGATE_INSTALL_DIR" != "/" ]; then
