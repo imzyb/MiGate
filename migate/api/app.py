@@ -998,7 +998,8 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/", db_pa
         traffic_up = _format_bytes(ib.up_bytes)
         traffic_down = _format_bytes(ib.down_bytes)
         status_class = "badge-ok" if ib.enabled else "badge-off"
-        status_text = "启用" if ib.enabled else "禁用"
+        status_text = "● 启用" if ib.enabled else "○ 禁用"
+        proto_badge = f'<span class="badge {_protocol_badge_class(ib.protocol)}">{escape(ib.protocol.upper())}</span>'
         protocol_selected = {p: " selected" if ib.protocol == p else "" for p in ("vless", "vmess", "trojan", "shadowsocks")}
 
         # Parse clients from settings
@@ -1018,39 +1019,47 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/", db_pa
             cl_id = cl.get("id", "")
             cl_email = cl.get("email", "") or cl_id[:8]
             ct = traffic_map.get(cl_email, {})
+            _limit = ct.get("traffic_limit_bytes") if ct else None
             if ct:
                 _up = ct.get("up_bytes", 0) or 0
                 _down = ct.get("down_bytes", 0) or 0
                 traffic_display = f"↑ {_format_bytes(_up)} ↓ {_format_bytes(_down)}"
                 total_bytes = _up + _down
+                client_traffic_bar = _traffic_bar_html(_up, _down, _limit)
             else:
                 traffic_display = "—"
                 total_bytes = 0
-            _limit = ct.get("traffic_limit_bytes") if ct else None
+                client_traffic_bar = ""
             limit_display = f"{_limit / (1024**3):.1f} GB" if _limit and _limit > 0 else "无限制"
             _expire = ct.get("expire_at") if ct else None
             expire_display = _expire or "无期限"
 
             # Status
-            status_icon = "✅"
+            status_icon = "●"
+            status_color = "var(--success)"
             badge_html = ""
             over_limit = False
             expired = False
             if _limit and _limit > 0 and total_bytes >= _limit:
-                status_icon = "❌"
+                status_icon = "●"
+                status_color = "var(--danger)"
                 over_limit = True
                 badge_html = '<span class="badge badge-error" style="font-size:10px;">已超限</span>'
             elif _limit and _limit > 0 and total_bytes >= _limit * 0.9:
-                status_icon = "⚠️"
+                status_icon = "●"
+                status_color = "var(--warn)"
                 badge_html = '<span class="badge badge-warn" style="font-size:10px;">接近限额</span>'
             if _expire:
                 try:
                     if _dt.strptime(_expire, "%Y-%m-%d") < _now:
-                        status_icon = "❌"
+                        status_icon = "●"
+                        status_color = "var(--danger)"
                         expired = True
                         badge_html = '<span class="badge badge-error" style="font-size:10px;">已到期</span>'
                 except ValueError:
                     pass
+            if not badge_html:
+                badge_html = f'<span class="badge badge-ok" style="font-size:10px;">正常</span>'
 
             _limit_prefill = f'{_limit / (1024**3):.1f}' if _limit and _limit > 0 else ""
             _expire_prefill = _expire or ""
@@ -1063,10 +1072,10 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/", db_pa
         <div style="font-weight:600;font-size:13px;">{escape(cl_email)}</div>
         <div class="text-muted text-xs">{escape(cl_id[:8])}...</div>
       </td>
-      <td class="text-sm">{traffic_display}</td>
+      <td class="text-sm">{traffic_display}{client_traffic_bar}</td>
       <td class="text-sm">{limit_display}</td>
       <td class="text-sm">{expire_display}</td>
-      <td>{status_icon} {badge_html}</td>
+      <td><span style="color:{status_color};margin-right:4px;">{status_icon}</span> {badge_html}</td>
       <td>
         <div style="display:flex;gap:4px;flex-wrap:wrap;">
           <button class="btn btn-sm btn-danger" onclick="removeClient('{escape(str(ib.id))}','{escape(cl_id)}',this)">删除</button>
@@ -1086,9 +1095,13 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/", db_pa
 
         clients_table = f'''
   <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
-    <div style="font-weight:600;margin-bottom:8px;font-size:14px;">👤 客户端管理</div>
-    {"<div class='table-wrap'><table><thead><tr><th>客户端</th><th>流量</th><th>限额</th><th>到期</th><th>状态</th><th>操作</th></tr></thead><tbody>" + client_rows + "</tbody></table></div>" if client_rows else '<p class="text-muted text-sm">暂无客户端</p>'}
-    <form onsubmit="addClient(event,'{escape(str(ib.id))}','{escape(f"/api/inbounds/{ib.id}/clients/add")}')" style="margin-top:8px;display:flex;gap:8px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <span style="font-size:16px;">👤</span>
+      <span style="font-weight:600;font-size:14px;">客户端管理</span>
+      <span class="badge badge-muted" style="font-size:10px;">{len(ib_clients)} 个</span>
+    </div>
+    {"<div class='table-wrap'><table><thead><tr><th>客户端</th><th>流量</th><th>限额</th><th>到期</th><th>状态</th><th>操作</th></tr></thead><tbody>" + client_rows + "</tbody></table></div>" if client_rows else '<div style="text-align:center;padding:16px 0;"><p class="text-muted text-sm">暂无客户端</p></div>'}
+    <form onsubmit="addClient(event,'{escape(str(ib.id))}','{escape(f"/api/inbounds/{ib.id}/clients/add")}'')" style="margin-top:10px;display:flex;gap:8px;">
       <input type="email" name="email" placeholder="输入客户端邮箱，回车添加" required style="flex:1;">
       <button type="submit" class="btn btn-primary btn-sm">➕ 添加客户端</button>
     </form>
@@ -1100,9 +1113,9 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/", db_pa
         <div style="font-weight:600;">{escape(ib.remark)}</div>
         <div class="text-muted text-xs">#{ib.id}</div>
       </td>
-      <td><span class="badge badge-traffic">{escape(ib.protocol)}</span></td>
+      <td><span class="badge {_protocol_badge_class(ib.protocol)}">{escape(ib.protocol.upper())}</span></td>
       <td>{ib.port}</td>
-      <td class="text-sm">↑ {traffic_up}<br>↓ {traffic_down}</td>
+      <td class="text-sm">↑ {traffic_up}<br>↓ {traffic_down}{_traffic_bar_html(ib.up_bytes, ib.down_bytes)}</td>
       <td><span class="badge {status_class}">{status_text}</span></td>
       <td>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
