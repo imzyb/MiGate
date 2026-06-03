@@ -12,6 +12,8 @@ const toast = useToast()
 const nodes = ref([])
 const { loading, error, exec, retry } = useApi()
 const showCreate = ref(false)
+const editingNode = ref(null)
+const editForm = ref({})
 const shareModal = ref(null)
 const confirmModal = ref(null)
 
@@ -64,6 +66,31 @@ async function deleteNode(id) {
     toast.success('节点已删除')
     await load()
   } catch (e) { toast.error('删除失败: ' + (e.response?.data?.detail || e.message)) }
+}
+
+function startEdit(node) {
+  editingNode.value = node.id
+  editForm.value = {
+    name: node.name,
+    protocol: node.protocol,
+    host: node.host,
+    port: node.port,
+    credential: node.credential || '',
+  }
+}
+
+function cancelEdit() {
+  editingNode.value = null
+  editForm.value = {}
+}
+
+async function saveEdit(id) {
+  try {
+    await api.post(`/api/nodes/${id}/update`, editForm.value)
+    toast.success('节点已更新 ✅')
+    editingNode.value = null
+    await load()
+  } catch (e) { toast.error('更新失败: ' + (e.response?.data?.detail || e.message)) }
 }
 
 async function showShareLinks(node) {
@@ -161,52 +188,92 @@ function fmtBytes(n) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="node in nodes" :key="node.id">
-              <td>
-                <div style="font-weight:600;">{{ node.name }}</div>
-                <div class="text-muted text-xs">#{{ node.id }}</div>
-              </td>
-              <td>
-                <span class="badge" :class="protoBadge[node.protocol] || 'badge-muted'">
-                  {{ node.protocol.toUpperCase() }}
-                </span>
-              </td>
-              <td class="text-sm text-mono">{{ node.host }}:{{ node.port }}</td>
-              <td>
-                <span class="badge" :class="node.enabled ? 'badge-ok' : 'badge-off'">
-                  {{ node.enabled ? '● 启用' : '○ 禁用' }}
-                </span>
-              </td>
-              <td class="text-sm">
-                <div>↑ {{ fmtBytes(node.up_bytes) }}</div>
-                <div>↓ {{ fmtBytes(node.down_bytes) }}</div>
-              </td>
-              <td>
-                <div class="flex gap-2" style="flex-wrap:wrap;">
-                  <div
-                    class="toggle"
-                    :class="{ active: node.enabled }"
-                    @click="toggleNode(node.id, node.enabled)"
-                    :title="node.enabled ? '点击禁用' : '点击启用'"
-                  ></div>
-                  <button class="btn btn-sm" @click="showShareLinks(node)" title="分享链接">🔗</button>
-                  <button class="btn btn-sm btn-danger" @click="deleteNode(node.id)" title="删除">🗑️</button>
-                </div>
-              </td>
-            </tr>
+            <template v-for="node in nodes" :key="node.id">
+              <tr>
+                <td>
+                  <div style="font-weight:600;">{{ node.name }}</div>
+                  <div class="text-muted text-xs">#{{ node.id }}</div>
+                </td>
+                <td>
+                  <span class="badge" :class="protoBadge[node.protocol] || 'badge-muted'">
+                    {{ node.protocol.toUpperCase() }}
+                  </span>
+                </td>
+                <td class="text-sm text-mono">{{ node.host }}:{{ node.port }}</td>
+                <td>
+                  <span class="badge" :class="node.enabled ? 'badge-ok' : 'badge-off'">
+                    {{ node.enabled ? '● 启用' : '○ 禁用' }}
+                  </span>
+                </td>
+                <td class="text-sm">
+                  <div>↑ {{ fmtBytes(node.up_bytes) }}</div>
+                  <div>↓ {{ fmtBytes(node.down_bytes) }}</div>
+                </td>
+                <td>
+                  <div class="flex gap-2" style="flex-wrap:wrap;">
+                    <div
+                      class="toggle"
+                      :class="{ active: node.enabled }"
+                      @click="toggleNode(node.id, node.enabled)"
+                      :title="node.enabled ? '点击禁用' : '点击启用'"
+                    ></div>
+                    <button class="btn btn-sm" @click="startEdit(node)" title="编辑">✏️</button>
+                    <button class="btn btn-sm" @click="showShareLinks(node)" title="分享链接">🔗</button>
+                    <button class="btn btn-sm btn-danger" @click="deleteNode(node.id)" title="删除">🗑️</button>
+                  </div>
+                </td>
+              </tr>
+              <!-- Edit row -->
+              <tr v-if="editingNode === node.id" class="edit-row">
+                <td colspan="6">
+                  <form @submit.prevent="saveEdit(node.id)" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;padding:8px 0;">
+                    <div class="form-group">
+                      <label class="text-xs">名称</label>
+                      <input v-model="editForm.name" required style="padding:6px 10px;font-size:13px;">
+                    </div>
+                    <div class="form-group">
+                      <label class="text-xs">协议</label>
+                      <select v-model="editForm.protocol" style="padding:6px 10px;font-size:13px;">
+                        <option value="vless">VLESS</option>
+                        <option value="vmess">VMess</option>
+                        <option value="trojan">Trojan</option>
+                        <option value="shadowsocks">Shadowsocks</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label class="text-xs">地址</label>
+                      <input v-model="editForm.host" required style="padding:6px 10px;font-size:13px;">
+                    </div>
+                    <div class="form-group">
+                      <label class="text-xs">端口</label>
+                      <input v-model.number="editForm.port" type="number" required style="padding:6px 10px;font-size:13px;">
+                    </div>
+                    <div class="form-group">
+                      <label class="text-xs">凭证</label>
+                      <input v-model="editForm.credential" style="padding:6px 10px;font-size:13px;">
+                    </div>
+                    <div style="display:flex;align-items:flex-end;gap:8px;">
+                      <button type="submit" class="btn btn-sm btn-primary">💾 保存</button>
+                      <button type="button" class="btn btn-sm" @click="cancelEdit">✕ 取消</button>
+                    </div>
+                  </form>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
     </div>
 
-    <ShareModal ref="shareModal" />
+<ShareModal ref="shareModal" />
     <ConfirmModal ref="confirmModal" />
   </div>
 </template>
-
 <style scoped>
 .slide-enter-active { animation: slideDown 0.25s ease; }
 .slide-leave-active { animation: slideUp 0.2s ease; }
 @keyframes slideDown { from { opacity: 0; max-height: 0; } to { opacity: 1; max-height: 500px; } }
 @keyframes slideUp { from { opacity: 1; max-height: 500px; } to { opacity: 0; max-height: 0; } }
+.edit-row { background: var(--bg); }
+.edit-row td { padding: 12px 16px !important; }
 </style>
