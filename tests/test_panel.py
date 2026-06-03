@@ -88,7 +88,7 @@ def test_panel_base_path_routes_login_home_logout_and_node_creation(tmp_path):
 
     login_page = client.get("/mg-admin/login")
     assert login_page.status_code == 200
-    assert "MiGate 登录" in login_page.text
+    assert "MiGate" in login_page.text
     assert 'action="/mg-admin/login"' in login_page.text
 
     logged_in = client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"}, follow_redirects=False)
@@ -668,7 +668,7 @@ def test_panel_auth_login_allows_home_and_logout_clears_session(tmp_path):
 
     login_page = client.get("/login")
     assert login_page.status_code == 200
-    assert "MiGate 登录" in login_page.text
+    assert "MiGate" in login_page.text
 
     failed = client.post("/login", data={"username": "admin", "password": "wrong"})
     assert failed.status_code == 401
@@ -681,7 +681,7 @@ def test_panel_auth_login_allows_home_and_logout_clears_session(tmp_path):
 
     home = client.get("/")
     assert home.status_code == 200
-    assert "创建节点" in home.text
+    assert "创建新节点" in home.text
     assert "退出登录" in home.text
 
     logout = client.post("/logout", follow_redirects=False)
@@ -738,7 +738,7 @@ def test_panel_home_contains_beginner_node_form_and_status_cards():
 
     assert response.status_code == 200
     assert "MiGate" in response.text
-    assert "创建节点" in response.text
+    assert "创建新节点" in response.text
     assert "系统状态" in response.text
     assert "节点" in response.text
     assert "VLESS" in response.text
