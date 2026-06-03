@@ -1,9 +1,11 @@
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import api from '../api/index.js'
+import { setAuth } from '../router.js'
 
 const router = useRouter()
+const route = useRoute()
 const username = ref('')
 const password = ref('')
 const error = ref('')
@@ -19,7 +21,9 @@ async function login() {
     await api.post('/login', form, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     })
-    router.push('/dashboard')
+    setAuth(true)
+    const redirect = route.query.redirect || '/dashboard'
+    router.push(redirect)
   } catch (e) {
     error.value = e.response?.data?.detail || '登录失败'
   }
