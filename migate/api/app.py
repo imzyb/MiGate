@@ -69,7 +69,7 @@ def _normalize_panel_base_path(base_path: object | None) -> str:
 
 
 def _parse_link_for_clash(link: str) -> dict | None:
-    """Parse a share link (vless://, trojan://, ss://) into a Clash proxy dict."""
+    """Parse a share link (vless://, vmess://, trojan://, ss://) into a Clash proxy dict."""
     from urllib.parse import parse_qs, unquote, urlparse
 
     try:
@@ -121,6 +121,22 @@ def _parse_link_for_clash(link: str) -> dict | None:
                 "port": parsed.port or 443,
                 "cipher": method,
                 "password": password,
+            }
+        elif link.startswith("vmess://"):
+            import base64 as _b64
+            import json as _json
+            raw = link[8:]  # strip "vmess://"
+            decoded = _b64.urlsafe_b64decode(raw + "==").decode()
+            obj = _json.loads(decoded)
+            return {
+                "name": obj.get("ps", "proxy"),
+                "type": "vmess",
+                "server": obj.get("add", ""),
+                "port": int(obj.get("port", 443)),
+                "uuid": obj.get("id", ""),
+                "alterId": int(obj.get("aid", 0)),
+                "network": obj.get("net", "tcp"),
+                "tls": bool(obj.get("tls", "")),
             }
     except Exception:
         pass
@@ -301,7 +317,7 @@ def _node_create_form_html(base_path: str = "/") -> str:
       <summary style="cursor:pointer;font-weight:600;font-size:15px;color:var(--text);margin-bottom:12px;">➕ 创建新节点</summary>
       <p class="text-muted text-sm" style="margin-bottom:12px;">推荐新手先使用 VLESS TCP；Trojan 和 Shadowsocks 也已支持链接生成。</p>
       <form method="post" action="{escape(_panel_url(base_path, '/nodes/create'))}" class="form-grid">
-        <div class="form-group"><label>节点协议<select name="protocol"><option value="vless">VLESS</option><option value="trojan">Trojan</option><option value="shadowsocks">Shadowsocks</option></select></label></div>
+        <div class="form-group"><label>节点协议<select name="protocol"><option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option><option value="shadowsocks">Shadowsocks</option></select></label></div>
         <div class="form-group"><label>节点名称<input name="name" value="MiGate Node" placeholder="MiGate JP"></label></div>
         <div class="form-group"><label>服务器域名/IP<input name="host" placeholder="example.com" required></label></div>
         <div class="form-group"><label>端口<input name="port" type="number" value="443" min="1" max="65535" required></label></div>
@@ -723,6 +739,26 @@ def _inbound_create_form_html(base_path: str = "/") -> str:
 """
 
 
+def _protocol_badge_class(protocol: str) -> str:
+    """Return CSS class for protocol-specific badge coloring."""
+    proto = protocol.lower()
+    if proto in ("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "wireguard"):
+        return f"badge-{proto}"
+    return "badge-traffic"
+
+
+def _traffic_bar_html(up_bytes: int, down_bytes: int, limit_bytes: int | None = None) -> str:
+    """Render a traffic progress bar if limit is set, or subtle bar for unlimited."""
+    total = up_bytes + down_bytes
+    if limit_bytes and limit_bytes > 0:
+        pct = min(100, total * 100 // limit_bytes)
+        cls = "low" if pct < 60 else ("mid" if pct < 85 else "high")
+        return f'<div class="traffic-bar-wrap"><div class="traffic-bar {cls}" style="width:{pct}%"></div></div>'
+    if total > 0:
+        return '<div class="traffic-bar-wrap"><div class="traffic-bar unlimited" style="width:100%;opacity:.3"></div></div>'
+    return ""
+
+
 def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
     if not nodes:
         return """
@@ -739,11 +775,13 @@ def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
     rows = []
     for node in nodes:
         address = f"{escape(node.host)}:{node.port}"
-        status_badge = '<span class="badge badge-ok">启用</span>' if node.enabled else '<span class="badge badge-off">禁用</span>'
+        status_badge = '<span class="badge badge-ok">\u25cf \u542f\u7528</span>' if node.enabled else '<span class="badge badge-off">\u25cb \u7981\u7528</span>'
+        proto_badge = f'<span class="badge {_protocol_badge_class(node.protocol)}">{escape(node.protocol.upper())}</span>'
         toggle_action = _panel_url(base_path, f"/nodes/{node.id}/disable" if node.enabled else f"/nodes/{node.id}/enable")
         delete_action = _panel_url(base_path, f"/nodes/{node.id}/delete")
         edit_action = _panel_url(base_path, f"/nodes/{node.id}/edit")
         vless_selected = " selected" if node.protocol == "vless" else ""
+        vmess_selected = " selected" if node.protocol == "vmess" else ""
         trojan_selected = " selected" if node.protocol == "trojan" else ""
         ss_selected = " selected" if node.protocol == "shadowsocks" else ""
         socks5_port_value = "" if node.socks5_port is None else str(node.socks5_port)
@@ -755,10 +793,10 @@ def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
         <div style="font-weight:600;">{escape(node.name)}</div>
         <div class="text-muted text-xs">#{node.id}</div>
       </td>
-      <td><span class="badge badge-traffic">{escape(node.protocol.upper())}</span></td>
+      <td>{proto_badge}</td>
       <td>{address}</td>
       <td>{status_badge}</td>
-      <td class="text-sm">↑ {_format_bytes(up_bytes)}<br>↓ {_format_bytes(down_bytes)}</td>
+      <td class="text-sm">\u2191 {_format_bytes(up_bytes)}<br>\u2193 {_format_bytes(down_bytes)}{_traffic_bar_html(up_bytes, down_bytes)}</td>
       <td>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           <div class="toggle-wrap">
@@ -778,7 +816,7 @@ def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
         <details>
           <summary style="padding:8px 14px;cursor:pointer;">编辑节点 #{node.id}</summary>
           <form method="post" action="{escape(edit_action)}" class="form-grid" style="padding:0 14px 14px;">
-            <div class="form-group"><label>协议<select name="protocol"><option value="vless"{vless_selected}>VLESS</option><option value="trojan"{trojan_selected}>Trojan</option><option value="shadowsocks"{ss_selected}>Shadowsocks</option></select></label></div>
+            <div class="form-group"><label>协议<select name="protocol"><option value="vless"{vless_selected}>VLESS</option><option value="vmess"{vmess_selected}>VMess</option><option value="trojan"{trojan_selected}>Trojan</option><option value="shadowsocks"{ss_selected}>Shadowsocks</option></select></label></div>
             <div class="form-group"><label>名称<input name="name" value="{escape(node.name)}"></label></div>
             <div class="form-group"><label>域名/IP<input name="host" value="{escape(node.host)}" required></label></div>
             <div class="form-group"><label>端口<input name="port" type="number" value="{node.port}" min="1" max="65535" required></label></div>
@@ -1237,8 +1275,11 @@ def _build_link(protocol: str, host: str, port: int, name: str, credential: str)
     build_shadowsocks_link = _lazy_import('migate.xray.links', 'build_shadowsocks_link')
     build_trojan_link = _lazy_import('migate.xray.links', 'build_trojan_link')
     build_vless_link = _lazy_import('migate.xray.links', 'build_vless_link')
+    build_vmess_link = _lazy_import('migate.xray.links', 'build_vmess_link')
     if protocol == "vless":
         return build_vless_link(uuid=credential, host=host, port=port, name=name)
+    if protocol == "vmess":
+        return build_vmess_link(uuid=credential, host=host, port=port, name=name)
     if protocol == "trojan":
         return build_trojan_link(password=credential, host=host, port=port, name=name)
     if protocol == "shadowsocks":
@@ -3847,6 +3888,8 @@ a {{ color:#4ecdc4; }}
                 yaml_lines.append(f"    port: {p['port']}")
                 if p["type"] in ("vless", "vmess"):
                     yaml_lines.append(f"    uuid: {p['uuid']}")
+                    if p["type"] == "vmess" and p.get("alterId", 0):
+                        yaml_lines.append(f"    alterId: {p['alterId']}")
                 elif p["type"] == "trojan":
                     yaml_lines.append(f"    password: {p['password']}")
                 elif p["type"] == "ss":

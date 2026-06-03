@@ -12,6 +12,7 @@ from migate.xray.config_builder import (
     build_shadowsocks_inbound,
     build_trojan_tcp_inbound,
     build_vless_tcp_inbound,
+    build_vmess_inbound,
 )
 
 
@@ -30,6 +31,13 @@ def node_to_inbound(node: NodeRecord) -> XrayObject:
     tag = node_tag(node)
     if node.protocol == "vless":
         return build_vless_tcp_inbound(
+            tag=tag,
+            port=node.port,
+            client_uuid=node.credential,
+            email=node.name,
+        )
+    if node.protocol == "vmess":
+        return build_vmess_inbound(
             tag=tag,
             port=node.port,
             client_uuid=node.credential,

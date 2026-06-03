@@ -44,6 +44,28 @@ def build_vless_tcp_inbound(*, tag: str, port: int, client_uuid: str, email: str
     }
 
 
+def build_vmess_inbound(*, tag: str, port: int, client_uuid: str, email: str, listen: str = "0.0.0.0") -> XrayObject:
+    return {
+        "tag": tag,
+        "listen": listen,
+        "port": port,
+        "protocol": "vmess",
+        "settings": {
+            "clients": [
+                {
+                    "id": client_uuid,
+                    "alterId": 0,
+                    "email": email,
+                    "level": 0,
+                }
+            ]
+        },
+        "streamSettings": {
+            "network": "tcp",
+        },
+    }
+
+
 def build_trojan_tcp_inbound(*, tag: str, port: int, password: str, email: str, listen: str = "0.0.0.0") -> XrayObject:
     return {
         "tag": tag,

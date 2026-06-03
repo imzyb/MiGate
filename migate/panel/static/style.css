@@ -290,6 +290,85 @@ a:hover { text-decoration: underline; }
 .badge-off { background: rgba(139,148,158,.1); color: var(--muted); border: 1px solid rgba(139,148,158,.15); }
 .badge-traffic { background: rgba(59,130,246,.12); color: var(--accent2); border: 1px solid rgba(59,130,246,.2); }
 
+/* ── Protocol badges ─────────────────────────────── */
+.badge-vless { background: rgba(59,130,246,.15); color: #60a5fa; border: 1px solid rgba(59,130,246,.25); }
+.badge-vmess { background: rgba(168,85,247,.15); color: #c084fc; border: 1px solid rgba(168,85,247,.25); }
+.badge-trojan { background: rgba(236,72,153,.15); color: #f472b6; border: 1px solid rgba(236,72,153,.25); }
+.badge-shadowsocks { background: rgba(34,197,94,.15); color: #4ade80; border: 1px solid rgba(34,197,94,.25); }
+.badge-hysteria2 { background: rgba(245,158,11,.15); color: #fbbf24; border: 1px solid rgba(245,158,11,.25); }
+.badge-wireguard { background: rgba(6,182,212,.15); color: #22d3ee; border: 1px solid rgba(6,182,212,.25); }
+
+/* ── Traffic progress bar ────────────────────────── */
+.traffic-bar-wrap {
+  width: 100%;
+  height: 6px;
+  background: rgba(255,255,255,.06);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.traffic-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width .4s ease;
+  min-width: 2px;
+}
+.traffic-bar.low { background: linear-gradient(90deg, #22c55e, #4ade80); }
+.traffic-bar.mid { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+.traffic-bar.high { background: linear-gradient(90deg, #ef4444, #f87171); }
+.traffic-bar.unlimited { background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+
+/* ── Node info grid ──────────────────────────────── */
+.node-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  padding: 10px 0;
+}
+.node-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.node-info-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.node-info-value {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ── Stat mini card ──────────────────────────────── */
+.stat-mini {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.stat-mini-icon {
+  font-size: 24px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.stat-mini-icon.blue { background: rgba(59,130,246,.12); }
+.stat-mini-icon.green { background: rgba(34,197,94,.12); }
+.stat-mini-icon.purple { background: rgba(168,85,247,.12); }
+.stat-mini-icon.orange { background: rgba(245,158,11,.12); }
+.stat-mini-body { flex: 1; min-width: 0; }
+.stat-mini-value { font-size: 18px; font-weight: 700; line-height: 1.2; }
+.stat-mini-label { font-size: 12px; color: var(--muted); }
+
 /* ── Copy button ─────────────────────────────────── */
 .copy-btn {
   font-size: 11px;
