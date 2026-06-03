@@ -841,32 +841,34 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/", db_pa
   </section>
 """
 
-    items = []
+    rows = []
     for ib in inbounds:
         toggle_action = _panel_url(base_path, f"/inbounds/{ib.id}/disable" if ib.enabled else f"/inbounds/{ib.id}/enable")
-        toggle_label = "禁用" if ib.enabled else "启用"
         delete_action = _panel_url(base_path, f"/inbounds/{ib.id}/delete")
         edit_action = _panel_url(base_path, f"/inbounds/{ib.id}/edit")
         traffic_up = _format_bytes(ib.up_bytes)
         traffic_down = _format_bytes(ib.down_bytes)
+        status_class = "badge-ok" if ib.enabled else "badge-off"
+        status_text = "启用" if ib.enabled else "禁用"
         protocol_selected = {p: " selected" if ib.protocol == p else "" for p in ("vless", "vmess", "trojan", "shadowsocks")}
+
         # Parse clients from settings
         try:
             ib_clients = json.loads(ib.settings).get("clients", [])
         except (json.JSONDecodeError, TypeError):
             ib_clients = []
 
-        # Load per-client traffic data (graceful fallback if table missing)
+        # Load per-client traffic data
         traffic_map = _load_client_traffic_map(db_path, ib.id)
 
-        clients_html = ""
+        # Build clients table rows
         from datetime import datetime as _dt
         _now = _dt.now()
+        client_rows = ""
         for cl in ib_clients:
             cl_id = cl.get("id", "")
             cl_email = cl.get("email", "") or cl_id[:8]
             ct = traffic_map.get(cl_email, {})
-            # Traffic display
             if ct:
                 _up = ct.get("up_bytes", 0) or 0
                 _down = ct.get("down_bytes", 0) or 0
@@ -875,119 +877,134 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/", db_pa
             else:
                 traffic_display = "—"
                 total_bytes = 0
-            # Limit display
-            _limit = ct.get("traffic_limit_bytes")
-            if _limit and _limit > 0:
-                limit_display = f"限额: {_limit / (1024**3):.1f} GB"
-            else:
-                limit_display = "无限制"
-            # Expiry display
+            _limit = ct.get("traffic_limit_bytes") if ct else None
+            limit_display = f"{_limit / (1024**3):.1f} GB" if _limit and _limit > 0 else "无限制"
             _expire = ct.get("expire_at") if ct else None
-            if _expire:
-                expire_display = f"到期: {_expire}"
-            else:
-                expire_display = "无期限"
-            # Status indicator
-            status_badge = "✅"
+            expire_display = _expire or "无期限"
+
+            # Status
+            status_icon = "✅"
+            badge_html = ""
             over_limit = False
             expired = False
             if _limit and _limit > 0 and total_bytes >= _limit:
-                status_badge = "❌"
+                status_icon = "❌"
                 over_limit = True
+                badge_html = '<span class="badge badge-error" style="font-size:10px;">已超限</span>'
             elif _limit and _limit > 0 and total_bytes >= _limit * 0.9:
-                status_badge = "⚠️"
+                status_icon = "⚠️"
+                badge_html = '<span class="badge badge-warn" style="font-size:10px;">接近限额</span>'
             if _expire:
                 try:
                     if _dt.strptime(_expire, "%Y-%m-%d") < _now:
-                        status_badge = "❌"
+                        status_icon = "❌"
                         expired = True
+                        badge_html = '<span class="badge badge-error" style="font-size:10px;">已到期</span>'
                 except ValueError:
                     pass
-            # Disable badge/action for over-limit or expired clients
-            disable_btn = ""
-            badge_html = ""
-            if over_limit:
-                badge_html = '<span style="background:#e74c3c;color:#fff;padding:1px 5px;border-radius:3px;font-size:11px;margin-left:4px;">已超限</span>'
-                disable_btn = f' <button class="btn btn-sm btn-danger" onclick="removeClient(\'{escape(str(ib.id))}\',\'{escape(cl_id)}\',this)">禁用</button>'
-            elif expired:
-                badge_html = '<span style="background:#e74c3c;color:#fff;padding:1px 5px;border-radius:3px;font-size:11px;margin-left:4px;">已到期</span>'
-                disable_btn = f' <button class="btn btn-sm btn-danger" onclick="removeClient(\'{escape(str(ib.id))}\',\'{escape(cl_id)}\',this)">禁用</button>'
-            # Pre-fill edit form values
+
             _limit_prefill = f'{_limit / (1024**3):.1f}' if _limit and _limit > 0 else ""
             _expire_prefill = _expire or ""
-            clients_html += f'''
-    <div class="client-row" style="border-bottom:1px solid var(--border,#333);padding:6px 0;">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span style="font-family:monospace;font-size:13px;">{escape(cl_email)}</span>
-        <span style="color:var(--text-muted);font-size:12px;">{escape(cl_id[:8])}...</span>
-        <span style="font-size:12px;color:var(--text-muted);">{traffic_display}</span>
-        <span style="font-size:12px;">{limit_display}</span>
-        <span style="font-size:12px;">{expire_display}</span>
-        <span>{status_badge}{badge_html}</span>
-        <button class="btn btn-sm btn-danger" onclick="removeClient('{escape(str(ib.id))}','{escape(cl_id)}',this)">删除</button>
-        {disable_btn}
-      </div>
-      {_subscription_url_html(ct, base_path, cl_email)}
-      <form onsubmit="saveClientLimits(event,'{escape(str(ib.id))}','{escape(cl_email)}')" style="display:flex;gap:4px;align-items:center;margin-top:4px;padding-left:4px;">
-        <input name="traffic_limit_gb" type="number" step="0.1" min="0" placeholder="限额(GB)" value="{escape(_limit_prefill)}" style="width:90px;font-size:12px;padding:2px 4px;">
-        <input name="expire_at" type="date" value="{escape(_expire_prefill)}" style="width:130px;font-size:12px;padding:2px 4px;">
-        <button type="submit" class="btn btn-sm">保存限额</button>
-      </form>
-    </div>'''
 
-        add_client_url = f"/api/inbounds/{ib.id}/clients/add"
-        clients_section = f'''
-<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:8px;">
-  <div style="font-weight:600;margin-bottom:6px;">👤 客户端管理</div>
-  <div id="clients-{ib.id}">{clients_html if clients_html else '<div style="color:var(--text-muted);">暂无客户端</div>'}</div>
-  <form onsubmit="addClient(event,'{escape(str(ib.id))}','{escape(add_client_url)}')" style="margin-top:8px;display:flex;gap:8px;">
-    <input type="email" name="email" placeholder="客户端邮箱" required style="flex:1;">
-    <button type="submit" class="btn btn-primary btn-sm">添加</button>
-  </form>
-</div>'''
-        items.append(f"""
-    <article class="node">
-      <div class="node-title">{escape(ib.remark)} <span class="label">#{ib.id}</span></div>
-      <div class="label">协议：{escape(ib.protocol)} ｜ 端口：{ib.port} ｜ 监听：{escape(ib.listen)} ｜ 状态：{'启用' if ib.enabled else '禁用'} <span class="badge badge-traffic">↑ {traffic_up} ↓ {traffic_down}</span></div>
-      <div class="actions">
-        <div class="toggle-wrap">
-          <input type="checkbox" id="inbound-toggle-{ib.id}" class="toggle-checkbox"{' checked' if ib.enabled else ''} data-url="{escape(toggle_action)}">
-          <label for="inbound-toggle-{ib.id}" class="toggle-btn"></label>
+            sub_url_html = _subscription_url_html(ct, base_path, cl_email)
+
+            client_rows += f'''
+    <tr>
+      <td>
+        <div style="font-weight:600;font-size:13px;">{escape(cl_email)}</div>
+        <div class="text-muted text-xs">{escape(cl_id[:8])}...</div>
+      </td>
+      <td class="text-sm">{traffic_display}</td>
+      <td class="text-sm">{limit_display}</td>
+      <td class="text-sm">{expire_display}</td>
+      <td>{status_icon} {badge_html}</td>
+      <td>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+          <button class="btn btn-sm btn-danger" onclick="removeClient('{escape(str(ib.id))}','{escape(cl_id)}',this)">删除</button>
         </div>
-        <form method="post" action="{escape(delete_action)}">
-          <button type="submit">删除</button>
+      </td>
+    </tr>
+    <tr>
+      <td colspan="6" style="padding:4px 14px 8px;border:none;">
+        {sub_url_html}
+        <form onsubmit="saveClientLimits(event,'{escape(str(ib.id))}','{escape(cl_email)}')" style="display:flex;gap:6px;align-items:center;margin-top:4px;">
+          <input name="traffic_limit_gb" type="number" step="0.1" min="0" placeholder="限额(GB)" value="{escape(_limit_prefill)}" style="width:90px;font-size:12px;padding:4px 6px;">
+          <input name="expire_at" type="date" value="{escape(_expire_prefill)}" style="width:130px;font-size:12px;padding:4px 6px;">
+          <button type="submit" class="btn btn-sm">💾 保存限额</button>
         </form>
-      </div>
-      <details>
-        <summary>编辑入站</summary>
-        <form method="post" action="{escape(edit_action)}" onsubmit="if(window.ssAssembleJson_{ib.id})window.ssAssembleJson_{ib.id}()">
-          <label>备注
-            <input name="remark" value="{escape(ib.remark)}" required>
-          </label>
-          <label>协议
-            <select name="protocol">
-              <option value="vless"{protocol_selected['vless']}>VLESS</option>
-              <option value="vmess"{protocol_selected['vmess']}>VMess</option>
-              <option value="trojan"{protocol_selected['trojan']}>Trojan</option>
-              <option value="shadowsocks"{protocol_selected['shadowsocks']}>Shadowsocks</option>
-            </select>
-          </label>
-          <label>端口
-            <input name="port" type="number" value="{ib.port}" min="1" max="65535" required>
-          </label>
-          <input type="hidden" name="listen" value="{escape(ib.listen)}">
-          <input type="hidden" name="settings" value="{escape(ib.settings)}">
-          {_stream_settings_form_html(ib.stream_settings, uid=str(ib.id), panel_base_path=base_path)}
-          <button type="submit">保存修改</button>
-        </form>
-      </details>
-      {clients_section}
-    </article>
-""")
+      </td>
+    </tr>'''
+
+        clients_table = f'''
+  <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
+    <div style="font-weight:600;margin-bottom:8px;font-size:14px;">👤 客户端管理</div>
+    {"<div class='table-wrap'><table><thead><tr><th>客户端</th><th>流量</th><th>限额</th><th>到期</th><th>状态</th><th>操作</th></tr></thead><tbody>" + client_rows + "</tbody></table></div>" if client_rows else '<p class="text-muted text-sm">暂无客户端</p>'}
+    <form onsubmit="addClient(event,'{escape(str(ib.id))}','{escape(f"/api/inbounds/{ib.id}/clients/add")}')" style="margin-top:8px;display:flex;gap:8px;">
+      <input type="email" name="email" placeholder="输入客户端邮箱，回车添加" required style="flex:1;">
+      <button type="submit" class="btn btn-primary btn-sm">➕ 添加客户端</button>
+    </form>
+  </div>'''
+
+        rows.append(f'''
+    <tr>
+      <td>
+        <div style="font-weight:600;">{escape(ib.remark)}</div>
+        <div class="text-muted text-xs">#{ib.id}</div>
+      </td>
+      <td><span class="badge badge-traffic">{escape(ib.protocol)}</span></td>
+      <td>{ib.port}</td>
+      <td class="text-sm">↑ {traffic_up}<br>↓ {traffic_down}</td>
+      <td><span class="badge {status_class}">{status_text}</span></td>
+      <td>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <div class="toggle-wrap">
+            <input type="checkbox" id="inbound-toggle-{ib.id}" class="toggle-checkbox"{' checked' if ib.enabled else ''} data-url="{escape(toggle_action)}">
+            <label for="inbound-toggle-{ib.id}" class="toggle-btn"></label>
+          </div>
+          <form method="post" action="{escape(delete_action)}" style="display:inline;">
+            <button class="btn btn-sm btn-danger" type="submit">删除</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td colspan="6" style="padding:0;border:none;">
+        <details>
+          <summary style="padding:8px 14px;cursor:pointer;">✏️ 编辑入站 #{ib.id}</summary>
+          <form method="post" action="{escape(edit_action)}" class="form-grid" style="padding:0 14px 14px;" onsubmit="if(window.ssAssembleJson_{ib.id})window.ssAssembleJson_{ib.id}()">
+            <div class="form-group"><label>备注<input name="remark" value="{escape(ib.remark)}" required></label></div>
+            <div class="form-group"><label>协议<select name="protocol"><option value="vless"{protocol_selected['vless']}>VLESS</option><option value="vmess"{protocol_selected['vmess']}>VMess</option><option value="trojan"{protocol_selected['trojan']}>Trojan</option><option value="shadowsocks"{protocol_selected['shadowsocks']}>Shadowsocks</option></select></label></div>
+            <div class="form-group"><label>端口<input name="port" type="number" value="{ib.port}" min="1" max="65535" required></label></div>
+            <input type="hidden" name="listen" value="{escape(ib.listen)}">
+            <input type="hidden" name="settings" value="{escape(ib.settings)}">
+            {_stream_settings_form_html(ib.stream_settings, uid=str(ib.id), panel_base_path=base_path)}
+            <button class="btn btn-primary" type="submit">💾 保存修改</button>
+          </form>
+        </details>
+        {clients_table}
+      </td>
+    </tr>''')
+
     return f"""
   <section class="card">
-    <h3>入站规则</h3>
-    {''.join(items)}
+    <h3>已创建入站</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>备注</th>
+            <th>协议</th>
+            <th>端口</th>
+            <th>流量</th>
+            <th>状态</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {''.join(rows)}
+        </tbody>
+      </table>
+    </div>
   </section>
 """
 
