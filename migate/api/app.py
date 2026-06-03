@@ -3725,8 +3725,12 @@ a {{ color:#4ecdc4; }}
                 sid = reality_settings.get("shortIds", [""])[0] if reality_settings.get("shortIds") else ""
                 spx = reality_settings.get("settings", {}).get("spiderX", "")
 
-            # Determine host for link (from stream_settings or listen address)
-            host = ss.get("host", ib.listen if ib.listen != "0.0.0.0" else "127.0.0.1")
+            # Determine host for link: prefer stream_settings host, then public_host from config, then listen
+            _public = (loaded_panel_auth_config or {}).get("public_host", "")
+            if _public:
+                host = _public
+            else:
+                host = ss.get("host", ib.listen if ib.listen != "0.0.0.0" else "127.0.0.1")
 
             remark = f"{ib.remark}-{client_match.get('email', email)}"
 
