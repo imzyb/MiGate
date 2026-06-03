@@ -112,7 +112,8 @@ def test_no_pip_self_upgrade():
     """Issue #9: pip install --upgrade pip is unnecessary and risky."""
     script = _read_script()
     assert "pip install --upgrade pip" not in script
-    assert "pip install --upgrade --force-reinstall" in script
+    # Low-memory VPS uses binary-only to avoid OOM during compilation
+    assert "only-binary :all:" in script
 
 
 # ── #11: uninstall mode ──────────────────────────────────────────────────
@@ -174,11 +175,9 @@ def test_one_click_install_script_writes_services_and_prints_next_steps():
 
     assert "panel-service save --yes --allow-system-changes" in script
     assert "xray service save --yes --allow-system-changes" in script
-    assert "proxy service save --yes --allow-system-changes" in script
+    # proxy service NOT saved/started by default (opt-in for egress tunnel mode)
     assert "systemctl enable --now migate-panel.service" in script
     assert "systemctl enable --now migate-xray.service" in script
-    assert "systemctl enable --now migate-proxy.service" in script
-    assert "migate remote acceptance --backend xray-tun" in script
 
 
 # ── WebUI verification ───────────────────────────────────────────────────
@@ -205,11 +204,10 @@ def test_one_click_install_script_enhances_failure_diagnostics_and_service_summa
 
     # success summary: show service status in final output
     assert "systemctl is-active migate-panel.service" in script
-    assert "Service status" in script
-    # must show all three services in output
-    assert "Panel:" in script
-    assert "Xray:" in script
-    assert "Proxy:" in script
+    assert "Services:" in script
+    # must show panel and xray services in output (proxy is opt-in)
+    assert "Panel" in script
+    assert "Xray" in script
 
 
 # ── venv-free install ────────────────────────────────────────────────────

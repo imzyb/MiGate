@@ -1,4 +1,3 @@
-import psutil
 import time
 from dataclasses import dataclass
 
@@ -21,6 +20,8 @@ class SystemResources:
 
 def get_system_resources() -> SystemResources:
     """Collect current system resource usage."""
+    import psutil  # lazy — avoids loading C extension at module import time
+
     cpu = psutil.cpu_percent(interval=0.1)
     ram = psutil.virtual_memory()
     disk = psutil.disk_usage('/')
