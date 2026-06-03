@@ -62,6 +62,11 @@ CLIENT_TRAFFIC_INDEX = """
 CREATE UNIQUE INDEX IF NOT EXISTS idx_client_traffic_email ON client_traffic(email)
 """
 
+INDEX_INBOUND_REMARK = "CREATE INDEX IF NOT EXISTS idx_inbounds_remark ON inbounds(remark)"
+INDEX_INBOUND_ENABLED = "CREATE INDEX IF NOT EXISTS idx_inbounds_enabled ON inbounds(enabled)"
+INDEX_NODE_NAME = "CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name)"
+INDEX_CLIENT_TRAFFIC_INBOUND_EMAIL = "CREATE INDEX IF NOT EXISTS idx_client_traffic_inbound_email ON client_traffic(inbound_id, email)"
+
 CLIENT_TRAFFIC_MIGRATION_SUBSCRIPTION_TOKEN = (
     "ALTER TABLE client_traffic ADD COLUMN subscription_token TEXT DEFAULT NULL"
 )
@@ -114,11 +119,19 @@ class ClientTrafficRecord:
 class NodeRepository:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
+        self._conn: sqlite3.Connection | None = None
+
+    def close(self) -> None:
+        """Close the cached connection if open."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
 
     def initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            conn.execute(INDEX_NODE_NAME)
             existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(nodes)").fetchall()}
             if "socks5_host" not in existing_columns:
                 conn.execute(MIGRATIONS[0])
@@ -204,9 +217,10 @@ class NodeRepository:
         return node
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        if self._conn is None:
+            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+        return self._conn
 
     @staticmethod
     def _row_to_node(row: sqlite3.Row) -> NodeRecord:
@@ -229,11 +243,20 @@ class NodeRepository:
 class InboundRepository:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
+        self._conn: sqlite3.Connection | None = None
+
+    def close(self) -> None:
+        """Close the cached connection if open."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
 
     def initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(INBOUND_SCHEMA)
+            conn.execute(INDEX_INBOUND_REMARK)
+            conn.execute(INDEX_INBOUND_ENABLED)
         # Ensure client_traffic table also exists
         ClientTrafficRepository(self.db_path).initialize()
 
@@ -317,9 +340,10 @@ class InboundRepository:
         return self._row_to_inbound(row) if row is not None else None
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        if self._conn is None:
+            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+        return self._conn
 
     @staticmethod
     def _row_to_inbound(row: sqlite3.Row) -> InboundRecord:
@@ -341,12 +365,20 @@ class InboundRepository:
 class ClientTrafficRepository:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
+        self._conn: sqlite3.Connection | None = None
+
+    def close(self) -> None:
+        """Close the cached connection if open."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
 
     def initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(CLIENT_TRAFFIC_SCHEMA)
             conn.executescript(CLIENT_TRAFFIC_INDEX)
+            conn.execute(INDEX_CLIENT_TRAFFIC_INBOUND_EMAIL)
             # Migration: add subscription_token column if missing
             existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(client_traffic)").fetchall()}
             if "subscription_token" not in existing_columns:
@@ -444,9 +476,10 @@ class ClientTrafficRepository:
         return self._row_to_record(row)
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        if self._conn is None:
+            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+        return self._conn
 
     @staticmethod
     def _row_to_record(row: sqlite3.Row) -> ClientTrafficRecord:

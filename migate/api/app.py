@@ -11,6 +11,10 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.middleware.gzip import GZipMiddleware
+from migate.security.csrf import CSRFMiddleware, generate_csrf_token
+from migate.security.headers import SecurityHeadersMiddleware
+from migate.security.rate_limit import LoginRateLimiter
 
 from migate.database.repository import ClientTrafficRepository, InboundRecord, InboundRepository, NodeRecord, NodeRepository
 from migate.config import MiGateConfig
@@ -2202,6 +2206,10 @@ def create_app(
     repo.initialize()
     inbound_repo.initialize()
     app = FastAPI(title="MiGate Panel")
+    app.add_middleware(GZipMiddleware, minimum_size=500)
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(CSRFMiddleware)
+    login_limiter = LoginRateLimiter()
     traffic_history = TrafficHistory()
 
     @app.on_event("startup")
@@ -2228,7 +2236,13 @@ def create_app(
         file_path = _static_dir / filename
         if not file_path.exists() or not file_path.is_file():
             return JSONResponse({"detail": "not found"}, status_code=404)
-        return FileResponse(file_path, media_type="text/css" if filename.endswith(".css") else "application/octet-stream")
+        import hashlib as _hashlib
+        _etag = _hashlib.md5(file_path.read_bytes()).hexdigest()
+        media_type = "text/css" if filename.endswith(".css") else "application/javascript" if filename.endswith(".js") else "application/octet-stream"
+        resp = FileResponse(file_path, media_type=media_type)
+        resp.headers["Cache-Control"] = "public, max-age=3600"
+        resp.headers["ETag"] = f'"{_etag}"'
+        return resp
 
     @app.middleware("http")
     async def protect_panel_routes(request: Request, call_next):
@@ -2290,15 +2304,21 @@ a {{ color:#4ecdc4; }}
         return _login_html(base_path=panel_base_path)
 
     @app.post(_panel_url(panel_base_path, "/login"), response_class=HTMLResponse)
-    def login(username: str = Form(...), password: str = Form(...)):
+    def login(request: Request, username: str = Form(...), password: str = Form(...)):
         if not _panel_auth_enabled(loaded_panel_auth_config):
             return RedirectResponse(_panel_url(panel_base_path, "/"), status_code=303)
+        # Rate limiting
+        client_ip = request.client.host if request.client else "unknown"
+        if not login_limiter.check(client_ip):
+            return HTMLResponse(_login_html("登录尝试过多，请稍后再试", base_path=panel_base_path), status_code=429)
         expected_user = str((loaded_panel_auth_config or {}).get("admin_user", ""))
         expected_hash = str((loaded_panel_auth_config or {}).get("password_hash", ""))
         if username != expected_user or _hash_panel_password(password) != expected_hash:
+            login_limiter.record(client_ip)
             return HTMLResponse(_login_html("登录失败", base_path=panel_base_path), status_code=401)
         response = RedirectResponse(_panel_url(panel_base_path, "/"), status_code=303)
         response.set_cookie("migate_session", _session_token_for_auth_config(loaded_panel_auth_config or {}), httponly=True, samesite="lax")
+        response.set_cookie("migate_csrf", generate_csrf_token(), httponly=False, samesite="lax")
         return response
 
     @app.post(_panel_url(panel_base_path, "/logout"))
