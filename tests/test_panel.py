@@ -24,20 +24,19 @@ from migate.xray.runtime import XrayRuntimeStatus
 from migate.xray.validator import XrayValidationResult
 
 
-def _write_panel_config(path, *, base_path="/mg-admin", dangerous_actions_enabled=False):
-    path.write_text(
-        json.dumps(
-            {
-                "panel_host": "127.0.0.1",
-                "panel_port": 8787,
-                "admin_user": "admin",
-                "password_hash": "sha256:5c76fcf4400da3b4804d70b91af20703d483f2c5860cc2f8d59592a1da8d2121",
-                "base_path": base_path,
-                "public_host": "127.0.0.1",
-                "dangerous_actions_enabled": dangerous_actions_enabled,
-            }
-        )
-    )
+def _write_panel_config(path, *, base_path="/mg-admin", dangerous_actions_enabled=False, remote_host=""):
+    cfg = {
+        "panel_host": "127.0.0.1",
+        "panel_port": 8787,
+        "admin_user": "admin",
+        "password_hash": "sha256:5c76fcf4400da3b4804d70b91af20703d483f2c5860cc2f8d59592a1da8d2121",
+        "base_path": base_path,
+        "public_host": "127.0.0.1",
+        "dangerous_actions_enabled": dangerous_actions_enabled,
+    }
+    if remote_host:
+        cfg["remote_host"] = remote_host
+    path.write_text(json.dumps(cfg))
 
 
 
@@ -823,9 +822,12 @@ def test_panel_home_renders_readonly_dashboard_cards_from_loaders(tmp_path):
             performed_side_effects=False,
         )
 
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, remote_host="10.0.0.1")
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_config_path=config_path,
             xray_runtime_loader=runtime_loader,
             egress_status_loader=egress_status_loader,
             proxy_runtime_loader=proxy_runtime_loader,
@@ -835,8 +837,10 @@ def test_panel_home_renders_readonly_dashboard_cards_from_loaders(tmp_path):
             remote_rollout_plan_loader=rollout_plan_loader,
         )
     )
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+    calls.clear()
 
-    response = client.get("/")
+    response = client.get("/mg-admin/")
 
     assert response.status_code == 200
     decoded = unescape(response.text)
@@ -961,9 +965,12 @@ def test_panel_home_renders_remote_fail_closed_details_without_dangerous_actions
             performed_side_effects=False,
         )
 
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, remote_host="10.0.0.1")
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_config_path=config_path,
             xray_runtime_loader=runtime_loader,
             egress_status_loader=egress_status_loader,
             proxy_runtime_loader=proxy_runtime_loader,
@@ -973,8 +980,10 @@ def test_panel_home_renders_remote_fail_closed_details_without_dangerous_actions
             remote_rollout_plan_loader=rollout_plan_loader,
         )
     )
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+    calls.clear()
 
-    response = client.get("/")
+    response = client.get("/mg-admin/")
 
     assert response.status_code == 200
     decoded = unescape(response.text)
@@ -1036,9 +1045,12 @@ def test_panel_remote_status_refresh_renders_readonly_remote_details_without_loc
             performed_side_effects=False,
         )
 
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, remote_host="10.0.0.1")
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_config_path=config_path,
             xray_runtime_loader=runtime_loader,
             egress_status_loader=egress_status_loader,
             systemd_status_loader=status_loader,
@@ -1047,8 +1059,10 @@ def test_panel_remote_status_refresh_renders_readonly_remote_details_without_loc
             remote_rollout_plan_loader=rollout_plan_loader,
         )
     )
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+    calls.clear()
 
-    response = client.post("/remote/status/refresh")
+    response = client.post("/mg-admin/remote/status/refresh")
 
     assert response.status_code == 200
     decoded = unescape(response.text)
@@ -3312,9 +3326,12 @@ def test_panel_dashboard_api_returns_webui_bootstrap_snapshot_without_side_effec
             performed_side_effects=False,
         )
 
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, remote_host="166.88.232.2")
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_config_path=config_path,
             xray_runtime_loader=runtime_loader,
             egress_status_loader=egress_status_loader,
             proxy_runtime_loader=proxy_runtime_loader,
@@ -3324,6 +3341,8 @@ def test_panel_dashboard_api_returns_webui_bootstrap_snapshot_without_side_effec
             remote_rollout_plan_loader=rollout_plan_loader,
         )
     )
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
+    calls.clear()
 
     response = client.get("/api/dashboard")
 
@@ -3338,7 +3357,7 @@ def test_panel_dashboard_api_returns_webui_bootstrap_snapshot_without_side_effec
     assert payload["cards"]["systemd"]["services"]["migate-proxy.service"]["status"] == "success"
     assert payload["cards"]["remote"]["readiness"]["status"] == "ok"
     assert payload["cards"]["remote"]["leak_check"]["status"] == "ok"
-    assert payload["cards"]["remote"]["rollout_dry_run"]["status"] == "dry_run"
+    assert payload["cards"]["remote"]["rollout_dry_run"]["status"] == "dry_run" 
     assert payload["actions"] == {
         "safe_previews": [
             {"name": "dashboard", "method": "GET", "path": "/api/dashboard"},
@@ -3492,9 +3511,12 @@ def test_panel_dashboard_api_marks_degraded_when_remote_leak_check_fails_closed(
             performed_side_effects=False,
         )
 
+    config_path = tmp_path / "panel.json"
+    _write_panel_config(config_path, remote_host="10.0.0.1")
     client = TestClient(
         create_app(
             node_repository=repo,
+            panel_config_path=config_path,
             xray_runtime_loader=runtime_loader,
             egress_status_loader=egress_status_loader,
             proxy_runtime_loader=proxy_runtime_loader,
@@ -3504,6 +3526,7 @@ def test_panel_dashboard_api_marks_degraded_when_remote_leak_check_fails_closed(
             remote_rollout_plan_loader=rollout_plan_loader,
         )
     )
+    client.post("/mg-admin/login", data={"username": "admin", "password": "super-secret-password"})
 
     response = client.get("/api/dashboard")
 

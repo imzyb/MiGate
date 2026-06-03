@@ -155,6 +155,27 @@ def _dangerous_actions_enabled(panel_auth_config: dict[str, object] | None) -> b
     return bool((panel_auth_config or {}).get("dangerous_actions_enabled", False))
 
 
+def _get_remote_host(panel_auth_config: dict[str, object] | None) -> str | None:
+    """Return configured remote target host, or None if not set."""
+    host = (panel_auth_config or {}).get("remote_host", "")
+    return str(host).strip() if host else None
+
+
+def _empty_remote_readiness() -> "RemoteReadinessReport":
+    from migate.remote.readiness import RemoteReadinessReport
+    return RemoteReadinessReport(status="skipped", target="(未配置)", checks=[], commands_executed=[], performed_side_effects=False)
+
+
+def _empty_remote_leak_check() -> "RemoteLeakCheckReport":
+    from migate.remote.leak_check import RemoteLeakCheckReport
+    return RemoteLeakCheckReport(status="skipped", target="(未配置)", native_public_ip=None, egress_public_ip=None, checks=[], commands_executed=[], performed_side_effects=False)
+
+
+def _empty_remote_rollout_plan() -> "RemoteRolloutPlan":
+    from migate.remote.rollout_plan import RemoteRolloutPlan
+    return RemoteRolloutPlan(status="skipped", message="未配置远端 VPS", target="(未配置)", credential_hint="", staging_dir="", steps=[], commands_executed=[], performed_side_effects=False)
+
+
 def _dangerous_action_rejected_json() -> dict[str, object]:
     return {
         "status": "rejected",
@@ -1780,8 +1801,8 @@ def _dashboard_snapshot_json(
         runtime.status == "installed"
         and all(check.status == "ok" for check in egress.checks)
         and all(service.status == "success" for service in services.values())
-        and readiness.status == "ok"
-        and leak_check.status == "ok"
+        and readiness.status in ("ok", "skipped")
+        and leak_check.status in ("ok", "skipped")
     )
     return {
         "status": "ok" if healthy else "degraded",
@@ -2825,33 +2846,42 @@ a {{ color:#4ecdc4; }}
 
     @app.get("/api/remote/readiness")
     def api_remote_readiness(
-        host: str = "166.88.232.2",
+        host: str = "",
         port: int = 22,
         user: str = "root",
     ) -> dict[str, object]:
-        return _remote_readiness_report_json(readiness_loader(host=host, port=port, user=user))
+        _host = host or _get_remote_host(loaded_panel_auth_config) or ""
+        if not _host:
+            return _remote_readiness_report_json(_empty_remote_readiness())
+        return _remote_readiness_report_json(readiness_loader(host=_host, port=port, user=user))
 
     @app.get("/api/remote/leak-check")
     def api_remote_leak_check(
-        host: str = "166.88.232.2",
+        host: str = "",
         port: int = 22,
         user: str = "root",
         socks_port: int = 34501,
     ) -> dict[str, object]:
+        _host = host or _get_remote_host(loaded_panel_auth_config) or ""
+        if not _host:
+            return _remote_leak_check_report_json(_empty_remote_leak_check())
         return _remote_leak_check_report_json(
-            leak_check_loader(host=host, port=port, user=user, socks_port=socks_port)
+            leak_check_loader(host=_host, port=port, user=user, socks_port=socks_port)
         )
 
     @app.get("/api/remote/rollout/dry-run")
     def api_remote_rollout_dry_run(
-        host: str = "166.88.232.2",
+        host: str = "",
         port: int = 22,
         user: str = "root",
         staging_dir: str = "/tmp/migate-install",
         backend: str | None = None,
     ) -> dict[str, object]:
+        _host = host or _get_remote_host(loaded_panel_auth_config) or ""
+        if not _host:
+            return _remote_rollout_plan_json(_empty_remote_rollout_plan())
         return _remote_rollout_plan_json(
-            remote_rollout_loader(host=host, port=port, user=user, staging_dir=staging_dir, backend=backend)
+            remote_rollout_loader(host=_host, port=port, user=user, staging_dir=staging_dir, backend=backend)
         )
 
     @app.get("/api/proxy/service/preview")
@@ -2935,22 +2965,21 @@ a {{ color:#4ecdc4; }}
         "RemoteLeakCheckReport",
         "RemoteRolloutPlan",
     ]:
-        return (
-            repo.list_nodes(),
-            runtime_loader(),
-            egress_loader(),
-            proxy_loader(),
-            _load_migate_systemd_services(status_loader),
-            readiness_loader(host="166.88.232.2", port=22, user="root"),
-            leak_check_loader(host="166.88.232.2", port=22, user="root", socks_port=34501),
-            remote_rollout_loader(
-                host="166.88.232.2",
-                port=22,
-                user="root",
-                staging_dir="/tmp/migate-install",
-                backend=None,
-            ),
-        )
+        _nodes = repo.list_nodes()
+        _runtime = runtime_loader()
+        _egress = egress_loader()
+        _proxy = proxy_loader()
+        _services = _load_migate_systemd_services(status_loader)
+        _remote_host = _get_remote_host(loaded_panel_auth_config)
+        if _remote_host:
+            _readiness = readiness_loader(host=_remote_host, port=22, user="root")
+            _leak_check = leak_check_loader(host=_remote_host, port=22, user="root", socks_port=34501)
+            _rollout = remote_rollout_loader(host=_remote_host, port=22, user="root", staging_dir="/tmp/migate-install", backend=None)
+        else:
+            _readiness = _empty_remote_readiness()
+            _leak_check = _empty_remote_leak_check()
+            _rollout = _empty_remote_rollout_plan()
+        return (_nodes, _runtime, _egress, _proxy, _services, _readiness, _leak_check, _rollout)
 
     def dashboard_snapshot_from_parts(
         parts: tuple[
@@ -3059,16 +3088,19 @@ a {{ color:#4ecdc4; }}
         )
 
     def remote_status_detail() -> str:
+        _remote_host = _get_remote_host(loaded_panel_auth_config)
+        if _remote_host:
+            _readiness = readiness_loader(host=_remote_host, port=22, user="root")
+            _leak_check = leak_check_loader(host=_remote_host, port=22, user="root", socks_port=34501)
+            _rollout = remote_rollout_loader(host=_remote_host, port=22, user="root", staging_dir="/tmp/migate-install", backend=None)
+        else:
+            _readiness = _empty_remote_readiness()
+            _leak_check = _empty_remote_leak_check()
+            _rollout = _empty_remote_rollout_plan()
         return _remote_status_detail_html(
-            readiness=readiness_loader(host="166.88.232.2", port=22, user="root"),
-            leak_check=leak_check_loader(host="166.88.232.2", port=22, user="root", socks_port=34501),
-            rollout=remote_rollout_loader(
-                host="166.88.232.2",
-                port=22,
-                user="root",
-                staging_dir="/tmp/migate-install",
-                backend=None,
-            ),
+            readiness=_readiness,
+            leak_check=_leak_check,
+            rollout=_rollout,
         )
 
     @app.post(_panel_url(panel_base_path, "/remote/status/refresh"), response_class=HTMLResponse)
