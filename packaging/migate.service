@@ -1,0 +1,14 @@
+[Unit]
+Description=MiGate Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/local/migate
+ExecStart=/usr/local/migate/migate
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
