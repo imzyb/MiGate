@@ -1213,17 +1213,18 @@ def _systemd_preview_html(config: MiGateConfig) -> str:
     panel_unit = build_panel_unit(config)
     return f"""
   <section class="card">
-    <h3>服务文件</h3>
+    <h3>📄 服务文件</h3>
+    <p class="text-muted text-sm" style="margin-bottom:12px;">查看和保存 systemd 服务单元文件。</p>
     <form method="post" action="/systemd/units/save" style="margin-bottom:12px;">
-      <button type="submit" class="btn btn-sm">💾 保存服务文件</button>
+      <button type="submit" class="btn btn-primary btn-sm">💾 保存服务文件</button>
     </form>
     <details>
-      <summary style="cursor:pointer;color:var(--text-muted);margin-bottom:8px;">📄 查看 {escape(xray_unit.name)}</summary>
-      <pre>{escape(xray_unit.content)}</pre>
+      <summary style="cursor:pointer;color:var(--muted);margin-bottom:8px;">📄 {escape(xray_unit.name)}</summary>
+      <pre style="max-height:300px;overflow:auto;">{escape(xray_unit.content)}</pre>
     </details>
     <details>
-      <summary style="cursor:pointer;color:var(--text-muted);margin-bottom:8px;">📄 查看 {escape(panel_unit.name)}</summary>
-      <pre>{escape(panel_unit.content)}</pre>
+      <summary style="cursor:pointer;color:var(--muted);margin-bottom:8px;">📄 {escape(panel_unit.name)}</summary>
+      <pre style="max-height:300px;overflow:auto;">{escape(panel_unit.content)}</pre>
     </details>
   </section>
 """
@@ -1384,9 +1385,12 @@ def _xray_install_dry_run_html(dry_run_loader: Callable[[], XrayInstallDryRunRes
     )
     return f"""
   <section class="card">
-    <h3>Xray 安装 dry-run 结果</h3>
-    <p>这里只展示如果将来执行安装时会跑哪些命令预览；当前不会执行命令，也不会写文件。</p>
-    <pre>{escape(preview)}</pre>
+    <h3>🧪 Xray 安装 Dry-run 结果</h3>
+    <p class="text-muted text-sm">展示如果执行安装时会跑哪些命令预览，不会执行命令，也不会写文件。</p>
+    <details>
+      <summary style="cursor:pointer;color:var(--muted);margin-bottom:8px;">📋 查看详情</summary>
+      <pre style="max-height:300px;overflow:auto;">{escape(preview)}</pre>
+    </details>
   </section>
 """
 
@@ -1460,13 +1464,17 @@ def _remote_status_detail_html(
     )
     return f"""
   <section class="card">
-    <h3>远端状态详情</h3>
-    <p>这里只展示 readiness、leak-check 与 rollout dry-run 的只读诊断；不会 SSH apply，不会写远端，也不会启动或停止远端服务。</p>
-    <form method="post" action="/remote/status/refresh">
-      <button type="submit">刷新远端状态</button>
-    </form>
-    <div class="label">危险动作：禁用</div>
-    <pre>{escape(preview)}</pre>
+    <h3>🌐 远端状态详情</h3>
+    <p class="text-muted text-sm">只读诊断：readiness、leak-check 与 rollout dry-run。不会 SSH apply，不会写远端。</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;">
+      <form method="post" action="/remote/status/refresh">
+        <button type="submit" class="btn btn-sm">🔄 刷新远端状态</button>
+      </form>
+    </div>
+    <details>
+      <summary style="cursor:pointer;color:var(--muted);margin-bottom:8px;">📋 查看诊断详情</summary>
+      <pre style="max-height:400px;overflow:auto;">{escape(preview)}</pre>
+    </details>
   </section>
 """
 
@@ -1476,19 +1484,22 @@ def _egress_status_report_html(report: EgressStatusReport, *, refreshed: bool = 
     is_ok = report.status.lower() in ("ok", "healthy", "active")
     icon = "🟢" if is_ok else "🔴"
     status_text = "正常" if is_ok else "异常"
+    status_class = "badge-ok" if is_ok else "badge-error"
     checks_html = ""
     for check in report.checks:
-        check_icon = "✅" if check.status.lower() in ("ok", "pass") else "⚠️"
-        checks_html += f'<div style="padding:4px 0;">{check_icon} {escape(check.name)}: {escape(check.message)}</div>'
+        check_ok = check.status.lower() in ("ok", "pass")
+        check_icon = "✅" if check_ok else "⚠️"
+        check_class = "badge-ok" if check_ok else "badge-warn"
+        checks_html += f'<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);"><span>{check_icon}</span><span style="flex:1;font-size:13px;">{escape(check.name)}</span><span class="badge {check_class}" style="font-size:10px;">{escape(check.message)}</span></div>'
     return f"""
   <section class="card">
     <h3>{heading}</h3>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-      <span style="font-size:20px;">{icon}</span>
-      <span style="font-weight:600;">{status_text}</span>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+      <span style="font-size:22px;">{icon}</span>
+      <span class="badge {status_class}" style="font-size:13px;">{status_text}</span>
     </div>
     {checks_html}
-    <form method="post" action="/egress/status/refresh" style="margin-top:8px;">
+    <form method="post" action="/egress/status/refresh" style="margin-top:12px;">
       <button type="submit" class="btn btn-sm">🔄 刷新状态</button>
     </form>
   </section>
@@ -1503,13 +1514,15 @@ def _egress_dry_run_controls_html() -> str:
     return """
   <section class="card">
     <h3>Egress Dry-run 预览</h3>
-    <p>这里只预览将来 Egress Up/Down 会涉及的 OpenVPN 与策略路由命令，不会执行命令，也不会修改系统。</p>
-    <form method="post" action="/egress/up/dry-run">
-      <button type="submit">Dry-run Egress Up</button>
-    </form>
-    <form method="post" action="/egress/down/dry-run">
-      <button type="submit">Dry-run Egress Down</button>
-    </form>
+    <p class="text-muted text-sm">预览将来 Egress Up/Down 会涉及的 OpenVPN 与策略路由命令，不会执行命令，也不会修改系统。</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+      <form method="post" action="/egress/up/dry-run">
+        <button type="submit" class="btn btn-sm">🧪 Dry-run Up</button>
+      </form>
+      <form method="post" action="/egress/down/dry-run">
+        <button type="submit" class="btn btn-sm">🧪 Dry-run Down</button>
+      </form>
+    </div>
   </section>
 """
 
@@ -2095,16 +2108,20 @@ def _telegram_settings_html(notifications_config: object, base_path: str = "/") 
     bot_token = getattr(notifications_config, 'telegram_bot_token', '') or ''
     chat_id = getattr(notifications_config, 'telegram_chat_id', '') or ''
     is_configured = bool(bot_token and chat_id)
-    status = '✅ 已配置' if is_configured else '⚠️ 未配置'
-    masked_token = (bot_token[:8] + '...' + bot_token[-4:]) if len(bot_token) > 12 else bot_token
+    status_icon = "✅" if is_configured else "⚠️"
+    status_text = "已配置" if is_configured else "未配置"
+    status_class = "badge-ok" if is_configured else "badge-warn"
     return f"""
   <section class="card">
     <h3>📱 Telegram 通知</h3>
-    <p>状态：{status}</p>
-    <form method="post" action="{escape(_panel_url(base_path, '/notifications/telegram/save'))}" style="display:grid;gap:14px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+      <span style="font-size:18px;">{status_icon}</span>
+      <span class="badge {status_class}">{status_text}</span>
+    </div>
+    <form method="post" action="{escape(_panel_url(base_path, '/notifications/telegram/save'))}" class="form-grid">
       <div class="form-group"><label>Bot Token<input name="bot_token" value="{escape(bot_token)}" placeholder="123456:ABC-DEF..." autocomplete="off"></label></div>
       <div class="form-group"><label>Chat ID<input name="chat_id" value="{escape(chat_id)}" placeholder="123456789"></label></div>
-      <button class="btn btn-primary" type="submit">保存 Telegram 配置</button>
+      <button class="btn btn-primary btn-block" type="submit">💾 保存 Telegram 配置</button>
     </form>
   </section>
 """
@@ -2116,11 +2133,11 @@ def _backup_section_html(base_path: str = "/") -> str:
     return f"""
   <section class="card">
     <h3>💾 数据备份与恢复</h3>
+    <p class="text-muted text-sm" style="margin-bottom:12px;">创建数据库备份，支持下载和恢复。</p>
     <form method="post" action="{create_action}">
-      <button class="btn btn-primary" type="submit">创建备份</button>
+      <button class="btn btn-primary btn-sm" type="submit">📦 创建备份</button>
     </form>
     <div id="backup-list-container" style="margin-top:16px;">
-      <p class="text-muted">加载中...</p>
     </div>
     <script>
     (function() {{
