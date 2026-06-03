@@ -130,6 +130,17 @@ async function removeClient(inboundId,clientId,btn){{
     else showToast('删除失败','toast-err');
   }}catch(err){{showToast('网络错误','toast-err');}}
 }}
+async function saveClientLimits(e,inboundId,email){{
+  e.preventDefault();
+  const form=e.target;const data=new FormData(form);
+  const bp=document.body.dataset.basePath||'/';
+  try{{
+    const r=await fetch(bp+'api/inbounds/'+inboundId+'/clients/'+encodeURIComponent(email)+'/limits',{{method:'POST',body:data}});
+    const j=await r.json();
+    if(j.status==='ok'){{showToast('限额已保存');setTimeout(()=>location.reload(),500);}}
+    else showToast(j.detail||'保存失败','toast-err');
+  }}catch(err){{showToast('网络错误','toast-err');}}
+}}
 </script>
 <div id="qr-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);align-items:center;justify-content:center;" onclick="if(event.target===this)this.style.display='none'">
   <div style="background:#1e1e2e;padding:24px;border-radius:12px;text-align:center;max-width:320px;">

@@ -29,6 +29,42 @@ class XrayTrafficStats:
                     down += entry.value
         return up, down
 
+    def user_traffic(self, email: str) -> tuple[int, int]:
+        """Return (up_bytes, down_bytes) for the given user email."""
+        up = 0
+        down = 0
+        prefix = f"user>>>{email}>>>"
+        for entry in self.entries:
+            if prefix in entry.name:
+                if "uplink" in entry.name:
+                    up += entry.value
+                elif "downlink" in entry.name:
+                    down += entry.value
+        return up, down
+
+    def all_user_traffic(self) -> dict[str, tuple[int, int]]:
+        """Return traffic for all users grouped by email.
+
+        Returns a dict mapping email -> (up_bytes, down_bytes).
+        """
+        users: dict[str, tuple[int, int]] = {}
+        for entry in self.entries:
+            if not entry.name.startswith("user>>>"):
+                continue
+            parts = entry.name.split(">>>", 2)
+            if len(parts) < 3:
+                continue
+            email = parts[1]
+            if email not in users:
+                users[email] = (0, 0)
+            up, down = users[email]
+            if "uplink" in entry.name:
+                up += entry.value
+            elif "downlink" in entry.name:
+                down += entry.value
+            users[email] = (up, down)
+        return users
+
 
 def query_xray_stats(
     *,

@@ -12,7 +12,7 @@ from uuid import uuid4
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from migate.database.repository import InboundRecord, InboundRepository, NodeRecord, NodeRepository
+from migate.database.repository import ClientTrafficRepository, InboundRecord, InboundRepository, NodeRecord, NodeRepository
 from migate.config import MiGateConfig
 from migate.egress.lifecycle import EgressLifecycleResult
 from migate.egress.status import EgressStatusReport, run_egress_status
@@ -61,6 +61,65 @@ def _normalize_panel_base_path(base_path: object | None) -> str:
     if not value.startswith("/"):
         value = f"/{value}"
     return value.rstrip("/") or "/"
+
+
+def _parse_link_for_clash(link: str) -> dict | None:
+    """Parse a share link (vless://, trojan://, ss://) into a Clash proxy dict."""
+    from urllib.parse import parse_qs, unquote, urlparse
+
+    try:
+        if link.startswith("vless://"):
+            parsed = urlparse(link)
+            params = parse_qs(parsed.query)
+            return {
+                "name": unquote(parsed.fragment) if parsed.fragment else "proxy",
+                "type": "vless",
+                "server": parsed.hostname or "",
+                "port": parsed.port or 443,
+                "uuid": unquote(parsed.username or ""),
+                "network": params.get("type", ["tcp"])[0],
+                "tls": params.get("security", ["none"])[0] in ("tls", "reality"),
+                "sni": params.get("sni", [""])[0],
+                "ws_path": params.get("path", [""])[0] if params.get("type", [""])[0] == "ws" else "",
+                "ws_host": params.get("host", [""])[0] if params.get("type", [""])[0] == "ws" else "",
+                "grpc_service": params.get("path", [""])[0] if params.get("type", [""])[0] == "grpc" else "",
+            }
+        elif link.startswith("trojan://"):
+            parsed = urlparse(link)
+            params = parse_qs(parsed.query)
+            return {
+                "name": unquote(parsed.fragment) if parsed.fragment else "proxy",
+                "type": "trojan",
+                "server": parsed.hostname or "",
+                "port": parsed.port or 443,
+                "password": unquote(parsed.username or ""),
+                "network": params.get("type", ["tcp"])[0],
+                "tls": params.get("security", ["none"])[0] in ("tls", "reality"),
+                "sni": params.get("sni", [""])[0],
+                "ws_path": params.get("path", [""])[0] if params.get("type", [""])[0] == "ws" else "",
+                "ws_host": params.get("host", [""])[0] if params.get("type", [""])[0] == "ws" else "",
+            }
+        elif link.startswith("ss://"):
+            import base64 as _b64
+            parsed = urlparse(link)
+            # SS format: ss://base64(method:password)@host:port#name
+            userinfo = parsed.username or ""
+            try:
+                decoded = _b64.urlsafe_b64decode(userinfo + "==").decode()
+                method, password = decoded.split(":", 1)
+            except Exception:
+                method, password = "chacha20-ietf-poly1305", ""
+            return {
+                "name": unquote(parsed.fragment) if parsed.fragment else "proxy",
+                "type": "ss",
+                "server": parsed.hostname or "",
+                "port": parsed.port or 443,
+                "cipher": method,
+                "password": password,
+            }
+    except Exception:
+        pass
+    return None
 
 
 def load_panel_auth_config(path: str | Path | None) -> dict[str, object] | None:
@@ -713,7 +772,42 @@ def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
 """
 
 
-def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/") -> str:
+def _subscription_url_html(ct: dict, base_path: str, cl_email: str) -> str:
+    """Generate subscription URL HTML for a client if they have a token."""
+    token = ct.get("subscription_token") if ct else None
+    if not token:
+        return ""
+    normalized_base = _normalize_panel_base_path(base_path)
+    sub_url = f"{normalized_base}/sub/{escape(token)}"
+    return (
+        f'<div style="margin-top:4px;padding-left:4px;display:flex;gap:4px;align-items:center;">'
+        f'<span style="font-size:11px;color:var(--text-muted);">订阅:</span>'
+        f'<code style="font-size:11px;word-break:break-all;">{sub_url}</code>'
+        f'<button type="button" class="btn btn-sm" onclick="navigator.clipboard.writeText(window.location.origin+\'{sub_url}\')">📋</button>'
+        f'</div>'
+    )
+
+
+def _load_client_traffic_map(db_path: str | Path | None, inbound_id: int) -> dict[str, dict]:
+    """Load per-client traffic data from client_traffic table. Returns {email: row_dict}."""
+    if db_path is None:
+        return {}
+    try:
+        import sqlite3 as _sqlite3
+        conn = _sqlite3.connect(str(db_path))
+        conn.row_factory = _sqlite3.Row
+        rows = conn.execute(
+            "SELECT email, up_bytes, down_bytes, traffic_limit_bytes, expire_at, subscription_token "
+            "FROM client_traffic WHERE inbound_id = ?",
+            (inbound_id,),
+        ).fetchall()
+        conn.close()
+        return {row["email"]: dict(row) for row in rows}
+    except Exception:
+        return {}
+
+
+def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/", db_path: str | Path | None = None) -> str:
     if not inbounds:
         return """
   <section class="card">
@@ -737,15 +831,83 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/") -> st
         except (json.JSONDecodeError, TypeError):
             ib_clients = []
 
+        # Load per-client traffic data (graceful fallback if table missing)
+        traffic_map = _load_client_traffic_map(db_path, ib.id)
+
         clients_html = ""
+        from datetime import datetime as _dt
+        _now = _dt.now()
         for cl in ib_clients:
             cl_id = cl.get("id", "")
             cl_email = cl.get("email", "") or cl_id[:8]
+            ct = traffic_map.get(cl_email, {})
+            # Traffic display
+            if ct:
+                _up = ct.get("up_bytes", 0) or 0
+                _down = ct.get("down_bytes", 0) or 0
+                traffic_display = f"↑ {_format_bytes(_up)} ↓ {_format_bytes(_down)}"
+                total_bytes = _up + _down
+            else:
+                traffic_display = "—"
+                total_bytes = 0
+            # Limit display
+            _limit = ct.get("traffic_limit_bytes")
+            if _limit and _limit > 0:
+                limit_display = f"限额: {_limit / (1024**3):.1f} GB"
+            else:
+                limit_display = "无限制"
+            # Expiry display
+            _expire = ct.get("expire_at") if ct else None
+            if _expire:
+                expire_display = f"到期: {_expire}"
+            else:
+                expire_display = "无期限"
+            # Status indicator
+            status_badge = "✅"
+            over_limit = False
+            expired = False
+            if _limit and _limit > 0 and total_bytes >= _limit:
+                status_badge = "❌"
+                over_limit = True
+            elif _limit and _limit > 0 and total_bytes >= _limit * 0.9:
+                status_badge = "⚠️"
+            if _expire:
+                try:
+                    if _dt.strptime(_expire, "%Y-%m-%d") < _now:
+                        status_badge = "❌"
+                        expired = True
+                except ValueError:
+                    pass
+            # Disable badge/action for over-limit or expired clients
+            disable_btn = ""
+            badge_html = ""
+            if over_limit:
+                badge_html = '<span style="background:#e74c3c;color:#fff;padding:1px 5px;border-radius:3px;font-size:11px;margin-left:4px;">已超限</span>'
+                disable_btn = f' <button class="btn btn-sm btn-danger" onclick="removeClient(\'{escape(str(ib.id))}\',\'{escape(cl_id)}\',this)">禁用</button>'
+            elif expired:
+                badge_html = '<span style="background:#e74c3c;color:#fff;padding:1px 5px;border-radius:3px;font-size:11px;margin-left:4px;">已到期</span>'
+                disable_btn = f' <button class="btn btn-sm btn-danger" onclick="removeClient(\'{escape(str(ib.id))}\',\'{escape(cl_id)}\',this)">禁用</button>'
+            # Pre-fill edit form values
+            _limit_prefill = f'{_limit / (1024**3):.1f}' if _limit and _limit > 0 else ""
+            _expire_prefill = _expire or ""
             clients_html += f'''
-    <div class="client-row" style="display:flex;align-items:center;gap:8px;padding:4px 0;">
-      <span style="font-family:monospace;font-size:13px;">{escape(cl_email)}</span>
-      <span style="color:var(--text-muted);font-size:12px;">{escape(cl_id[:8])}...</span>
-      <button class="btn btn-sm btn-danger" onclick="removeClient('{escape(str(ib.id))}','{escape(cl_id)}',this)">删除</button>
+    <div class="client-row" style="border-bottom:1px solid var(--border,#333);padding:6px 0;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-family:monospace;font-size:13px;">{escape(cl_email)}</span>
+        <span style="color:var(--text-muted);font-size:12px;">{escape(cl_id[:8])}...</span>
+        <span style="font-size:12px;color:var(--text-muted);">{traffic_display}</span>
+        <span style="font-size:12px;">{limit_display}</span>
+        <span style="font-size:12px;">{expire_display}</span>
+        <span>{status_badge}{badge_html}</span>
+        <button class="btn btn-sm btn-danger" onclick="removeClient('{escape(str(ib.id))}','{escape(cl_id)}',this)">删除</button>
+        {disable_btn}
+      </div>
+      {_subscription_url_html(ct, base_path, cl_email)}
+      <form onsubmit="saveClientLimits(event,'{escape(str(ib.id))}','{escape(cl_email)}')" style="display:flex;gap:4px;align-items:center;margin-top:4px;padding-left:4px;">
+        <input name="traffic_limit_gb" type="number" step="0.1" min="0" placeholder="限额(GB)" value="{escape(_limit_prefill)}" style="width:90px;font-size:12px;padding:2px 4px;">
+        <input name="expire_at" type="date" value="{escape(_expire_prefill)}" style="width:130px;font-size:12px;padding:2px 4px;">
+        <button type="submit" class="btn btn-sm">保存限额</button>
+      </form>
     </div>'''
 
         add_client_url = f"/api/inbounds/{ib.id}/clients/add"
@@ -2127,6 +2289,55 @@ a {{ color:#4ecdc4; }}
             return {"status": "not_found", "performed_side_effects": False}
         return {"status": "updated", "performed_side_effects": True}
 
+    @app.post("/api/inbounds/{inbound_id}/clients/{client_email}/limits")
+    def api_inbound_client_set_limits(
+        inbound_id: int,
+        client_email: str,
+        traffic_limit_gb: float = Form(0.0),
+        expire_at: str = Form(""),
+    ) -> dict[str, object]:
+        """Set traffic limit (GB) and/or expiry date for a client."""
+        import sqlite3 as _sqlite3
+        from datetime import datetime as _dt
+        db_path_str = str(inbound_repo.db_path)
+        # Parse limit
+        limit_bytes = int(traffic_limit_gb * 1024 * 1024 * 1024) if traffic_limit_gb > 0 else 0
+        # Parse expiry
+        expire_val = expire_at.strip() if expire_at else ""
+        if expire_val:
+            try:
+                _dt.strptime(expire_val, "%Y-%m-%d")
+            except ValueError:
+                return {"status": "error", "detail": "日期格式无效，请使用 YYYY-MM-DD", "performed_side_effects": False}
+        else:
+            expire_val = None
+        try:
+            conn = _sqlite3.connect(db_path_str)
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS client_traffic ("
+                "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                "  inbound_id INTEGER NOT NULL,"
+                "  email TEXT NOT NULL,"
+                "  up_bytes INTEGER NOT NULL DEFAULT 0,"
+                "  down_bytes INTEGER NOT NULL DEFAULT 0,"
+                "  traffic_limit_bytes INTEGER,"
+                "  expire_at TEXT,"
+                "  enabled INTEGER NOT NULL DEFAULT 1,"
+                "  UNIQUE(inbound_id, email)"
+                ")"
+            )
+            conn.execute(
+                "INSERT INTO client_traffic (inbound_id, email, traffic_limit_bytes, expire_at) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(inbound_id, email) DO UPDATE SET traffic_limit_bytes = excluded.traffic_limit_bytes, expire_at = excluded.expire_at",
+                (inbound_id, client_email, limit_bytes, expire_val),
+            )
+            conn.commit()
+            conn.close()
+            return {"status": "ok", "performed_side_effects": True}
+        except Exception as exc:
+            return {"status": "error", "detail": str(exc), "performed_side_effects": False}
+
     @app.get("/api/stats/traffic")
     def api_stats_traffic() -> dict[str, object]:
         stats = query_xray_stats(pattern="inbound>>>", reset=False)
@@ -2510,7 +2721,7 @@ a {{ color:#4ecdc4; }}
         if auth_redirect is not None:
             return auth_redirect
         return _page_shell(
-            _inbound_create_form_html(panel_base_path) + _inbounds_html(inbound_repo.list_inbounds(), base_path=panel_base_path),
+            _inbound_create_form_html(panel_base_path) + _inbounds_html(inbound_repo.list_inbounds(), base_path=panel_base_path, db_path=inbound_repo.db_path),
             active="inbounds", title="入站规则", subtitle="管理 Xray 入站代理规则",
             base_path=panel_base_path, user=_panel_user,
         )
@@ -2982,5 +3193,219 @@ a {{ color:#4ecdc4; }}
         except Exception as exc:
             body = f"""<div class="card"><h3>❌ 错误</h3><p>{escape(str(exc))}</p></div>"""
             return _action_page(body, active="xray", title="X25519", base_path=panel_base_path, user=_panel_user)
+
+    # --- Subscription endpoint (public, no auth) ---
+    traffic_repo = ClientTrafficRepository(inbound_repo.db_path)
+
+    @app.get("/sub/{token}")
+    def subscription_endpoint(token: str, request: Request):
+        import base64 as _b64
+
+        # First try to find by token in traffic records
+        record = traffic_repo.get_by_token(token)
+        if record is not None:
+            email = record.email
+        else:
+            # Fallback: search inbounds for a client whose email hash matches the token
+            email = None
+            all_inbounds = inbound_repo.list_inbounds()
+            for ib in all_inbounds:
+                try:
+                    ib_settings = json.loads(ib.settings)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                for cl in ib_settings.get("clients", []):
+                    cl_email = cl.get("email", "")
+                    if cl_email and ClientTrafficRepository.generate_token(cl_email) == token:
+                        email = cl_email
+                        break
+                if email is not None:
+                    break
+            if email is None:
+                return JSONResponse({"detail": "not found"}, status_code=404)
+
+        # Find all inbounds that contain this client email
+        all_inbounds = inbound_repo.list_inbounds()
+        links: list[str] = []
+        for ib in all_inbounds:
+            if not ib.enabled:
+                continue
+            try:
+                ib_settings = json.loads(ib.settings)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            ib_clients = ib_settings.get("clients", [])
+            client_match = None
+            for cl in ib_clients:
+                if cl.get("email") == email or cl.get("id", "")[:8] == email:
+                    client_match = cl
+                    break
+            if client_match is None:
+                continue
+
+            # Parse stream_settings
+            try:
+                ss = json.loads(ib.stream_settings)
+            except (json.JSONDecodeError, TypeError):
+                ss = {}
+
+            network = ss.get("network", "tcp")
+            security = ss.get("security", "none")
+            sni = ss.get("sni", "")
+            alpn = ss.get("alpn", "")
+            fp = ss.get("fingerprint", "")
+            flow = ss.get("flow", "")
+            path = ""
+            host_header = ""
+            header_type = ""
+            pbk = ""
+            sid = ""
+            spx = ""
+
+            # Extract transport-specific settings
+            if network == "ws":
+                ws_settings = ss.get("wsSettings", {})
+                path = ws_settings.get("path", "")
+                host_header = ws_settings.get("headers", {}).get("Host", "")
+            elif network == "grpc":
+                grpc_settings = ss.get("grpcSettings", {})
+                path = grpc_settings.get("serviceName", "")
+            elif network == "tcp":
+                tcp_settings = ss.get("tcpSettings", {})
+                header_type = tcp_settings.get("header", {}).get("type", "")
+
+            # Reality settings
+            if security == "reality":
+                reality_settings = ss.get("realitySettings", {})
+                sni = reality_settings.get("serverNames", [""])[0] if reality_settings.get("serverNames") else sni
+                pbk = reality_settings.get("settings", {}).get("publicKey", "")
+                sid = reality_settings.get("shortIds", [""])[0] if reality_settings.get("shortIds") else ""
+                spx = reality_settings.get("settings", {}).get("spiderX", "")
+
+            # Determine host for link (from stream_settings or listen address)
+            host = ss.get("host", ib.listen if ib.listen != "0.0.0.0" else "127.0.0.1")
+
+            remark = f"{ib.remark}-{client_match.get('email', email)}"
+
+            protocol = ib.protocol
+            if protocol == "vless":
+                link = build_vless_link(
+                    uuid=client_match.get("id", ""),
+                    host=host,
+                    port=ib.port,
+                    name=remark,
+                    network=network,
+                    security=security,
+                    sni=sni,
+                    alpn=alpn,
+                    fp=fp,
+                    flow=flow,
+                    path=path,
+                    host_header=host_header,
+                    header_type=header_type,
+                    pbk=pbk,
+                    sid=sid,
+                    spx=spx,
+                )
+            elif protocol == "trojan":
+                link = build_trojan_link(
+                    password=client_match.get("password", ""),
+                    host=host,
+                    port=ib.port,
+                    name=remark,
+                    network=network,
+                    security=security,
+                    sni=sni,
+                    alpn=alpn,
+                    fp=fp,
+                    path=path,
+                    host_header=host_header,
+                    header_type=header_type,
+                )
+            elif protocol == "shadowsocks":
+                link = build_shadowsocks_link(
+                    method=client_match.get("method", "chacha20-ietf-poly1305"),
+                    password=client_match.get("password", ""),
+                    host=host,
+                    port=ib.port,
+                    name=remark,
+                )
+            else:
+                continue
+
+            links.append(link)
+
+        if not links:
+            return JSONResponse({"detail": "no inbounds found for this client"}, status_code=404)
+
+        # Detect client type from User-Agent
+        user_agent = request.headers.get("user-agent", "")
+        is_clash = "clash" in user_agent.lower()
+
+        if is_clash:
+            # Build Clash YAML
+            proxies = []
+            proxy_names = []
+            for link in links:
+                # Parse link to extract proxy info for Clash config
+                parsed = _parse_link_for_clash(link)
+                if parsed:
+                    proxies.append(parsed)
+                    proxy_names.append(parsed["name"])
+
+            yaml_lines = [
+                "port: 7890",
+                "socks-port: 7891",
+                "allow-lan: true",
+                "mode: Rule",
+                "",
+                "proxies:",
+            ]
+            for p in proxies:
+                yaml_lines.append(f"  - name: '{p['name']}'")
+                yaml_lines.append(f"    type: {p['type']}")
+                yaml_lines.append(f"    server: {p['server']}")
+                yaml_lines.append(f"    port: {p['port']}")
+                if p["type"] in ("vless", "vmess"):
+                    yaml_lines.append(f"    uuid: {p['uuid']}")
+                elif p["type"] == "trojan":
+                    yaml_lines.append(f"    password: {p['password']}")
+                elif p["type"] == "ss":
+                    yaml_lines.append(f"    cipher: {p['cipher']}")
+                    yaml_lines.append(f"    password: {p['password']}")
+                if p.get("network"):
+                    yaml_lines.append(f"    network: {p['network']}")
+                if p.get("tls"):
+                    yaml_lines.append(f"    tls: true")
+                if p.get("sni"):
+                    yaml_lines.append(f"    servername: {p['sni']}")
+                if p.get("ws_path"):
+                    yaml_lines.append(f"    ws-opts:")
+                    yaml_lines.append(f"      path: {p['ws_path']}")
+                    if p.get("ws_host"):
+                        yaml_lines.append(f"      headers:")
+                        yaml_lines.append(f"        Host: {p['ws_host']}")
+                if p.get("grpc_service"):
+                    yaml_lines.append(f"    grpc-opts:")
+                    yaml_lines.append(f"      grpc-service-name: {p['grpc_service']}")
+
+            yaml_lines.append("")
+            yaml_lines.append("proxy-groups:")
+            yaml_lines.append("  - name: Proxy")
+            yaml_lines.append("    type: select")
+            yaml_lines.append("    proxies:")
+            for name in proxy_names:
+                yaml_lines.append(f"      - {name}")
+            yaml_lines.append("")
+            yaml_lines.append("rules:")
+            yaml_lines.append("  - MATCH,Proxy")
+
+            content = "\n".join(yaml_lines)
+            return HTMLResponse(content, media_type="text/yaml")
+        else:
+            # Base64-encoded link list
+            raw = "\n".join(links)
+            encoded = _b64.b64encode(raw.encode()).decode()
+            return HTMLResponse(encoded, media_type="text/plain")
 
     return app

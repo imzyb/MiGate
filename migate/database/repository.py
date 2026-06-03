@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,29 @@ CREATE TABLE IF NOT EXISTS inbounds (
 );
 """
 
+CLIENT_TRAFFIC_SCHEMA = """
+CREATE TABLE IF NOT EXISTS client_traffic (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  inbound_id INTEGER NOT NULL,
+  email TEXT NOT NULL,
+  up_bytes INTEGER NOT NULL DEFAULT 0,
+  down_bytes INTEGER NOT NULL DEFAULT 0,
+  traffic_limit_bytes INTEGER DEFAULT NULL,
+  expire_at TEXT DEFAULT NULL,
+  subscription_token TEXT DEFAULT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (inbound_id) REFERENCES inbounds(id) ON DELETE CASCADE
+)
+"""
+
+CLIENT_TRAFFIC_INDEX = """
+CREATE UNIQUE INDEX IF NOT EXISTS idx_client_traffic_email ON client_traffic(email)
+"""
+
+CLIENT_TRAFFIC_MIGRATION_SUBSCRIPTION_TOKEN = (
+    "ALTER TABLE client_traffic ADD COLUMN subscription_token TEXT DEFAULT NULL"
+)
+
 
 @dataclass(frozen=True)
 class NodeRecord:
@@ -72,6 +96,19 @@ class InboundRecord:
     up_bytes: int
     down_bytes: int
     created_at: str
+
+
+@dataclass(frozen=True)
+class ClientTrafficRecord:
+    id: int
+    inbound_id: int
+    email: str
+    up_bytes: int
+    down_bytes: int
+    traffic_limit_bytes: int | None
+    expire_at: str | None
+    created_at: str
+    subscription_token: str | None = None
 
 
 class NodeRepository:
@@ -197,6 +234,8 @@ class InboundRepository:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(INBOUND_SCHEMA)
+        # Ensure client_traffic table also exists
+        ClientTrafficRepository(self.db_path).initialize()
 
     def create_inbound(
         self,
@@ -296,4 +335,129 @@ class InboundRepository:
             up_bytes=int(row["up_bytes"]),
             down_bytes=int(row["down_bytes"]),
             created_at=str(row["created_at"]),
+        )
+
+
+class ClientTrafficRepository:
+    def __init__(self, db_path: str | Path):
+        self.db_path = Path(db_path)
+
+    def initialize(self) -> None:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as conn:
+            conn.executescript(CLIENT_TRAFFIC_SCHEMA)
+            conn.executescript(CLIENT_TRAFFIC_INDEX)
+            # Migration: add subscription_token column if missing
+            existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(client_traffic)").fetchall()}
+            if "subscription_token" not in existing_columns:
+                conn.execute(CLIENT_TRAFFIC_MIGRATION_SUBSCRIPTION_TOKEN)
+
+    def upsert_traffic(
+        self,
+        email: str,
+        inbound_id: int,
+        up_bytes: int,
+        down_bytes: int,
+    ) -> ClientTrafficRecord:
+        token = self.generate_token(email)
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT id FROM client_traffic WHERE email = ?", (email,)
+            ).fetchone()
+            if existing is not None:
+                conn.execute(
+                    "UPDATE client_traffic SET up_bytes = ?, down_bytes = ?, inbound_id = ?, subscription_token = COALESCE(subscription_token, ?) WHERE email = ?",
+                    (up_bytes, down_bytes, inbound_id, token, email),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO client_traffic (email, inbound_id, up_bytes, down_bytes, subscription_token) VALUES (?, ?, ?, ?, ?)",
+                    (email, inbound_id, up_bytes, down_bytes, token),
+                )
+            row = conn.execute(
+                "SELECT * FROM client_traffic WHERE email = ?", (email,)
+            ).fetchone()
+        return self._row_to_record(row)
+
+    def get_by_email(self, email: str) -> ClientTrafficRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM client_traffic WHERE email = ?", (email,)
+            ).fetchone()
+        return self._row_to_record(row) if row is not None else None
+
+    def get_by_inbound(self, inbound_id: int) -> list[ClientTrafficRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM client_traffic WHERE inbound_id = ? ORDER BY id", (inbound_id,)
+            ).fetchall()
+        return [self._row_to_record(row) for row in rows]
+
+    @staticmethod
+    def generate_token(email: str) -> str:
+        """Generate a deterministic subscription token from an email."""
+        return hashlib.sha256(email.encode()).hexdigest()[:32]
+
+    def get_by_token(self, token: str) -> ClientTrafficRecord | None:
+        """Look up a client by subscription token."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM client_traffic WHERE subscription_token = ?", (token,)
+            ).fetchone()
+        return self._row_to_record(row) if row is not None else None
+
+    def update_limits(
+        self,
+        email: str,
+        traffic_limit_bytes: int | None = None,
+        expire_at: str | None = None,
+    ) -> ClientTrafficRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM client_traffic WHERE email = ?", (email,)
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute(
+                "UPDATE client_traffic SET traffic_limit_bytes = ?, expire_at = ? WHERE email = ?",
+                (traffic_limit_bytes, expire_at, email),
+            )
+            row = conn.execute(
+                "SELECT * FROM client_traffic WHERE email = ?", (email,)
+            ).fetchone()
+        return self._row_to_record(row)
+
+    def reset_traffic(self, email: str) -> ClientTrafficRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM client_traffic WHERE email = ?", (email,)
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute(
+                "UPDATE client_traffic SET up_bytes = 0, down_bytes = 0 WHERE email = ?",
+                (email,),
+            )
+            row = conn.execute(
+                "SELECT * FROM client_traffic WHERE email = ?", (email,)
+            ).fetchone()
+        return self._row_to_record(row)
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    @staticmethod
+    def _row_to_record(row: sqlite3.Row) -> ClientTrafficRecord:
+        return ClientTrafficRecord(
+            id=int(row["id"]),
+            inbound_id=int(row["inbound_id"]),
+            email=str(row["email"]),
+            up_bytes=int(row["up_bytes"]),
+            down_bytes=int(row["down_bytes"]),
+            traffic_limit_bytes=int(row["traffic_limit_bytes"]) if row["traffic_limit_bytes"] is not None else None,
+            expire_at=str(row["expire_at"]) if row["expire_at"] is not None else None,
+            created_at=str(row["created_at"]),
+            subscription_token=str(row["subscription_token"]) if row["subscription_token"] is not None else None,
         )
