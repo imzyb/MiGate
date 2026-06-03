@@ -5,6 +5,7 @@ import Inbounds from './views/Inbounds.vue'
 import XrayConfig from './views/XrayConfig.vue'
 import System from './views/System.vue'
 import Login from './views/Login.vue'
+import NotFound from './views/NotFound.vue'
 
 const routes = [
   { path: '/', redirect: '/dashboard' },
@@ -14,6 +15,7 @@ const routes = [
   { path: '/xray', name: 'XrayConfig', component: XrayConfig, meta: { icon: '⚙️', title: 'Xray 配置', requiresAuth: true } },
   { path: '/system', name: 'System', component: System, meta: { icon: '🛠️', title: '系统设置', requiresAuth: true } },
   { path: '/login', name: 'Login', component: Login, meta: { hideSidebar: true } },
+  { path: '/:pathMatch(.*)*', name: 'NotFound', component: NotFound, meta: { hideSidebar: true } },
 ]
 
 const router = createRouter({

@@ -128,6 +128,17 @@ function fmtBytes(n) {
       </div>
     </div>
 
+    <!-- Quick Actions -->
+    <div class="card">
+      <h3>⚡ 快捷操作</h3>
+      <div class="flex gap-3" style="flex-wrap:wrap;">
+        <router-link to="/nodes" class="btn">🔗 节点管理</router-link>
+        <router-link to="/inbounds" class="btn">📡 入站规则</router-link>
+        <router-link to="/xray" class="btn">⚙️ Xray 配置</router-link>
+        <router-link to="/system" class="btn">🛠️ 系统设置</router-link>
+      </div>
+    </div>
+
     <!-- Traffic Stats -->
     <div class="card">
       <div class="flex justify-between items-center mb-3">
