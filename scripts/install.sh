@@ -255,7 +255,13 @@ install_python_package() {
   # Prefer uv (fast, low memory), fall back to pip
   if command -v uv >/dev/null 2>&1; then
     log 'using uv for package installation'
-    uv pip install --system --upgrade "$MIGATE_INSTALL_DIR" 2>&1 | tail -3
+    uv pip install --system --break-system-packages --upgrade "$MIGATE_INSTALL_DIR" 2>&1 | tail -3 || {
+      log 'uv failed, falling back to pip'
+      python3 -m pip install --upgrade "$MIGATE_INSTALL_DIR" \
+        --only-binary :all: --break-system-packages --root-user-action=ignore --no-cache-dir 2>&1 | tail -3 || \
+      python3 -m pip install --upgrade "$MIGATE_INSTALL_DIR" \
+        --break-system-packages --root-user-action=ignore --no-cache-dir 2>&1 | tail -3
+    }
   else
     log 'using pip for package installation'
     python3 -m pip install --upgrade "$MIGATE_INSTALL_DIR" \
