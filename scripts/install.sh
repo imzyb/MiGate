@@ -502,18 +502,20 @@ main() {
   ram_mb="$(get_total_ram_mb)"
   log "system: $(uname -srm) | RAM: ${ram_mb}MB | Disk: $(df -h / | awk 'NR==2{print $4}') free"
 
-  collect_panel_inputs
-  ensure_panel_port_available
-  stop_conflicting_services
+  # Install OS packages first (provides git, curl, ss, etc.)
   ensure_swap_if_low_ram
   install_os_packages
   install_uv
 
-  # Now verify required commands exist (after OS packages installed)
+  # Now verify required commands exist
   require_command git
   require_command python3
   require_command curl
   require_command systemctl
+
+  collect_panel_inputs
+  ensure_panel_port_available
+  stop_conflicting_services
   fetch_source
   install_python_package
   run_setup
