@@ -33,9 +33,11 @@ async function login() {
 
 <template>
   <div class="login-page">
+    <div class="login-bg"></div>
     <div class="card login-card">
-      <div style="font-size:36px;margin-bottom:8px;">🛡️</div>
+      <div style="font-size:42px;margin-bottom:8px;">🛡️</div>
       <h2 class="login-title">MiGate</h2>
+      <p class="login-subtitle">代理节点管理面板</p>
       <form @submit.prevent="login">
         <div class="form-group mb-4">
           <input v-model="username" placeholder="用户名" required autocomplete="username">
@@ -45,7 +47,7 @@ async function login() {
         </div>
         <div v-if="error" class="login-error">{{ error }}</div>
         <button type="submit" class="btn btn-primary login-btn" :disabled="loading">
-          {{ loading ? '登录中...' : '登录' }}
+          {{ loading ? '登录中...' : '登 录' }}
         </button>
       </form>
     </div>
@@ -60,18 +62,45 @@ async function login() {
   min-height: 100vh;
   background: var(--bg);
   padding: 16px;
+  position: relative;
+  overflow: hidden;
+}
+
+.login-bg {
+  position: absolute;
+  inset: 0;
+  background: 
+    radial-gradient(circle at 20% 80%, rgba(16, 185, 129, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 50%);
+  animation: bgPulse 8s ease-in-out infinite alternate;
+}
+
+@keyframes bgPulse {
+  from { opacity: 0.5; }
+  to { opacity: 1; }
 }
 
 .login-card {
   width: 100%;
   max-width: 380px;
   text-align: center;
+  position: relative;
+  z-index: 1;
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
 }
 
 .login-title {
   background: linear-gradient(135deg, var(--accent2), var(--accent));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  margin-bottom: 4px;
+  font-size: 28px;
+}
+
+.login-subtitle {
+  color: var(--text-muted, #888);
+  font-size: 13px;
   margin-bottom: 24px;
 }
 
@@ -84,11 +113,13 @@ async function login() {
 
 .login-btn {
   width: 100%;
+  padding: 10px;
+  font-size: 15px;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @media (max-width: 480px) {
