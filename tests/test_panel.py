@@ -1419,7 +1419,7 @@ def test_panel_xray_install_dry_run_shows_structured_preview_without_side_effect
 
     assert response.status_code == 200
     decoded = unescape(response.text)
-    assert "Xray 安装 dry-run 结果" in decoded
+    assert "Xray 安装 Dry-run 结果" in decoded
     assert "dry_run" in decoded
     assert "planned only; no commands executed" in decoded
     assert "download_archive" in decoded
@@ -1450,7 +1450,7 @@ def test_panel_xray_install_dry_run_rejection_is_rendered_safely(tmp_path):
 
     assert response.status_code == 200
     decoded = unescape(response.text)
-    assert "Xray 安装 dry-run 结果" in decoded
+    assert "Xray 安装 Dry-run 结果" in decoded
     assert "rejected" in decoded
     assert "refuses plans with side effects" in decoded
     assert "commands_executed: []" in decoded
@@ -2604,8 +2604,8 @@ def test_panel_home_shows_egress_dry_run_controls_without_real_actions(tmp_path)
     assert response.status_code == 200
     decoded = unescape(response.text)
     assert "Egress Dry-run 预览" in decoded
-    assert "Dry-run Egress Up" in decoded
-    assert "Dry-run Egress Down" in decoded
+    assert "Dry-run Up" in decoded
+    assert "Dry-run Down" in decoded
     assert 'action="/egress/up/dry-run"' in decoded
     assert 'action="/egress/down/dry-run"' in decoded
     assert "真正启动 Egress" not in decoded
