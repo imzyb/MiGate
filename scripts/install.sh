@@ -31,17 +31,30 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
+has_tty() {
+  [ -t 0 ] || [ -e /dev/tty ]
+}
+
 prompt_with_default() {
   local prompt="$1" default_value="$2" value=""
-  read -r -p "$prompt [$default_value]: " value
+  if has_tty; then
+    read -r -p "$prompt [$default_value]: " value </dev/tty 2>/dev/null || read -r -p "$prompt [$default_value]: " value
+  else
+    # Non-interactive: use default
+    log "(non-interactive) $prompt = $default_value"
+    value="$default_value"
+  fi
   printf '%s' "${value:-$default_value}"
 }
 
 prompt_secret() {
   local prompt="$1" value=""
+  if ! has_tty; then
+    die "No TTY available and MIGATE_PANEL_PASSWORD is not set. Export MIGATE_PANEL_PASSWORD before running."
+  fi
   while true; do
-    read -r -s -p "$prompt: " value
-    printf '\n' >/dev/tty
+    read -r -s -p "$prompt: " value </dev/tty 2>/dev/null || read -r -s -p "$prompt: " value
+    printf '\n' >/dev/tty 2>/dev/null || true
     if [ -n "$value" ]; then
       printf '%s' "$value"
       return 0
@@ -106,12 +119,31 @@ ensure_panel_port_available() {
   fi
 }
 
+stop_conflicting_services() {
+  # Stop official xray.service if it exists (MiGate manages its own migate-xray.service)
+  if systemctl is-active xray.service >/dev/null 2>&1; then
+    log 'stopping conflicting xray.service (MiGate uses migate-xray.service)'
+    systemctl stop xray.service 2>/dev/null || true
+    systemctl disable xray.service 2>/dev/null || true
+  fi
+
+  # Stop Caddy or other webservers that may bind :443
+  local svc
+  for svc in caddy nginx apache2 httpd; do
+    if systemctl is-active "${svc}.service" >/dev/null 2>&1; then
+      log "stopping conflicting ${svc}.service (may bind ports needed by xray)"
+      systemctl stop "${svc}.service" 2>/dev/null || true
+      systemctl disable "${svc}.service" 2>/dev/null || true
+    fi
+  done
+}
+
 # ── OS packages ───────────────────────────────────────────────────────────
 
 install_os_packages() {
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update
+    apt-get update -qq
     apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
@@ -155,19 +187,21 @@ install_python_package() {
     fi
   fi
   python3 -m pip install --upgrade --force-reinstall "$MIGATE_INSTALL_DIR" \
-    --break-system-packages --root-user-action=ignore
+    --break-system-packages --root-user-action=ignore 2>&1 | tail -3
   local installed_bin
   installed_bin="$(command -v migate 2>/dev/null || true)"
   if [ -n "$installed_bin" ] && [ "$installed_bin" != "$MIGATE_BIN" ]; then
     ln -sfn "$installed_bin" "$MIGATE_BIN"
   fi
+  log "migate binary: $(command -v migate || echo 'NOT FOUND')"
 }
 
 # ── setup & service management ────────────────────────────────────────────
 
 run_setup() {
   log 'running MiGate setup'
-  "$MIGATE_BIN" setup \
+  local setup_output
+  setup_output=$("$MIGATE_BIN" setup \
     --setup-config-target "$MIGATE_SETUP_CONFIG_TARGET" \
     --panel-host 0.0.0.0 \
     --panel-port "$MIGATE_PANEL_PORT" \
@@ -177,22 +211,50 @@ run_setup() {
     --public-host "$MIGATE_PUBLIC_HOST" \
     --no-dry-run \
     --yes \
-    --allow-system-changes
+    --allow-system-changes 2>&1) || {
+    log "setup output (may contain non-fatal warnings):"
+    printf '%s\n' "$setup_output" | head -40
+    # Check if critical config was saved even if service start failed
+    if [ -f "$MIGATE_SETUP_CONFIG_TARGET" ]; then
+      log "panel config saved at $MIGATE_SETUP_CONFIG_TARGET (service start may have failed — will retry)"
+    else
+      die "setup failed and no panel config was saved"
+    fi
+  }
 }
 
 save_runtime_units() {
   log 'saving MiGate runtime service units'
-  "$MIGATE_BIN" panel-service save --yes --allow-system-changes
-  "$MIGATE_BIN" xray service save --yes --allow-system-changes
-  "$MIGATE_BIN" proxy service save --yes --allow-system-changes
+  "$MIGATE_BIN" panel-service save --yes --allow-system-changes 2>&1 | tail -2
+  "$MIGATE_BIN" xray service save --yes --allow-system-changes 2>&1 | tail -2
+  "$MIGATE_BIN" proxy service save --yes --allow-system-changes 2>&1 | tail -2
 }
 
 start_services() {
-  log 'enabling MiGate services'
+  log 'enabling and starting MiGate services'
   systemctl daemon-reload
-  systemctl enable --now migate-panel.service
-  systemctl enable --now migate-xray.service
-  systemctl enable --now migate-proxy.service
+
+  # Start xray first (panel depends on it)
+  systemctl enable --now migate-xray.service 2>/dev/null || {
+    log 'WARNING: migate-xray.service failed to start, checking...'
+    journalctl -u migate-xray.service -n 5 --no-pager 2>/dev/null || true
+  }
+
+  sleep 1
+
+  # Verify xray is actually running before starting panel
+  if systemctl is-active migate-xray.service >/dev/null 2>&1; then
+    log 'migate-xray.service is active'
+  else
+    log 'WARNING: migate-xray.service is not active — panel will start but xray features will be degraded'
+  fi
+
+  systemctl enable --now migate-panel.service 2>/dev/null || {
+    log 'WARNING: migate-panel.service failed to start'
+    journalctl -u migate-panel.service -n 5 --no-pager 2>/dev/null || true
+  }
+
+  systemctl enable --now migate-proxy.service 2>/dev/null || true
 }
 
 # ── verification ──────────────────────────────────────────────────────────
@@ -213,7 +275,7 @@ verify_webui() {
   local attempt
   for attempt in $(seq 1 10); do
     if curl -fsS --max-time 5 "$url" >/dev/null 2>&1; then
-      log 'WebUI is reachable locally'
+      log 'WebUI is reachable locally ✓'
       return 0
     fi
     sleep 2
@@ -221,21 +283,19 @@ verify_webui() {
 
   printf 'MiGate WebUI did not become reachable at %s after 10 attempts\n' "$url" >&2
   install_failure_diagnostics
-  exit 1
+  return 1
 }
 
 install_failure_diagnostics() {
-  printf '\nMiGate install failure diagnostics:\n' >&2
-  printf '  Panel service status:\n' >&2
-  systemctl is-active migate-panel.service 2>/dev/null || true
-  systemctl status migate-panel.service --no-pager -n 20 >&2 || true
-  printf '  Recent panel logs:\n' >&2
-  journalctl -u migate-panel.service -n 30 --no-pager >&2 || true
-  printf '  Xray service status:\n' >&2
-  systemctl is-active migate-xray.service 2>/dev/null || true
-  systemctl status migate-xray.service --no-pager -n 20 >&2 || true
+  printf '\n[migate-install] Failure diagnostics:\n' >&2
+  printf '  Panel service: ' >&2
+  systemctl is-active migate-panel.service 2>/dev/null >&2 || echo 'inactive' >&2
+  systemctl status migate-panel.service --no-pager -n 10 2>/dev/null >&2 || true
+  printf '  Xray service: ' >&2
+  systemctl is-active migate-xray.service 2>/dev/null >&2 || echo 'inactive' >&2
+  systemctl status migate-xray.service --no-pager -n 10 2>/dev/null >&2 || true
   printf '  Recent xray logs:\n' >&2
-  journalctl -u migate-xray.service -n 30 --no-pager >&2 || true
+  journalctl -u migate-xray.service -n 10 --no-pager 2>/dev/null >&2 || true
 }
 
 # ── uninstall ─────────────────────────────────────────────────────────────
@@ -243,8 +303,15 @@ install_failure_diagnostics() {
 do_uninstall() {
   require_root
 
+  # Confirm unless --yes
+  if [ "${2:-}" != "--yes" ] && has_tty; then
+    local answer=""
+    printf 'This will remove MiGate, all configs, and services.\n'
+    read -r -p "Continue? [y/N]: " answer </dev/tty 2>/dev/null || answer="y"
+    [[ "$answer" =~ ^[Yy]$ ]] || { log 'aborted'; exit 0; }
+  fi
+
   log 'stopping MiGate processes'
-  # Kill any running openvpn/migate processes
   pkill -f 'openvpn.*migate' 2>/dev/null || true
   pkill -f 'xray.*migate' 2>/dev/null || true
 
@@ -279,7 +346,7 @@ do_uninstall() {
     rm -rf "$MIGATE_INSTALL_DIR"
   fi
 
-  log 'uninstall complete'
+  log 'uninstall complete ✓'
 }
 
 # ── upgrade (re-install in place) ─────────────────────────────────────────
@@ -291,10 +358,11 @@ do_upgrade() {
   install_python_package
   save_runtime_units
   systemctl daemon-reload
-  systemctl restart migate-panel.service || true
-  systemctl restart migate-xray.service || true
-  systemctl restart migate-proxy.service || true
-  verify_webui
+  systemctl restart migate-xray.service 2>/dev/null || true
+  sleep 1
+  systemctl restart migate-panel.service 2>/dev/null || true
+  systemctl restart migate-proxy.service 2>/dev/null || true
+  verify_webui || true
   print_next_steps
 }
 
@@ -307,17 +375,25 @@ print_next_steps() {
   xray_status="$(systemctl is-active migate-xray.service 2>/dev/null || echo 'unknown')"
   proxy_status="$(systemctl is-active migate-proxy.service 2>/dev/null || echo 'unknown')"
 
-  printf '\nMiGate install finished.\n\n'
-  printf 'Service status:\n'
-  printf '  Panel: %s (%s)\n' "$panel_status" "migate-panel.service"
-  printf '  Xray:  %s (%s)\n' "$xray_status" "migate-xray.service"
-  printf '  Proxy: %s (%s)\n' "$proxy_status" "migate-proxy.service"
   printf '\n'
-  printf 'Web UI: http://%s:%s%s/\n' "$MIGATE_PUBLIC_HOST" "$MIGATE_PANEL_PORT" "$normalized_path"
-  printf 'Username: %s\n' "$MIGATE_PANEL_USER"
-  printf 'Config saved to: %s\n\n' "$MIGATE_SETUP_CONFIG_TARGET"
-  printf 'Next steps for xray-tun remote rollout:\n'
-  printf '  migate remote acceptance --backend xray-tun\n'
+  printf '╔══════════════════════════════════════════════════╗\n'
+  printf '║           MiGate Install Complete ✓              ║\n'
+  printf '╠══════════════════════════════════════════════════╣\n'
+  printf '║                                                  ║\n'
+  printf '║  Services:                                       ║\n'
+  printf '║    Panel  %-10s  (migate-panel.service)    ║\n' "$panel_status"
+  printf '║    Xray   %-10s  (migate-xray.service)     ║\n' "$xray_status"
+  printf '║    Proxy  %-10s  (migate-proxy.service)    ║\n' "$proxy_status"
+  printf '║                                                  ║\n'
+  printf '║  Web UI:  http://%s:%s%s/\n' "$MIGATE_PUBLIC_HOST" "$MIGATE_PANEL_PORT" "$normalized_path"
+  printf '║  User:    %s\n' "$MIGATE_PANEL_USER"
+  printf '║  Config:  %s\n' "$MIGATE_SETUP_CONFIG_TARGET"
+  printf '║                                                  ║\n'
+  printf '╚══════════════════════════════════════════════════╝\n'
+  printf '\n'
+  printf 'Uninstall:  bash <(curl -Ls %s) --uninstall\n' "$MIGATE_REPO/raw/$MIGATE_REF/scripts/install.sh"
+  printf 'Upgrade:    bash <(curl -Ls %s) --upgrade\n' "$MIGATE_REPO/raw/$MIGATE_REF/scripts/install.sh"
+  printf '\n'
 }
 
 # ── main ──────────────────────────────────────────────────────────────────
@@ -325,7 +401,7 @@ print_next_steps() {
 main() {
   # Handle --uninstall / --upgrade before any interactive prompts
   case "${1:-}" in
-    --uninstall) do_uninstall; exit 0 ;;
+    --uninstall) do_uninstall "$@"; exit 0 ;;
     --upgrade)   do_upgrade;   exit 0 ;;
   esac
 
@@ -335,6 +411,7 @@ main() {
   require_command curl
   collect_panel_inputs
   ensure_panel_port_available
+  stop_conflicting_services
   install_os_packages
   require_command systemctl
   fetch_source
@@ -342,7 +419,7 @@ main() {
   run_setup
   save_runtime_units
   start_services
-  verify_webui
+  verify_webui || true   # non-fatal: diagnostics already printed
   print_next_steps
 }
 
