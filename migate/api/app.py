@@ -1787,6 +1787,17 @@ def _dashboard_card_html(label: str, value: object, detail: object = "") -> str:
 """
 
 
+def _quick_actions_html(base_path: str = "/") -> str:
+    return f"""
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+    <a href="{escape(_panel_url(base_path, '/nodes'))}" class="btn btn-sm">🖥️ 节点管理</a>
+    <a href="{escape(_panel_url(base_path, '/inbounds'))}" class="btn btn-sm">📥 入站规则</a>
+    <a href="{escape(_panel_url(base_path, '/xray'))}" class="btn btn-sm">⚙️ Xray 配置</a>
+    <a href="{escape(_panel_url(base_path, '/system'))}" class="btn btn-sm">🔧 系统设置</a>
+  </div>
+"""
+
+
 def _dashboard_html(snapshot: dict[str, object]) -> str:
     cards = snapshot["cards"]
     assert isinstance(cards, dict)
@@ -2940,7 +2951,7 @@ a {{ color:#4ecdc4; }}
         parts = collect_dashboard_parts()
         snapshot = dashboard_snapshot_from_parts(parts)
         return _page_shell(
-            _dashboard_html(snapshot) + _node_create_form_html(panel_base_path),
+            _quick_actions_html(panel_base_path) + _dashboard_html(snapshot) + _node_create_form_html(panel_base_path),
             active="dashboard", title="Dashboard", subtitle="系统状态总览",
             base_path=panel_base_path,
             user=str((loaded_panel_auth_config or {}).get("admin_user", "")),
