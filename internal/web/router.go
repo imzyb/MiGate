@@ -349,6 +349,12 @@ const panelHTML = `<!doctype html>
     .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
     button { background:linear-gradient(135deg,var(--accent),#7c3aed); border:none; color:white; padding:10px 14px; border-radius:12px; font-weight:700; cursor:pointer; }
     button.secondary { background:rgba(148,163,184,.12); border:1px solid var(--line); }
+    form { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; margin:16px 0; }
+    input, select { width:100%; border:1px solid var(--line); background:rgba(7,11,20,.72); color:var(--text); border-radius:12px; padding:10px 12px; }
+    .list { display:grid; gap:10px; margin-top:14px; }
+    .row { display:grid; grid-template-columns:1.2fr .8fr .8fr .8fr .8fr; gap:10px; align-items:center; padding:12px; border:1px solid rgba(148,163,184,.14); border-radius:14px; background:rgba(148,163,184,.07); }
+    .muted { color:var(--muted); }
+    .error { color:#fecaca; }
     @media (max-width: 900px) { .shell { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .grid,.protocols { grid-template-columns:1fr 1fr; } }
     @media (max-width: 560px) { .grid,.protocols { grid-template-columns:1fr; } main { padding:18px; } }
   </style>
@@ -375,8 +381,8 @@ const panelHTML = `<!doctype html>
         <div class="badge">● 服务在线</div>
       </section>
       <section class="grid" aria-label="概览指标">
-        <div class="card"><div>入站</div><div class="metric">0</div><p>VLESS / VMess / Trojan / Shadowsocks</p></div>
-        <div class="card"><div>客户端</div><div class="metric">0</div><p>按 inbound 管理账号</p></div>
+        <div class="card"><div>入站</div><div id="inbound-count" class="metric">0</div><p>VLESS / VMess / Trojan / Shadowsocks</p></div>
+        <div class="card"><div>客户端</div><div id="client-count" class="metric">0</div><p>按 inbound 管理账号</p></div>
         <div class="card"><div>订阅</div><div class="metric">Ready</div><p>Clash / 通用链接规划中</p></div>
         <div class="card"><div>Xray</div><div class="metric">Direct</div><p>默认 freedom 出站</p></div>
       </section>
@@ -393,8 +399,70 @@ const panelHTML = `<!doctype html>
           <button class="secondary">生成 Xray 配置</button>
           <button class="secondary">查看订阅</button>
         </div>
+        <form id="inbound-form">
+          <input name="remark" placeholder="备注，例如 主入口" required>
+          <select name="protocol">
+            <option value="vless">VLESS</option>
+            <option value="vmess">VMess</option>
+            <option value="trojan">Trojan</option>
+            <option value="shadowsocks">Shadowsocks</option>
+          </select>
+          <input name="port" type="number" min="1" max="65535" placeholder="端口" required>
+          <input name="network" value="tcp" placeholder="network">
+          <select name="security">
+            <option value="none">none</option>
+            <option value="tls">tls</option>
+            <option value="reality">reality</option>
+          </select>
+          <button type="submit">保存入站</button>
+        </form>
+        <div id="inbound-list" class="list muted">正在加载入站...</div>
       </section>
     </main>
   </div>
+  <script>
+    const inboundList = document.getElementById('inbound-list');
+    const inboundCount = document.getElementById('inbound-count');
+    const clientCount = document.getElementById('client-count');
+
+    function renderInbounds(inbounds) {
+      inboundCount.textContent = String(inbounds.length);
+      clientCount.textContent = String(inbounds.reduce((total, inbound) => total + (inbound.clients || []).length, 0));
+      if (inbounds.length === 0) {
+        inboundList.className = 'list muted';
+        inboundList.textContent = '暂无入站，先创建一个 VLESS / VMess / Trojan / Shadowsocks 节点。';
+        return;
+      }
+      inboundList.className = 'list';
+      inboundList.innerHTML = inbounds.map((inbound) => '<div class="row"><strong>' + escapeHtml(inbound.remark || '-') + '</strong><span>' + escapeHtml(inbound.protocol) + '</span><span>:' + inbound.port + '</span><span>' + escapeHtml(inbound.network || 'tcp') + '/' + escapeHtml(inbound.security || 'none') + '</span><span>' + ((inbound.clients || []).length) + ' 客户端</span></div>').join('');
+    }
+
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"]/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[char]));
+    }
+
+    async function loadInbounds() {
+      const response = await fetch('/api/inbounds');
+      const data = await response.json();
+      renderInbounds(data.inbounds || []);
+    }
+
+    document.getElementById('inbound-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const payload = Object.fromEntries(form.entries());
+      payload.port = Number(payload.port);
+      const response = await fetch('/api/inbounds', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+      if (!response.ok) {
+        inboundList.className = 'list error';
+        inboundList.textContent = '创建失败：' + await response.text();
+        return;
+      }
+      event.currentTarget.reset();
+      await loadInbounds();
+    });
+
+    loadInbounds();
+  </script>
 </body>
 </html>`
