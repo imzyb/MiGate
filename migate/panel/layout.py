@@ -69,8 +69,8 @@ def layout(
       {_nav_html(active, bp)}
     </nav>
     <div class="sidebar-footer">
-      {"<span>" + escape(user) + "</span> · " if user else ""}
-      <form method="post" action="{escape(logout_href)}" style="display:inline;"><button type="submit" style="background:none;border:none;color:inherit;cursor:pointer;padding:0;font:inherit;">退出登录</button></form>
+      {escape(user) + " · " if user else ""}<form method="post" action="{escape(logout_href)}" style="display:inline;"><button type="submit" style="background:none;border:none;color:inherit;cursor:pointer;padding:0;font:inherit;">退出登录</button></form>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px;">MiGate v0.1.0</div>
     </div>
   </aside>
   <main class="main-content">
@@ -110,7 +110,7 @@ function showToast(msg, type) {{
     setTimeout(function() {{ t.remove(); }}, 300);
   }}, 2500);
 }}
-function copyText(el){{ navigator.clipboard.writeText(el.dataset.text || el.textContent); showToast('已复制'); setTimeout(function(){{el.textContent=el.dataset.orig||'复制';}},1500); }}
+function copyText(el){{ navigator.clipboard.writeText(el.dataset.text || el.textContent); var orig=el.innerHTML; el.innerHTML='✅ 已复制'; el.style.color='var(--success)'; setTimeout(function(){{el.innerHTML=orig; el.style.color='';}},1500); }}
 document.addEventListener('submit', function(e) {{
   var form = e.target;
   if (form.action && form.action.indexOf('/delete') !== -1) {{
@@ -162,10 +162,11 @@ async function saveClientLimits(e,inboundId,email){{
 }}
 </script>
 <div id="qr-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);align-items:center;justify-content:center;" onclick="if(event.target===this)this.style.display='none'">
-  <div style="background:#161b22;padding:24px;border-radius:12px;text-align:center;max-width:320px;border:1px solid #30363d;">
-    <div style="margin-bottom:12px;font-weight:600;">扫码导入</div>
-    <img id="qr-img" src="" alt="QR Code" style="width:200px;height:200px;background:#fff;padding:8px;border-radius:8px;">
-    <div style="margin-top:12px;"><button class="btn btn-sm" onclick="document.getElementById('qr-modal').style.display='none'">关闭</button></div>
+  <div style="background:var(--bg-card);padding:28px;border-radius:16px;text-align:center;max-width:340px;border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,.5);">
+    <div style="font-size:28px;margin-bottom:8px;">📱</div>
+    <div style="margin-bottom:16px;font-weight:700;font-size:15px;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;">扫码导入节点</div>
+    <img id="qr-img" src="" alt="QR Code" style="width:220px;height:220px;background:#fff;padding:10px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,.3);">
+    <div style="margin-top:16px;"><button class="btn btn-primary btn-sm" onclick="document.getElementById('qr-modal').style.display='none'" style="min-width:100px;">关闭</button></div>
   </div>
 </div>
 <script>

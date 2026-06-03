@@ -411,7 +411,12 @@ tr:last-child td {
 }
 
 tr:hover td {
-  background: rgba(59,130,246,.03);
+  background: rgba(59,130,246,.06);
+}
+
+tr:hover td:first-child {
+  border-left: 2px solid var(--accent);
+  padding-left: 12px;
 }
 
 /* ── Forms ────────────────────────────────────────── */

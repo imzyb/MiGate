@@ -707,7 +707,11 @@ def _nodes_html(nodes: list[NodeRecord], *, base_path: str = "/") -> str:
         return """
   <section class="card">
     <h3>已创建节点</h3>
-    <p class="text-muted">还没有节点。请先使用上面的表单生成第一个节点。</p>
+    <div style="text-align:center;padding:24px 0;">
+      <div style="font-size:32px;margin-bottom:8px;">🖥️</div>
+      <p class="text-muted">还没有节点</p>
+      <p class="text-muted text-xs">使用上方 ➕ 表单创建第一个节点</p>
+    </div>
   </section>
 """
 
@@ -829,7 +833,11 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/", db_pa
         return """
   <section class="card">
     <h3>入站规则</h3>
-    <p>还没有入站规则。使用下方表单创建第一个入站。</p>
+    <div style="text-align:center;padding:24px 0;">
+      <div style="font-size:32px;margin-bottom:8px;">📥</div>
+      <p class="text-muted">还没有入站规则</p>
+      <p class="text-muted text-xs">使用上方 ➕ 表单创建第一个入站</p>
+    </div>
   </section>
 """
 
@@ -1004,7 +1012,11 @@ def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/", inbound
         return f"""
   <section class="card">
     <h3>配置预览</h3>
-    <p>暂无启用节点。创建节点后这里会显示配置。</p>
+    <div style="text-align:center;padding:24px 0;">
+      <div style="font-size:32px;margin-bottom:8px;">⚙️</div>
+      <p class="text-muted">暂无启用节点</p>
+      <p class="text-muted text-xs">创建节点后这里会显示 Xray 配置</p>
+    </div>
   </section>
 """
     preview = json.dumps(_xray_config_for_nodes(enabled_nodes, inbounds=inbounds), indent=2, ensure_ascii=False)
