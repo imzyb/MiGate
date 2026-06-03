@@ -1,8 +1,10 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useSystemStats } from '../composables/useSystemStats.js'
+import { useToast } from '../composables/useToast.js'
 import api from '../api/index.js'
 
+const toast = useToast()
 const { stats, refresh } = useSystemStats()
 const xrayRuntime = ref(null)
 const loading = ref(true)
@@ -12,9 +14,7 @@ async function load() {
   try {
     const { data } = await api.get('/api/xray/runtime')
     xrayRuntime.value = data
-  } catch (e) {
-    console.error(e)
-  }
+  } catch (e) { console.error(e) }
   loading.value = false
 }
 
@@ -24,9 +24,10 @@ async function restartXray() {
   if (!confirm('确认重启 Xray？')) return
   try {
     await api.post('/api/xray/restart')
+    toast.success('Xray 重启成功')
     await load()
     await refresh()
-  } catch (e) { alert('重启失败: ' + (e.response?.data?.detail || e.message)) }
+  } catch (e) { toast.error('重启失败: ' + (e.response?.data?.detail || e.message)) }
 }
 </script>
 
@@ -82,7 +83,7 @@ async function restartXray() {
 
       <div v-if="loading" class="text-muted">加载中...</div>
       <div v-else-if="xrayRuntime">
-        <pre class="text-mono text-xs" style="background:var(--bg);padding:12px;border-radius:var(--radius-sm);overflow-x:auto;max-height:300px;">{{ JSON.stringify(xrayRuntime, null, 2) }}</pre>
+        <pre class="text-mono text-xs" style="background:var(--bg);padding:12px;border-radius:var(--radius-sm);overflow-x:auto;max-height:300px;white-space:pre-wrap;">{{ JSON.stringify(xrayRuntime, null, 2) }}</pre>
       </div>
     </div>
   </div>

@@ -23,12 +23,6 @@ onMounted(async () => {
 const enabledNodes = $computed(() => nodes.value.filter(n => n.enabled).length)
 const enabledInbounds = $computed(() => inbounds.value.filter(i => i.enabled).length)
 
-function statusColor(s) {
-  if (s === 'running' || s === 'active') return 'var(--success)'
-  if (s === 'degraded') return 'var(--warn)'
-  return 'var(--danger)'
-}
-
 function fmtBytes(n) {
   if (!n) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']

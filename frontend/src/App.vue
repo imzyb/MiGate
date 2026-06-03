@@ -1,6 +1,8 @@
 <script setup>
 import { useRoute } from 'vue-router'
 import Sidebar from './components/Sidebar.vue'
+import Toast from './components/Toast.vue'
+import ConfirmModal from './components/ConfirmModal.vue'
 
 const route = useRoute()
 const hideSidebar = route.meta?.hideSidebar
@@ -14,4 +16,6 @@ const hideSidebar = route.meta?.hideSidebar
     </main>
   </div>
   <router-view v-else />
+  <Toast />
+  <ConfirmModal />
 </template>

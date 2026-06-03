@@ -1,12 +1,15 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import api from '../api/index.js'
+import { useToast } from '../composables/useToast.js'
+import ShareModal from '../components/ShareModal.vue'
 
+const toast = useToast()
 const nodes = ref([])
 const loading = ref(true)
 const showCreate = ref(false)
+const shareModal = ref(null)
 
-// Create form
 const form = ref({
   name: '', protocol: 'vless', host: '', port: 443, credential: '',
   stream_settings: '{}',
@@ -35,24 +38,45 @@ async function createNode() {
     await api.post('/api/nodes', form.value)
     form.value = { name: '', protocol: 'vless', host: '', port: 443, credential: '', stream_settings: '{}' }
     showCreate.value = false
+    toast.success('节点创建成功')
     await load()
-  } catch (e) { alert('创建失败: ' + (e.response?.data?.detail || e.message)) }
+  } catch (e) { toast.error('创建失败: ' + (e.response?.data?.detail || e.message)) }
 }
 
 async function toggleNode(id, enabled) {
   const action = enabled ? 'disable' : 'enable'
   try {
     await api.post(`/api/nodes/${id}/${action}`)
+    toast.success(`节点已${enabled ? '禁用' : '启用'}`)
     await load()
-  } catch (e) { alert('操作失败: ' + (e.response?.data?.detail || e.message)) }
+  } catch (e) { toast.error('操作失败: ' + (e.response?.data?.detail || e.message)) }
 }
 
 async function deleteNode(id) {
   if (!confirm('确认删除此节点？')) return
   try {
     await api.post(`/api/nodes/${id}/delete`)
+    toast.success('节点已删除')
     await load()
-  } catch (e) { alert('删除失败: ' + (e.response?.data?.detail || e.message)) }
+  } catch (e) { toast.error('删除失败: ' + (e.response?.data?.detail || e.message)) }
+}
+
+async function showShareLinks(node) {
+  try {
+    const { data } = await api.get(`/api/nodes/export`)
+    // Find links for this node
+    const nodeLinks = data.filter(e => e.node_id === node.id).map(e => e.link)
+    if (nodeLinks.length) {
+      shareModal.value?.open(nodeLinks)
+    } else {
+      toast.warn('该节点暂无分享链接')
+    }
+  } catch (e) { toast.error('获取链接失败') }
+}
+
+function trafficPercent(node) {
+  // No limit = -1
+  return -1
 }
 
 function fmtBytes(n) {
@@ -76,41 +100,45 @@ function fmtBytes(n) {
       </button>
     </div>
 
-    <div v-if="showCreate" class="card">
-      <h3>创建节点</h3>
-      <form @submit.prevent="createNode" class="form-grid">
-        <div class="form-group">
-          <label>名称</label>
-          <input v-model="form.name" placeholder="节点名称" required>
-        </div>
-        <div class="form-group">
-          <label>协议</label>
-          <select v-model="form.protocol">
-            <option value="vless">VLESS</option>
-            <option value="vmess">VMess</option>
-            <option value="trojan">Trojan</option>
-            <option value="shadowsocks">Shadowsocks</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>地址</label>
-          <input v-model="form.host" placeholder="IP 或域名" required>
-        </div>
-        <div class="form-group">
-          <label>端口</label>
-          <input v-model.number="form.port" type="number" min="1" max="65535" required>
-        </div>
-        <div class="form-group">
-          <label>凭证 (UUID/密码)</label>
-          <input v-model="form.credential" placeholder="UUID 或密码">
-        </div>
-        <button type="submit" class="btn btn-primary mt-4">创建</button>
-      </form>
-    </div>
+    <Transition name="slide">
+      <div v-if="showCreate" class="card">
+        <h3>创建节点</h3>
+        <form @submit.prevent="createNode" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;">
+          <div class="form-group">
+            <label>名称</label>
+            <input v-model="form.name" placeholder="节点名称" required>
+          </div>
+          <div class="form-group">
+            <label>协议</label>
+            <select v-model="form.protocol">
+              <option value="vless">VLESS</option>
+              <option value="vmess">VMess</option>
+              <option value="trojan">Trojan</option>
+              <option value="shadowsocks">Shadowsocks</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>地址</label>
+            <input v-model="form.host" placeholder="IP 或域名" required>
+          </div>
+          <div class="form-group">
+            <label>端口</label>
+            <input v-model.number="form.port" type="number" min="1" max="65535" required>
+          </div>
+          <div class="form-group">
+            <label>凭证 (UUID/密码)</label>
+            <input v-model="form.credential" placeholder="UUID 或密码">
+          </div>
+          <div style="display:flex;align-items:flex-end;">
+            <button type="submit" class="btn btn-primary" style="width:100%;">创建</button>
+          </div>
+        </form>
+      </div>
+    </Transition>
 
     <div class="card">
       <h3>节点列表</h3>
-      <div v-if="loading" class="text-muted">加载中...</div>
+      <div v-if="loading" class="text-muted" style="padding:20px;text-align:center;">加载中...</div>
       <div v-else-if="!nodes.length" class="empty-state">
         <div class="empty-icon">🔗</div>
         <div class="empty-text">暂无节点，点击上方创建</div>
@@ -145,17 +173,19 @@ function fmtBytes(n) {
                 </span>
               </td>
               <td class="text-sm">
-                ↑ {{ fmtBytes(node.up_bytes) }}<br>
-                ↓ {{ fmtBytes(node.down_bytes) }}
+                <div>↑ {{ fmtBytes(node.up_bytes) }}</div>
+                <div>↓ {{ fmtBytes(node.down_bytes) }}</div>
               </td>
               <td>
-                <div class="flex gap-2">
+                <div class="flex gap-2" style="flex-wrap:wrap;">
                   <div
                     class="toggle"
                     :class="{ active: node.enabled }"
                     @click="toggleNode(node.id, node.enabled)"
+                    :title="node.enabled ? '点击禁用' : '点击启用'"
                   ></div>
-                  <button class="btn btn-sm btn-danger" @click="deleteNode(node.id)">删除</button>
+                  <button class="btn btn-sm" @click="showShareLinks(node)" title="分享链接">🔗</button>
+                  <button class="btn btn-sm btn-danger" @click="deleteNode(node.id)" title="删除">🗑️</button>
                 </div>
               </td>
             </tr>
@@ -163,5 +193,14 @@ function fmtBytes(n) {
         </table>
       </div>
     </div>
+
+    <ShareModal ref="shareModal" />
   </div>
 </template>
+
+<style scoped>
+.slide-enter-active { animation: slideDown 0.25s ease; }
+.slide-leave-active { animation: slideUp 0.2s ease; }
+@keyframes slideDown { from { opacity: 0; max-height: 0; } to { opacity: 1; max-height: 500px; } }
+@keyframes slideUp { from { opacity: 1; max-height: 500px; } to { opacity: 0; max-height: 0; } }
+</style>
