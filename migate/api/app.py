@@ -175,7 +175,7 @@ def _dangerous_action_confirmation_required_json(required_confirm: str) -> dict[
 def _dangerous_action_rejected_html() -> str:
     return """
   <section class="card">
-    <h2>危险动作已禁用</h2>
+    <h3>危险动作已禁用</h3>
     <p>panel.json 未启用 dangerous_actions_enabled，因此不会写配置、校验或控制 systemd。</p>
   </section>
 """
@@ -184,7 +184,7 @@ def _dangerous_action_rejected_html() -> str:
 def _dangerous_action_confirmation_required_html(required_confirm: str) -> str:
     return f"""
   <section class="card">
-    <h2>危险动作需要确认</h2>
+    <h3>危险动作需要确认</h3>
     <p>需要确认：{escape(required_confirm)}。未匹配确认字段时，不会写配置、校验或控制 systemd。</p>
   </section>
 """
@@ -685,17 +685,19 @@ def _stream_settings_form_html(existing_json: str = "{}", uid: str = "", panel_b
 def _inbound_create_form_html(base_path: str = "/") -> str:
     return f"""
   <section class="card">
-    <h3>创建入站规则</h3>
-    <p class="text-muted text-sm">创建 Xray 入站代理。支持 VLESS、VMess、Trojan、Shadowsocks 协议。</p>
-    <form method="post" action="{escape(_panel_url(base_path, '/inbounds/create'))}" class="form-grid" onsubmit="if(window.ssAssembleJson)ssAssembleJson()">
-      <div class="form-group"><label>备注<input name="remark" placeholder="例如：HK-VLESS-443" required></label></div>
-      <div class="form-group"><label>协议<select name="protocol"><option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option><option value="shadowsocks">Shadowsocks</option></select></label></div>
-      <div class="form-group"><label>端口<input name="port" type="number" value="443" min="1" max="65535" required></label></div>
-      <input type="hidden" name="listen" value="0.0.0.0">
-      <input type="hidden" name="settings" value="{{}}">
-      {_stream_settings_form_html(panel_base_path=base_path)}
-      <button class="btn btn-primary btn-block" type="submit">创建入站</button>
-    </form>
+    <details>
+      <summary style="cursor:pointer;font-weight:600;font-size:15px;color:var(--text);margin-bottom:12px;">➕ 创建入站规则</summary>
+      <p class="text-muted text-sm" style="margin-bottom:12px;">创建 Xray 入站代理。支持 VLESS、VMess、Trojan、Shadowsocks 协议。</p>
+      <form method="post" action="{escape(_panel_url(base_path, '/inbounds/create'))}" class="form-grid" onsubmit="if(window.ssAssembleJson)ssAssembleJson()">
+        <div class="form-group"><label>备注<input name="remark" placeholder="例如：HK-VLESS-443" required></label></div>
+        <div class="form-group"><label>协议<select name="protocol"><option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option><option value="shadowsocks">Shadowsocks</option></select></label></div>
+        <div class="form-group"><label>端口<input name="port" type="number" value="443" min="1" max="65535" required></label></div>
+        <input type="hidden" name="listen" value="0.0.0.0">
+        <input type="hidden" name="settings" value="{{}}">
+        {_stream_settings_form_html(panel_base_path=base_path)}
+        <button class="btn btn-primary btn-block" type="submit">创建入站</button>
+      </form>
+    </details>
   </section>
 """
 
@@ -826,7 +828,7 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/", db_pa
     if not inbounds:
         return """
   <section class="card">
-    <h2>入站规则</h2>
+    <h3>入站规则</h3>
     <p>还没有入站规则。使用下方表单创建第一个入站。</p>
   </section>
 """
@@ -976,7 +978,7 @@ def _inbounds_html(inbounds: list[InboundRecord], *, base_path: str = "/", db_pa
 """)
     return f"""
   <section class="card">
-    <h2>入站规则</h2>
+    <h3>入站规则</h3>
     {''.join(items)}
   </section>
 """
@@ -1001,14 +1003,14 @@ def _xray_preview_html(nodes: list[NodeRecord], *, base_path: str = "/", inbound
     if not enabled_nodes and not inbounds:
         return f"""
   <section class="card">
-    <h2>Xray 配置</h2>
+    <h3>配置预览</h3>
     <p>暂无启用节点。创建节点后这里会显示配置。</p>
   </section>
 """
     preview = json.dumps(_xray_config_for_nodes(enabled_nodes, inbounds=inbounds), indent=2, ensure_ascii=False)
     return f"""
   <section class="card">
-    <h2>Xray 配置</h2>
+    <h3>配置预览</h3>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
       <form method="post" action="{escape(_panel_url(base_path, '/xray/config/save'))}">
         <button type="submit" class="btn btn-primary btn-sm">💾 保存配置</button>
@@ -1095,7 +1097,7 @@ def _home_body(
 
 
   <section class="card">
-    <h2>创建节点</h2>
+    <h3>创建节点</h3>
     <p>推荐新手先使用 VLESS TCP；Trojan 和 Shadowsocks 也已支持链接生成。</p>
     <form method="post" action="{escape(_panel_url(base_path, '/nodes/create'))}">
       <label>节点协议
@@ -1128,7 +1130,7 @@ def _home_body(
   </section>
 
   <section class="card">
-    <h2>创建入站规则</h2>
+    <h3>创建入站规则</h3>
     <p>创建 Xray 入站代理。支持 VLESS、VMess、Trojan、Shadowsocks 协议。</p>
     <form method="post" action="{escape(_panel_url(base_path, '/inbounds/create'))}">
       <label>备注
@@ -1199,7 +1201,7 @@ def _systemd_preview_html(config: MiGateConfig) -> str:
     panel_unit = build_panel_unit(config)
     return f"""
   <section class="card">
-    <h2>服务文件</h2>
+    <h3>服务文件</h3>
     <form method="post" action="/systemd/units/save" style="margin-bottom:12px;">
       <button type="submit" class="btn btn-sm">💾 保存服务文件</button>
     </form>
@@ -1238,7 +1240,7 @@ def _service_statuses_html(services: dict[str, SystemdResult], *, refreshed: boo
     rows = "\n".join(_service_status_row(name, result) for name, result in services.items())
     return f"""
   <section class="card">
-    <h2>{heading}</h2>
+    <h3>{heading}</h3>
     {rows}
     <form method="post" action="/systemd/status/refresh" style="margin-top:12px;">
       <button type="submit" class="btn btn-sm">🔄 刷新状态</button>
@@ -1258,7 +1260,7 @@ def _xray_runtime_status_html(status: XrayRuntimeStatus, *, refreshed: bool = Fa
     version = status.version or "未安装"
     return f"""
   <section class="card">
-    <h2>{heading}</h2>
+    <h3>{heading}</h3>
     <div style="display:flex;align-items:center;gap:8px;">
       <span style="font-size:20px;">{icon}</span>
       <span style="font-weight:600;">{escape(version)}</span>
@@ -1334,15 +1336,20 @@ def _xray_install_plan_html(plan_loader: Callable[[], XrayInstallPlan], *, refre
     )
     return f"""
   <section class="card">
-    <h2>{heading}</h2>
-    <p>当前不会执行安装，只展示将来安装器会执行的计划。</p>
-    <form method="post" action="/xray/install-plan/refresh">
-      <button type="submit">刷新 Xray 安装计划</button>
-    </form>
-    <form method="post" action="/xray/install/dry-run">
-      <button type="submit">Dry-run Xray 安装</button>
-    </form>
-    <pre>{escape(preview)}</pre>
+    <h3>{heading}</h3>
+    <p class="text-muted text-sm">当前不会执行安装，只展示将来安装器会执行的计划。</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <form method="post" action="/xray/install-plan/refresh">
+        <button type="submit" class="btn btn-sm">🔄 刷新安装计划</button>
+      </form>
+      <form method="post" action="/xray/install/dry-run">
+        <button type="submit" class="btn btn-sm">🧪 Dry-run 安装</button>
+      </form>
+    </div>
+    <details>
+      <summary style="cursor:pointer;color:var(--muted);margin-bottom:8px;">📋 安装计划详情</summary>
+      <pre style="max-height:300px;overflow:auto;">{escape(preview)}</pre>
+    </details>
   </section>
 """
 
@@ -1365,7 +1372,7 @@ def _xray_install_dry_run_html(dry_run_loader: Callable[[], XrayInstallDryRunRes
     )
     return f"""
   <section class="card">
-    <h2>Xray 安装 dry-run 结果</h2>
+    <h3>Xray 安装 dry-run 结果</h3>
     <p>这里只展示如果将来执行安装时会跑哪些命令预览；当前不会执行命令，也不会写文件。</p>
     <pre>{escape(preview)}</pre>
   </section>
@@ -1441,7 +1448,7 @@ def _remote_status_detail_html(
     )
     return f"""
   <section class="card">
-    <h2>远端状态详情</h2>
+    <h3>远端状态详情</h3>
     <p>这里只展示 readiness、leak-check 与 rollout dry-run 的只读诊断；不会 SSH apply，不会写远端，也不会启动或停止远端服务。</p>
     <form method="post" action="/remote/status/refresh">
       <button type="submit">刷新远端状态</button>
@@ -1463,7 +1470,7 @@ def _egress_status_report_html(report: EgressStatusReport, *, refreshed: bool = 
         checks_html += f'<div style="padding:4px 0;">{check_icon} {escape(check.name)}: {escape(check.message)}</div>'
     return f"""
   <section class="card">
-    <h2>{heading}</h2>
+    <h3>{heading}</h3>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
       <span style="font-size:20px;">{icon}</span>
       <span style="font-weight:600;">{status_text}</span>
@@ -1483,7 +1490,7 @@ def _egress_status_html(status_loader: Callable[[], EgressStatusReport], *, refr
 def _egress_dry_run_controls_html() -> str:
     return """
   <section class="card">
-    <h2>Egress Dry-run 预览</h2>
+    <h3>Egress Dry-run 预览</h3>
     <p>这里只预览将来 Egress Up/Down 会涉及的 OpenVPN 与策略路由命令，不会执行命令，也不会修改系统。</p>
     <form method="post" action="/egress/up/dry-run">
       <button type="submit">Dry-run Egress Up</button>
@@ -1983,7 +1990,7 @@ def _egress_dry_run_result_html(title: str, result_loader: Callable[[], EgressLi
     )
     return f"""
   <section class="card">
-    <h2>{escape(title)}</h2>
+    <h3>{escape(title)}</h3>
     <p>Dry-run 只展示计划，不执行 OpenVPN、ip rule、ip route 或 kill 命令。</p>
     <pre>{escape(preview)}</pre>
   </section>
@@ -2069,7 +2076,7 @@ def _telegram_settings_html(notifications_config: object, base_path: str = "/") 
     masked_token = (bot_token[:8] + '...' + bot_token[-4:]) if len(bot_token) > 12 else bot_token
     return f"""
   <section class="card">
-    <h2>📱 Telegram 通知</h2>
+    <h3>📱 Telegram 通知</h3>
     <p>状态：{status}</p>
     <form method="post" action="{escape(_panel_url(base_path, '/notifications/telegram/save'))}" style="display:grid;gap:14px;">
       <div class="form-group"><label>Bot Token<input name="bot_token" value="{escape(bot_token)}" placeholder="123456:ABC-DEF..." autocomplete="off"></label></div>
@@ -2085,7 +2092,7 @@ def _backup_section_html(base_path: str = "/") -> str:
     create_action = escape(_panel_url(base_path, '/backup/create'))
     return f"""
   <section class="card">
-    <h2>💾 数据备份与恢复</h2>
+    <h3>💾 数据备份与恢复</h3>
     <form method="post" action="{create_action}">
       <button class="btn btn-primary" type="submit">创建备份</button>
     </form>
@@ -2933,7 +2940,7 @@ a {{ color:#4ecdc4; }}
         parts = collect_dashboard_parts()
         snapshot = dashboard_snapshot_from_parts(parts)
         return _page_shell(
-            _node_create_form_html(panel_base_path) + _dashboard_html(snapshot),
+            _dashboard_html(snapshot) + _node_create_form_html(panel_base_path),
             active="dashboard", title="Dashboard", subtitle="系统状态总览",
             base_path=panel_base_path,
             user=str((loaded_panel_auth_config or {}).get("admin_user", "")),
@@ -3046,7 +3053,7 @@ a {{ color:#4ecdc4; }}
         socks5_html = f"<div class=\"label\">SOCKS5 出口：{escape(node.socks5_host)}:{node.socks5_port}</div>" if node.socks5_host and node.socks5_port else "<div class=\"label\">SOCKS5 出口：默认 MiGate 本地出口</div>"
         result = f"""
   <section class="card">
-    <h2>节点已生成</h2>
+    <h3>节点已生成</h3>
     <p>节点 #{node.id} 已保存。复制下面的分享链接，或复制订阅内容导入客户端。</p>
     {socks5_html}
     <div class="label">分享链接</div>
@@ -3060,7 +3067,7 @@ a {{ color:#4ecdc4; }}
     def _node_action_result(title: str, message: str) -> str:
         result = f"""
   <section class="card">
-    <h2>{escape(title)}</h2>
+    <h3>{escape(title)}</h3>
     <p>{escape(message)}</p>
   </section>
 """
@@ -3127,7 +3134,7 @@ a {{ color:#4ecdc4; }}
     def _inbound_action_result(title: str, message: str) -> str:
         result = f"""
   <section class="card">
-    <h2>{escape(title)}</h2>
+    <h3>{escape(title)}</h3>
     <p>{escape(message)}</p>
   </section>
 """
@@ -3194,7 +3201,7 @@ a {{ color:#4ecdc4; }}
         written = write_xray_config(_xray_config_for_nodes(nodes, inbounds=inbound_repo.list_inbounds()), config_path)
         result = f"""
   <section class="card">
-    <h2>Xray 配置已保存</h2>
+    <h3>Xray 配置已保存</h3>
     <p>配置已写入：{escape(str(written))}</p>
     <p>当前步骤仅写盘，不会自动重载 Xray 服务。</p>
   </section>
@@ -3207,7 +3214,7 @@ a {{ color:#4ecdc4; }}
         output = _result_output(result_value)
         result = f"""
   <section class="card">
-    <h2>Xray 配置校验结果</h2>
+    <h3>Xray 配置校验结果</h3>
     <p>状态：{escape(result_value.status)}</p>
     <p>返回码：{escape(str(result_value.returncode))}</p>
     <pre>{escape(output)}</pre>
@@ -3233,7 +3240,7 @@ a {{ color:#4ecdc4; }}
         if validation.status != "valid":
             result = f"""
   <section class="card">
-    <h2>当前节点配置未应用</h2>
+    <h3>当前节点配置未应用</h3>
     <p>已生成并保存 Xray 配置：{escape(str(written))}</p>
     <p>配置校验失败，未执行服务重载或重启。</p>
     <p>校验状态：{escape(validation.status)}</p>
@@ -3245,7 +3252,7 @@ a {{ color:#4ecdc4; }}
         if reload_result.status != "success":
             result = f"""
   <section class="card">
-    <h2>当前节点配置未完全应用</h2>
+    <h3>当前节点配置未完全应用</h3>
     <p>已生成并保存 Xray 配置：{escape(str(written))}</p>
     <p>配置校验通过，但 systemd daemon-reload 失败，Xray 重启已跳过。</p>
 {_xray_control_diagnostics_html(validation=validation, reload_result=reload_result)}
@@ -3256,7 +3263,7 @@ a {{ color:#4ecdc4; }}
         if restart_result.status != "success":
             result = f"""
   <section class="card">
-    <h2>当前节点配置未完全应用</h2>
+    <h3>当前节点配置未完全应用</h3>
     <p>已生成并保存 Xray 配置：{escape(str(written))}</p>
     <p>配置校验和 systemd daemon-reload 已通过，但 Xray 重启失败。</p>
 {_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result, restart_label="Xray 重启失败")}
@@ -3265,7 +3272,7 @@ a {{ color:#4ecdc4; }}
             return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
         result = f"""
   <section class="card">
-    <h2>当前节点配置已应用</h2>
+    <h3>当前节点配置已应用</h3>
     <p>生成并保存 Xray 配置：{escape(str(written))}</p>
 {_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result)}
   </section>
@@ -3288,7 +3295,7 @@ a {{ color:#4ecdc4; }}
         if validation.status != "valid":
             result = f"""
   <section class="card">
-    <h2>Xray 未重启</h2>
+    <h3>Xray 未重启</h3>
     <p>配置校验失败，未执行服务重载或重启。</p>
     <p>校验状态：{escape(validation.status)}</p>
     <pre>{escape(_result_output(validation))}</pre>
@@ -3300,7 +3307,7 @@ a {{ color:#4ecdc4; }}
         if reload_result.status != "success":
             result = f"""
   <section class="card">
-    <h2>Xray 未重启</h2>
+    <h3>Xray 未重启</h3>
     <p>配置校验通过，但 daemon-reload 失败，未执行 Xray 重启。</p>
 {_xray_control_diagnostics_html(validation=validation, reload_result=reload_result)}
   </section>
@@ -3310,7 +3317,7 @@ a {{ color:#4ecdc4; }}
         if restart_result.status != "success":
             result = f"""
   <section class="card">
-    <h2>Xray 未重启</h2>
+    <h3>Xray 未重启</h3>
     <p>配置校验和 systemd daemon-reload 已通过，但 Xray 重启失败。</p>
 {_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result, restart_label="Xray 重启失败")}
   </section>
@@ -3318,7 +3325,7 @@ a {{ color:#4ecdc4; }}
             return _action_page(result, active="xray", title="操作结果", base_path=panel_base_path, user=_panel_user)
         result = f"""
   <section class="card">
-    <h2>Xray 重启已执行</h2>
+    <h3>Xray 重启已执行</h3>
     <p>配置校验通过后，已执行服务重载并重启 migate-xray.service。</p>
 {_xray_control_diagnostics_html(validation=validation, reload_result=reload_result, restart_result=restart_result)}
   </section>
@@ -3331,7 +3338,7 @@ a {{ color:#4ecdc4; }}
         written_panel = write_unit_file(build_panel_unit(migate_config), unit_dir)
         result = f"""
   <section class="card">
-    <h2>Systemd 服务文件已保存</h2>
+    <h3>Systemd 服务文件已保存</h3>
     <p>已写入：{escape(str(written_xray))}</p>
     <p>已写入：{escape(str(written_panel))}</p>
     <p>当前步骤仅写服务文件，不会执行服务重载或启动。</p>
@@ -3463,7 +3470,7 @@ a {{ color:#4ecdc4; }}
         status = '✅ Telegram 通知已配置' if is_configured else '⚠️ Telegram 配置已清空'
         result = f"""
   <section class="card">
-    <h2>📱 Telegram 通知设置</h2>
+    <h3>📱 Telegram 通知设置</h3>
     <p>{status}</p>
   </section>
 """
@@ -3504,7 +3511,7 @@ a {{ color:#4ecdc4; }}
         backup_path = _backup_manager.create_backup()
         result = f"""
   <section class="card">
-    <h2>💾 备份已创建</h2>
+    <h3>💾 备份已创建</h3>
     <p>备份文件：{escape(backup_path.name)}</p>
   </section>
 """
@@ -3528,14 +3535,14 @@ a {{ color:#4ecdc4; }}
         if success:
             result = f"""
   <section class="card">
-    <h2>💾 备份已恢复</h2>
+    <h3>💾 备份已恢复</h3>
     <p>已从 {escape(backup_name)} 恢复数据库。</p>
   </section>
 """
         else:
             result = f"""
   <section class="card">
-    <h2>❌ 恢复失败</h2>
+    <h3>❌ 恢复失败</h3>
     <p>备份文件 {escape(backup_name)} 不存在。</p>
   </section>
 """
@@ -3555,14 +3562,14 @@ a {{ color:#4ecdc4; }}
         if success:
             result = f"""
   <section class="card">
-    <h2>💾 备份已删除</h2>
+    <h3>💾 备份已删除</h3>
     <p>已删除备份 {escape(backup_name)}。</p>
   </section>
 """
         else:
             result = f"""
   <section class="card">
-    <h2>❌ 删除失败</h2>
+    <h3>❌ 删除失败</h3>
     <p>备份文件 {escape(backup_name)} 不存在。</p>
   </section>
 """
