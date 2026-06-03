@@ -2461,6 +2461,7 @@ def create_app(
 
     # Static files
     _static_dir = Path(__file__).resolve().parent.parent / "panel" / "static"
+    _spa_dir = _static_dir / "spa"
 
     @app.get(_panel_url(panel_base_path, "/static/{filename}"))
     def serve_static(filename: str):
@@ -2473,8 +2474,33 @@ def create_app(
         media_type = "text/css" if filename.endswith(".css") else "application/javascript" if filename.endswith(".js") else "application/octet-stream"
         resp = FileResponse(file_path, media_type=media_type)
         resp.headers["Cache-Control"] = "public, max-age=3600"
-        resp.headers["ETag"] = f'"{_etag}"'
+        resp.headers["ETag"] = f'"_etag"'
         return resp
+
+    # SPA static assets (js/css/images from Vite build)
+    @app.get(_panel_url(panel_base_path, "/spa/assets/{filename}"))
+    def serve_spa_assets(filename: str):
+        from fastapi.responses import FileResponse
+        file_path = _spa_dir / "assets" / filename
+        if not file_path.exists() or not file_path.is_file():
+            return JSONResponse({"detail": "not found"}, status_code=404)
+        ext = filename.rsplit(".", 1)[-1] if "." in filename else ""
+        media_map = {"css": "text/css", "js": "application/javascript", "svg": "image/svg+xml", "png": "image/png", "woff2": "font/woff2"}
+        media_type = media_map.get(ext, "application/octet-stream")
+        resp = FileResponse(file_path, media_type=media_type)
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resp
+
+    # SPA index.html catch-all (for client-side routing)
+    _spa_index = _spa_dir / "index.html"
+
+    @app.get(_panel_url(panel_base_path, "/spa"))
+    @app.get(_panel_url(panel_base_path, "/spa/{path:path}"))
+    def serve_spa(path: str = ""):
+        from fastapi.responses import FileResponse
+        if not _spa_index.exists():
+            return JSONResponse({"detail": "SPA not built. Run: cd frontend && npm run build"}, status_code=404)
+        return FileResponse(_spa_index, media_type="text/html")
 
     @app.middleware("http")
     async def protect_panel_routes(request: Request, call_next):
