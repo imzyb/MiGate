@@ -712,10 +712,7 @@ const panelHTML = `<!doctype html>
     nav a.active, nav a:hover { background:var(--surface-subtle); box-shadow:var(--shadow-sm); }
     main { padding:var(--space-6); background:var(--bg); }
     main > section{display:none}
-    #overview{display:block}
-    .topbar { display:flex; align-items:center; justify-content:space-between; gap:var(--space-4); margin-bottom:var(--space-5); padding-bottom:var(--space-4); border-bottom:1px solid var(--line-strong); }
-    .topbar-copy h1 { margin:0; font-size:32px; line-height:1.1; letter-spacing:-1.28px; font-weight:600; color:var(--fg); }
-    .topbar-copy p { margin:var(--space-2) 0 0; max-width:720px; }
+    #overview.overview-grid{display:grid}
     .badge { display:inline-flex; align-items:center; gap:var(--space-2); padding:0 10px; height:28px; border-radius:9999px; background:#ebf5ff; color:#0068d6; box-shadow:var(--shadow-sm); font-size:var(--text-xs); font-weight:500; }
     .grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:var(--space-4); margin-bottom:18px; }
     .overview-grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:var(--space-4); margin-bottom:18px; }
@@ -811,7 +808,7 @@ const panelHTML = `<!doctype html>
     #edit-inbound-dialog input, #edit-inbound-dialog select, #edit-client-dialog input, #edit-client-dialog select { width:100%; box-sizing:border-box; margin-bottom:0; }
     @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
     @media (max-width: 900px) { .app-shell { grid-template-columns:1fr; } .sidebar { border-right:0; border-bottom:1px solid var(--line-strong); } .grid,.overview-grid,.protocols { grid-template-columns:1fr 1fr; } .overview-insights { grid-template-columns:1fr; } form { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-    @media (max-width: 560px) { .grid,.overview-grid,.protocols, form { grid-template-columns:1fr; } main { padding:18px; } .topbar { flex-direction:column; align-items:flex-start; } }
+    @media (max-width: 560px) { .grid,.overview-grid,.protocols, form { grid-template-columns:1fr; } main { padding:18px; } }
   </style>
 </head>
 <body>
@@ -981,13 +978,6 @@ const panelHTML = `<!doctype html>
       </nav>
     </aside>
     <main>
-      <div class="topbar">
-        <div class="topbar-copy">
-          <h1>MiGate 控制台</h1>
-          <p>用更克制、更工程化的界面管理入站、客户端、订阅与 Xray 配置。</p>
-        </div>
-        <div class="badge">Single Binary</div>
-      </div>
       <section id="overview" class="overview-grid" aria-label="概览指标">
         <div class="card panel"><div>入站</div><div id="inbound-count" class="metric">0</div><p>VLESS / VMess / Trojan / Shadowsocks</p></div>
         <div class="card panel"><div>客户端</div><div id="client-count" class="metric">0</div><p>活跃 / 总计</p></div>
@@ -1350,16 +1340,23 @@ const panelHTML = `<!doctype html>
     loadInbounds();
 
     // === Navigation section switching ===
+    function currentSectionFromLocation() {
+      const hash = window.location.hash.replace('#', '');
+      return hash || 'overview';
+    }
+
     function navigateTo(sectionId) {
       const validSections = ['overview', 'inbounds', 'clients', 'subscriptions', 'xray', 'settings'];
       if (!validSections.includes(sectionId)) sectionId = 'overview';
       document.querySelectorAll('main > section').forEach((el) => {
-        el.style.display = (el.id === sectionId) ? 'block' : 'none';
+        const display = el.classList.contains('overview-grid') ? 'grid' : 'block';
+        el.style.display = (el.id === sectionId) ? display : 'none';
       });
       document.querySelectorAll('nav a').forEach((a) => {
         const href = a.getAttribute('href');
         a.classList.toggle('active', (sectionId === 'overview' && href === '/') || href === '/#' + sectionId);
       });
+      history.replaceState(null, '', sectionId === 'overview' ? '/' : '/#' + sectionId);
     }
     document.querySelectorAll('nav a').forEach((a) => {
       a.addEventListener('click', (e) => {
@@ -1370,8 +1367,8 @@ const panelHTML = `<!doctype html>
         navigateTo(id);
       });
     });
-    // Start on overview
-    navigateTo('overview');
+    window.addEventListener('hashchange', () => navigateTo(currentSectionFromLocation()));
+    navigateTo(currentSectionFromLocation());
 
     async function loadClients() {
       const sel = document.getElementById('client-inbound-select');

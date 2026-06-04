@@ -199,7 +199,6 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		`font-family:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;`,
 		`class="app-shell"`,
 		`class="sidebar"`,
-		`class="topbar"`,
 		`class="card panel"`,
 		`class="section-heading"`,
 	} {
@@ -393,6 +392,59 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		t.Fatalf("panel should not have redundant hero section")
 	}
 
+	// Overview layout must keep the grid display when visible; a bare #overview{display:block}
+	// overrides .overview-grid and makes the four metric cards stack vertically.
+	if strings.Contains(body, `#overview{display:block}`) {
+		t.Fatalf("overview default CSS must not override .overview-grid display:grid with #overview{display:block}")
+	}
+	for _, want := range []string{
+		`main > section{display:none}`,
+		`#overview.overview-grid{display:grid}`,
+		`.overview-grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:var(--space-4);`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing overview horizontal grid contract %q", want)
+		}
+	}
+
+	// Right-top title/subtitle are redundant with the sidebar brand and waste vertical space.
+	for _, forbidden := range []string{`class="topbar"`, `class="topbar-copy"`, `MiGate 控制台`, `用更克制、更工程化的界面管理入站`} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("panel should remove redundant topbar title/subtitle, found %q", forbidden)
+		}
+	}
+
+	// Create actions must refresh visible lists immediately rather than requiring a manual reload.
+	for _, want := range []string{
+		`await refreshPanelData();`,
+		`await refreshPanelData(sel.value);`,
+		`async function refreshPanelData(selectedInboundId)`,
+		`await loadInbounds();`,
+		`await populateInboundSelect(selectedInboundId);`,
+		`await loadClients();`,
+		`await loadSubSummary();`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing immediate post-create refresh contract %q", want)
+		}
+	}
+
+	// Page reload should restore the hash-selected section, not always return to overview.
+	if strings.Contains(body, "// Start on overview\n    navigateTo('overview');") {
+		t.Fatalf("panel should not force navigateTo('overview') on every reload")
+	}
+	for _, want := range []string{
+		`function currentSectionFromLocation()`,
+		`window.location.hash`,
+		`navigateTo(currentSectionFromLocation());`,
+		`window.addEventListener('hashchange'`,
+		`history.replaceState(null, '', sectionId === 'overview' ? '/' : '/#' + sectionId)`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing hash-preserving navigation contract %q", want)
+		}
+	}
+
 	// Nav links work with section switching
 	for _, want := range []string{`href="/"`, `href="/#inbounds"`, `href="/#clients"`, `href="/#subscriptions"`, `href="/#xray"`, `href="/#settings"`} {
 		if !strings.Contains(body, want) {
@@ -405,8 +457,8 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 	if !strings.Contains(body, `main > section{display:none}`) {
 		t.Fatalf("panel should hide all sections by default via CSS to avoid SPA flash")
 	}
-	if !strings.Contains(body, `#overview{display:block}`) {
-		t.Fatalf("panel should show overview by default via CSS")
+	if !strings.Contains(body, `#overview.overview-grid{display:grid}`) {
+		t.Fatalf("panel should show overview as a grid by default via CSS")
 	}
 
 	// Confirm overlay hidden class must use higher-specificity selector
