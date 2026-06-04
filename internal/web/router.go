@@ -585,6 +585,8 @@ const panelHTML = `<!doctype html>
     nav a { display:block; color:var(--text); text-decoration:none; padding:11px 12px; border-radius:12px; margin:6px 0; border:1px solid transparent; }
     nav a.active, nav a:hover { background:rgba(79,140,255,.13); border-color:rgba(79,140,255,.25); }
     main { padding:28px; }
+    main > section { display: none; }
+    #overview { display: block; }
     .hero { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; margin-bottom:22px; }
     h1 { margin:0 0 8px; font-size:32px; }
     p { color:var(--muted); line-height:1.6; }
@@ -889,7 +891,7 @@ const panelHTML = `<!doctype html>
       const validSections = ['overview', 'inbounds', 'clients', 'subscriptions', 'xray', 'settings'];
       if (!validSections.includes(sectionId)) sectionId = 'overview';
       document.querySelectorAll('main > section').forEach((el) => {
-        el.style.display = (el.id === sectionId) ? '' : 'none';
+        el.style.display = (el.id === sectionId) ? 'block' : 'none';
       });
       document.querySelectorAll('nav a').forEach((a) => {
         const href = a.getAttribute('href');
