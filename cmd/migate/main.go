@@ -82,9 +82,8 @@ func routerFromConfig(path string) (http.Handler, func(), error) {
 	}
 	opts = append(opts, web.WithConfigDir(filepath.Dir(path)))
 	if cfg.XrayConfigPath != "" {
-		xrayDir := filepath.Dir(cfg.XrayConfigPath)
 		opts = append(opts, web.WithXrayController(
-			web.NewRealController(store, xrayDir, execCmd),
+			web.NewRealController(store, cfg.XrayConfigPath, execCmd),
 		))
 	}
 	return web.NewRouter(opts...), closeStore, nil
