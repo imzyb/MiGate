@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/imzyb/MiGate/internal/db"
 	"github.com/imzyb/MiGate/internal/xray"
@@ -259,13 +260,15 @@ func createClient(w http.ResponseWriter, r *http.Request, store Store, inboundID
 		return
 	}
 	var payload struct {
-		Email string `json:"email"`
+		Email        string `json:"email"`
+		TrafficLimit int64  `json:"traffic_limit"`
+		ExpiryAt     int64  `json:"expiry_at"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, `{"error":"invalid_json"}`, http.StatusBadRequest)
 		return
 	}
-	created, err := store.CreateClient(r.Context(), db.CreateClientParams{InboundID: inboundID, Email: payload.Email})
+	created, err := store.CreateClient(r.Context(), db.CreateClientParams{InboundID: inboundID, Email: payload.Email, TrafficLimit: payload.TrafficLimit, ExpiryAt: payload.ExpiryAt})
 	if err != nil {
 		http.Error(w, `{"error":"create_client_failed"}`, http.StatusBadRequest)
 		return
@@ -479,8 +482,16 @@ func subscriptionHandler(store Store) http.HandlerFunc {
 			if !inbound.Enabled {
 				continue
 			}
+			now := time.Now().Unix()
 			for _, client := range inbound.Clients {
 				if !client.Enabled || client.UUID != token {
+					continue
+				}
+				// Skip expired or over-limit clients
+				if client.ExpiryAt > 0 && client.ExpiryAt <= now {
+					continue
+				}
+				if client.TrafficLimit > 0 && (client.Up+client.Down) >= client.TrafficLimit {
 					continue
 				}
 				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -589,6 +600,10 @@ const panelHTML = `<!doctype html>
     .muted { color:var(--muted); }
     .error { color:#fecaca; }
     .btn-del { background:var(--danger); border:none; color:white; padding:4px 10px; border-radius:8px; font-size:12px; cursor:pointer; }
+    .bar-low { background:var(--accent2); }
+    .bar-mid { background:#fbbf24; }
+    .bar-high { background:var(--danger); }
+    .copy-link { font-size:11px;cursor:pointer; }
     .btn-sm { border:none; color:white; padding:4px 8px; border-radius:8px; font-size:11px; cursor:pointer; }
     .hidden { display:none; }
     #toast-container { position:fixed; top:20px; right:20px; z-index:9999; display:flex; flex-direction:column; gap:10px; }
@@ -681,8 +696,10 @@ const panelHTML = `<!doctype html>
   <div id="edit-client-overlay" class="hidden" onclick="if(event.target===this)closeEditClient()">
     <div id="edit-client-dialog">
       <h3 style="margin:0 0 16px">编辑客户端</h3>
-      <div class="actions">
-        <input id="ec-email" placeholder="客户端标识，例如 user01" required style="flex:1">
+      <div class="actions" style="flex-direction:column;gap:10px">
+        <input id="ec-email" placeholder="客户端标识，例如 user01" required style="width:100%;box-sizing:border-box">
+        <input id="ec-traffic-limit" type="number" min="0" placeholder="流量限额（字节，0=不限）" style="width:100%;box-sizing:border-box">
+        <input id="ec-expiry-at" type="datetime-local" style="width:100%;box-sizing:border-box">
       </div>
       <div class="actions" style="margin-top:12px">
         <button class="btn-cancel" onclick="closeEditClient()">取消</button>
@@ -776,8 +793,10 @@ const panelHTML = `<!doctype html>
             <option value="">--选择入站--</option>
           </select>
         </div>
-        <form id="client-form">
-          <input name="email" placeholder="客户端标识，例如 user01" required>
+        <form id="client-form" style="display:flex;flex-wrap:wrap;gap:8px;align-items:end">
+          <input name="email" placeholder="客户端标识，例如 user01" required style="flex:1;min-width:140px">
+          <input name="traffic_limit" type="number" min="0" placeholder="流量限额（字节，0=不限）" style="width:180px">
+          <input name="expiry_at" type="datetime-local" id="client-expiry" placeholder="到期时间" style="width:180px">
           <button type="submit">创建客户端</button>
         </form>
         <div id="client-list" class="list muted">选择一个入站以查看客户端...</div>
@@ -925,6 +944,13 @@ const panelHTML = `<!doctype html>
           '<button class="btn-sm" style="background:' + (c.enabled ? 'var(--accent2)' : 'var(--muted)') + '" onclick="toggleClient(' + c.id + ')" title="TOGGLE">' + (c.enabled ? 'ON' : 'OFF') + '</button>' +
           '<button class="btn-del" style="padding:4px 8px;font-size:11px" onclick="deleteClient(' + inbound.id + ',' + c.id + ')">DEL</button></span></div>';
       }).join('');
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(1024));
+      return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
     }
 
     function copySubUrl(text) {
@@ -1075,6 +1101,13 @@ const panelHTML = `<!doctype html>
       if (!client) { showToast('客户端未找到', 'error'); return; }
       _editingClientData = {id: id, inboundId: client.inbound_id};
       document.getElementById('ec-email').value = client.email || '';
+      document.getElementById('ec-traffic-limit').value = client.traffic_limit || '';
+      if (client.expiry_at && client.expiry_at > 0) {
+        const d = new Date(client.expiry_at * 1000);
+        document.getElementById('ec-expiry-at').value = d.toISOString().slice(0,16);
+      } else {
+        document.getElementById('ec-expiry-at').value = '';
+      }
       document.getElementById('edit-client-overlay').classList.remove('hidden');
     }
     function closeEditClient() {
@@ -1086,10 +1119,14 @@ const panelHTML = `<!doctype html>
       if (!d) return;
       const email = document.getElementById('ec-email').value.trim();
       if (!email) { showToast('请输入客户端标识', 'error'); return; }
+      const tl = parseInt(document.getElementById('ec-traffic-limit').value) || 0;
+      const eaStr = document.getElementById('ec-expiry-at').value;
+      let ea = 0;
+      if (eaStr) { ea = Math.floor(new Date(eaStr).getTime() / 1000); }
       const res = await fetch('/api/inbounds/' + d.inboundId + '/clients/' + d.id, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({email: email})
+        body: JSON.stringify({email: email, traffic_limit: tl, expiry_at: ea})
       });
       if (!res.ok) { showToast('编辑客户端失败', 'error'); return; }
       showToast('客户端已更新', 'success');
@@ -1131,10 +1168,14 @@ const panelHTML = `<!doctype html>
       }
       const form = new FormData(event.currentTarget);
       const email = form.get('email');
+      const tl = parseInt(form.get('traffic_limit')) || 0;
+      const eaStr = document.getElementById('client-expiry').value;
+      let ea = 0;
+      if (eaStr) { ea = Math.floor(new Date(eaStr).getTime() / 1000); }
       const response = await fetch('/api/inbounds/' + sel.value + '/clients', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({email: email})
+        body: JSON.stringify({email: email, traffic_limit: tl, expiry_at: ea})
       });
       if (!response.ok) {
         showToast('创建客户端失败：' + await response.text(), 'error');

@@ -36,11 +36,15 @@ type Inbound struct {
 }
 
 type Client struct {
-	ID        int64  `json:"id"`
-	InboundID int64  `json:"inbound_id"`
-	UUID      string `json:"uuid"`
-	Email     string `json:"email"`
-	Enabled   bool   `json:"enabled"`
+	ID           int64  `json:"id"`
+	InboundID    int64  `json:"inbound_id"`
+	UUID         string `json:"uuid"`
+	Email        string `json:"email"`
+	Enabled      bool   `json:"enabled"`
+	Up           int64  `json:"up"`
+	Down         int64  `json:"down"`
+	TrafficLimit int64  `json:"traffic_limit"`
+	ExpiryAt     int64  `json:"expiry_at"`
 }
 
 type CreateInboundParams struct {
@@ -52,8 +56,10 @@ type CreateInboundParams struct {
 }
 
 type CreateClientParams struct {
-	InboundID int64
-	Email     string
+	InboundID    int64
+	Email        string
+	TrafficLimit int64
+	ExpiryAt     int64
 }
 
 type UpdateInboundParams struct {
@@ -65,8 +71,10 @@ type UpdateInboundParams struct {
 }
 
 type UpdateClientParams struct {
-	Email   string
-	Enabled bool
+	Email        string
+	Enabled      bool
+	TrafficLimit int64
+	ExpiryAt     int64
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -109,7 +117,19 @@ CREATE TABLE IF NOT EXISTS clients (
 );
 CREATE INDEX IF NOT EXISTS idx_clients_inbound_id ON clients(inbound_id);
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	// Migration: add traffic/expiry columns (ignore errors if already exist)
+	for _, col := range []struct{ name, typ string }{
+		{"up", "INTEGER NOT NULL DEFAULT 0"},
+		{"down", "INTEGER NOT NULL DEFAULT 0"},
+		{"traffic_limit", "INTEGER NOT NULL DEFAULT 0"},
+		{"expiry_at", "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		_, _ = s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE clients ADD COLUMN %s %s", col.name, col.typ))
+	}
+	return nil
 }
 
 func (s *Store) CreateInbound(ctx context.Context, params CreateInboundParams) (Inbound, error) {
@@ -162,9 +182,9 @@ func (s *Store) CreateClient(ctx context.Context, params CreateClientParams) (Cl
 	}
 	uuid := newUUID()
 	result, err := s.db.ExecContext(ctx, `
-INSERT INTO clients (inbound_id, uuid, email, enabled, created_at)
-VALUES (?, ?, ?, 1, ?)
-`, params.InboundID, uuid, email, time.Now().UTC().Format(time.RFC3339))
+INSERT INTO clients (inbound_id, uuid, email, enabled, created_at, traffic_limit, expiry_at)
+VALUES (?, ?, ?, 1, ?, ?, ?)
+`, params.InboundID, uuid, email, time.Now().UTC().Format(time.RFC3339), params.TrafficLimit, params.ExpiryAt)
 	if err != nil {
 		return Client{}, err
 	}
@@ -172,7 +192,7 @@ VALUES (?, ?, ?, 1, ?)
 	if err != nil {
 		return Client{}, err
 	}
-	return Client{ID: id, InboundID: params.InboundID, UUID: uuid, Email: email, Enabled: true}, nil
+	return Client{ID: id, InboundID: params.InboundID, UUID: uuid, Email: email, Enabled: true, TrafficLimit: params.TrafficLimit, ExpiryAt: params.ExpiryAt}, nil
 }
 
 func (s *Store) DeleteClient(ctx context.Context, id int64) error {
@@ -255,8 +275,8 @@ func (s *Store) UpdateClient(ctx context.Context, id int64, params UpdateClientP
 	if params.Enabled {
 		enabled = 1
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE clients SET email=?, enabled=? WHERE id=?`,
-		email, enabled, id)
+	result, err := s.db.ExecContext(ctx, `UPDATE clients SET email=?, enabled=?, traffic_limit=?, expiry_at=? WHERE id=?`,
+		email, enabled, params.TrafficLimit, params.ExpiryAt, id)
 	if err != nil {
 		return Client{}, err
 	}
@@ -267,10 +287,10 @@ func (s *Store) UpdateClient(ctx context.Context, id int64, params UpdateClientP
 	if n == 0 {
 		return Client{}, fmt.Errorf("client not found: %d", id)
 	}
-	row := s.db.QueryRowContext(ctx, `SELECT id, inbound_id, uuid, email, enabled FROM clients WHERE id=?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, inbound_id, uuid, email, enabled, up, down, traffic_limit, expiry_at FROM clients WHERE id=?`, id)
 	var client Client
 	var dbEnabled int
-	if err := row.Scan(&client.ID, &client.InboundID, &client.UUID, &client.Email, &dbEnabled); err != nil {
+	if err := row.Scan(&client.ID, &client.InboundID, &client.UUID, &client.Email, &dbEnabled, &client.Up, &client.Down, &client.TrafficLimit, &client.ExpiryAt); err != nil {
 		return Client{}, err
 	}
 	client.Enabled = dbEnabled != 0
@@ -306,7 +326,7 @@ ORDER BY id ASC
 	}
 
 	clientRows, err := s.db.QueryContext(ctx, `
-SELECT id, inbound_id, uuid, email, enabled
+SELECT id, inbound_id, uuid, email, enabled, up, down, traffic_limit, expiry_at
 FROM clients
 ORDER BY id ASC
 `)
@@ -317,7 +337,7 @@ ORDER BY id ASC
 	for clientRows.Next() {
 		var client Client
 		var enabled int
-		if err := clientRows.Scan(&client.ID, &client.InboundID, &client.UUID, &client.Email, &enabled); err != nil {
+		if err := clientRows.Scan(&client.ID, &client.InboundID, &client.UUID, &client.Email, &enabled, &client.Up, &client.Down, &client.TrafficLimit, &client.ExpiryAt); err != nil {
 			return nil, err
 		}
 		client.Enabled = enabled != 0

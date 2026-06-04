@@ -281,6 +281,13 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 			t.Fatalf("panel missing config preview element %q", want)
 		}
 	}
+
+	// Traffic/expiry UI elements
+	for _, want := range []string{"ec-traffic-limit", "ec-expiry-at", "formatBytes", "traffic_limit", "bar-low"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing traffic/expiry element %q", want)
+		}
+	}
 }
 
 func TestSettingsAPI(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/imzyb/MiGate/internal/db"
 	"github.com/imzyb/MiGate/internal/web"
@@ -865,5 +866,49 @@ func TestDeleteClientAPIRejectsUnknownClient(t *testing.T) {
 	router.ServeHTTP(response, req)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for unknown client, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestSubscriptionSkipsExpiredClient(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	inbound, err := store.CreateInbound(context.Background(), db.CreateInboundParams{Remark: "test", Protocol: "vless", Port: 8443})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	client, err := store.CreateClient(context.Background(), db.CreateClientParams{InboundID: inbound.ID, Email: "expired", ExpiryAt: time.Now().Unix() - 3600})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	router := web.NewRouter(web.WithStore(store))
+	response := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/sub/"+client.UUID, nil)
+	router.ServeHTTP(response, req)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for expired client, got %d", response.Code)
+	}
+}
+
+func TestSubscriptionPassesValidClientWithFutureExpiry(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	inbound, err := store.CreateInbound(context.Background(), db.CreateInboundParams{Remark: "test", Protocol: "vless", Port: 8443})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	client, err := store.CreateClient(context.Background(), db.CreateClientParams{InboundID: inbound.ID, Email: "valid", TrafficLimit: 100000, ExpiryAt: time.Now().Unix() + 86400})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	router := web.NewRouter(web.WithStore(store))
+	response := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/sub/"+client.UUID, nil)
+	router.ServeHTTP(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200 for valid client with future expiry, got %d", response.Code)
 	}
 }
