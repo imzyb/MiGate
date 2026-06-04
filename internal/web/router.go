@@ -653,6 +653,21 @@ const panelHTML = `<!doctype html>
     input:focus, select:focus, button:focus { box-shadow:var(--shadow-sm), 0 0 0 2px var(--focus); }
     .list { display:grid; gap:10px; margin-top:14px; }
     .row { display:grid; grid-template-columns:1.2fr .8fr .8fr .8fr .8fr .6fr; gap:10px; align-items:center; padding:12px; border-radius:var(--radius-lg); background:var(--surface); box-shadow:var(--shadow-sm); }
+    .resource-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:16px; align-items:center; padding:14px 16px; border-radius:var(--radius-lg); background:var(--surface); box-shadow:var(--shadow-sm); transition:box-shadow .16s ease, transform .16s ease; }
+    .resource-row:hover { box-shadow:var(--shadow-md); transform:translateY(-1px); }
+    .resource-main { min-width:0; display:grid; gap:6px; }
+    .resource-title { display:flex; align-items:center; gap:8px; min-width:0; font-size:15px; font-weight:600; color:var(--fg); }
+    .resource-title strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .resource-meta { display:flex; flex-wrap:wrap; align-items:center; gap:8px; color:var(--muted); font-size:12px; line-height:1.5; }
+    .status-badge { display:inline-flex; align-items:center; height:22px; padding:0 8px; border-radius:9999px; font-size:12px; font-weight:500; box-shadow:var(--shadow-sm); }
+    .status-badge.enabled { color:#047857; background:#ecfdf5; }
+    .status-badge.disabled { color:#6b7280; background:#f3f4f6; }
+    .resource-actions { display:flex; align-items:center; justify-content:flex-end; gap:6px; }
+    .icon-btn, .danger-icon-btn { display:inline-flex; align-items:center; justify-content:center; min-width:30px; height:30px; padding:0 8px; border-radius:var(--radius-sm); font-size:12px; }
+    .icon-btn { background:var(--surface); color:var(--fg); box-shadow:var(--shadow-sm); }
+    .danger-icon-btn { background:#fff5f5; color:var(--danger); box-shadow:var(--shadow-sm); }
+    .traffic-track { width:128px; height:4px; margin-top:5px; overflow:hidden; border-radius:9999px; background:#f3f4f6; }
+    .traffic-fill { height:100%; border-radius:9999px; background:var(--accent2); }
     .muted { color:var(--muted); }
     .error { color:#b91c1c; }
     .btn-del { background:var(--danger); border:none; color:white; padding:4px 10px; border-radius:var(--radius-sm); font-size:12px; cursor:pointer; }
@@ -975,7 +990,21 @@ const panelHTML = `<!doctype html>
         return;
       }
       inboundList.className = 'list';
-      inboundList.innerHTML = inbounds.map((inbound) => '<div class="row"><strong>' + escapeHtml(inbound.remark || '-') + '</strong><span>' + escapeHtml(inbound.protocol) + '</span><span>:' + inbound.port + '</span><span>' + escapeHtml(inbound.network || 'tcp') + '/' + escapeHtml(inbound.security || 'none') + '</span><span>' + ((inbound.clients || []).length) + ' 客户端</span><span style="display:flex;gap:4px"><button class="btn-sm" style="background:var(--accent)" onclick="editInbound(' + inbound.id + ')" title="EDIT">\u270f\ufe0f</button><button class="btn-sm" style="background:' + (inbound.enabled ? 'var(--accent2)' : 'var(--muted)') + '" onclick="toggleInbound(' + inbound.id + ')" title="TOGGLE">' + (inbound.enabled ? 'ON' : 'OFF') + '</button><button class="btn-del" onclick="deleteInbound(' + inbound.id + ')">DEL</button></span></div>').join('');
+      inboundList.innerHTML = inbounds.map((inbound) => {
+        const enabledClass = inbound.enabled ? 'enabled' : 'disabled';
+        const enabledText = inbound.enabled ? 'Enabled' : 'Disabled';
+        return '<div class="resource-row">' +
+          '<div class="resource-main">' +
+            '<div class="resource-title"><strong>' + escapeHtml(inbound.remark || '-') + '</strong><span class="status-badge ' + enabledClass + '">' + enabledText + '</span></div>' +
+            '<div class="resource-meta"><span>' + escapeHtml(inbound.protocol) + '</span><span>:' + inbound.port + '</span><span>' + escapeHtml(inbound.network || 'tcp') + ' / ' + escapeHtml(inbound.security || 'none') + '</span><span>' + ((inbound.clients || []).length) + ' 客户端</span></div>' +
+          '</div>' +
+          '<div class="resource-actions">' +
+            '<button class="icon-btn" onclick="editInbound(' + inbound.id + ')" title="编辑">Edit</button>' +
+            '<button class="icon-btn" onclick="toggleInbound(' + inbound.id + ')" title="启用/禁用">' + (inbound.enabled ? 'ON' : 'OFF') + '</button>' +
+            '<button class="danger-icon-btn" onclick="deleteInbound(' + inbound.id + ')" title="删除">DEL</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
     }
 
     function escapeHtml(value) {
@@ -1061,20 +1090,29 @@ const panelHTML = `<!doctype html>
         const isOverLimit = limit > 0 && used >= limit;
         const isExpired = c.expiry_at && c.expiry_at > 0 && c.expiry_at <= Math.floor(Date.now() / 1000);
         const expiredText = c.expiry_at && c.expiry_at > 0 ? new Date(c.expiry_at * 1000).toLocaleDateString() : '不限';
-        const expireStyle = isExpired ? 'color:var(--danger);font-weight:bold' : '';
+        const expireStyle = isExpired ? 'color:var(--danger);font-weight:500' : '';
         const trafficStyle = isOverLimit ? 'color:var(--danger)' : '';
-        return '<div class="row" style="grid-template-columns:1.2fr .7fr 1.3fr .9fr .3fr .3fr .6fr">' +
-          '<strong>' + escapeHtml(c.email) + '</strong>' +
-          '<span class="muted" style="font-size:10px;word-break:break-all;font-family:monospace">' + c.uuid.substring(0,8) + '…</span>' +
-          '<div style="font-size:11px;' + trafficStyle + '">' + formatBytes(used) + ' / ' + (limit > 0 ? formatBytes(limit) : '∞') +
-            (limit > 0 ? '<div style="background:rgba(148,163,184,.15);border-radius:4px;height:4px;margin-top:4px;overflow:hidden"><div style="width:' + pct + '%;background:' + (isOverLimit ? 'var(--danger)' : 'var(--accent2)') + ';height:100%;border-radius:4px"></div></div>' : '') + '</div>' +
-          '<span class="muted" style="font-size:11px;' + expireStyle + '">' + expiredText + '</span>' +
-          '<span style="font-size:13px;cursor:pointer;text-align:center" onclick="copySubUrl(\'' + subUrl + '\')" title="复制订阅链接">📋</span>' +
-          '<span style="font-size:13px;cursor:pointer;text-align:center" onclick="copySubUrl(\'' + shareLink + '\')" title="复制分享链接">🔗</span>' +
-          '<span style="display:flex;gap:2px">' +
-          '<button class="btn-sm" style="background:var(--accent)" onclick="editClient(' + c.id + ',' + inbound.id + ')" title="EDIT">✏️</button>' +
-          '<button class="btn-sm" style="background:' + (c.enabled ? 'var(--accent2)' : 'var(--muted)') + '" onclick="toggleClient(' + c.id + ')" title="TOGGLE">' + (c.enabled ? 'ON' : 'OFF') + '</button>' +
-          '<button class="btn-del" style="padding:4px 6px;font-size:10px" onclick="deleteClient(' + inbound.id + ',' + c.id + ')">DEL</button></span></div>';
+        const badgeClass = c.enabled && !isExpired && !isOverLimit ? 'enabled' : 'disabled';
+        const badgeText = c.enabled ? (isExpired ? 'Expired' : (isOverLimit ? 'Limited' : 'Enabled')) : 'Disabled';
+        const fillClass = isOverLimit ? 'bar-high' : (pct >= 85 ? 'bar-mid' : 'bar-low');
+        return '<div class="resource-row">' +
+          '<div class="resource-main">' +
+            '<div class="resource-title"><strong>' + escapeHtml(c.email) + '</strong><span class="status-badge ' + badgeClass + '">' + badgeText + '</span></div>' +
+            '<div class="resource-meta">' +
+              '<span class="mono">' + c.uuid.substring(0,8) + '…</span>' +
+              '<span style="' + trafficStyle + '">' + formatBytes(used) + ' / ' + (limit > 0 ? formatBytes(limit) : '∞') + '</span>' +
+              '<span style="' + expireStyle + '">到期 ' + expiredText + '</span>' +
+              (limit > 0 ? '<span><div class="traffic-track"><div class="traffic-fill ' + fillClass + '" style="width:' + pct + '%"></div></div></span>' : '') +
+            '</div>' +
+          '</div>' +
+          '<div class="resource-actions">' +
+            '<button class="icon-btn" onclick="copySubUrl(\'' + subUrl + '\')" title="复制订阅链接">Sub</button>' +
+            '<button class="icon-btn" onclick="copySubUrl(\'' + shareLink + '\')" title="复制分享链接">Link</button>' +
+            '<button class="icon-btn" onclick="editClient(' + c.id + ',' + inbound.id + ')" title="编辑">Edit</button>' +
+            '<button class="icon-btn" onclick="toggleClient(' + c.id + ')" title="启用/禁用">' + (c.enabled ? 'ON' : 'OFF') + '</button>' +
+            '<button class="danger-icon-btn" onclick="deleteClient(' + inbound.id + ',' + c.id + ')" title="删除">DEL</button>' +
+          '</div>' +
+        '</div>';
       }).join('');
     }
 

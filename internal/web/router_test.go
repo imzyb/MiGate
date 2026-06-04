@@ -354,6 +354,36 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		}
 	}
 
+	// Vercel-style scan-friendly resource rows
+	for _, want := range []string{
+		`.resource-row`,
+		`.resource-main`,
+		`.resource-title`,
+		`.resource-meta`,
+		`.status-badge`,
+		`.status-badge.enabled`,
+		`.status-badge.disabled`,
+		`.resource-actions`,
+		`.icon-btn`,
+		`.danger-icon-btn`,
+		`.traffic-track`,
+		`.traffic-fill`,
+		`class="resource-row"`,
+		`class="resource-main"`,
+		`class="resource-title"`,
+		`class="resource-meta"`,
+		`status-badge ' + enabledClass`,
+		`const enabledClass = inbound.enabled ? 'enabled' : 'disabled';`,
+		`const badgeClass = c.enabled && !isExpired && !isOverLimit ? 'enabled' : 'disabled';`,
+		`class="resource-actions"`,
+		`class="icon-btn"`,
+		`class="danger-icon-btn"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing Vercel-style resource row contract %q", want)
+		}
+	}
+
 	// Traffic/expiry UI elements
 	for _, want := range []string{"ec-traffic-limit", "ec-expiry-at", "formatBytes", "traffic_limit", "bar-low"} {
 		if !strings.Contains(body, want) {
