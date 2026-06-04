@@ -733,7 +733,7 @@ const panelHTML = `<!doctype html>
       <section id="overview" class="grid" aria-label="概览指标">
         <div class="card"><div>入站</div><div id="inbound-count" class="metric">0</div><p>VLESS / VMess / Trojan / Shadowsocks</p></div>
         <div class="card"><div>客户端</div><div id="client-count" class="metric">0</div><p>活跃 / 总计</p></div>
-        <div class="card"><div>总流量</div><div id="total-traffic" class="metric">0 B</div><p><span id="xray-managed-badge" class="badge" style="display:inline-flex;background:rgba(34,197,94,.09);color:#86efac;border-color:rgba(34,197,94,.18);font-size:11px;padding:3px 8px">● 在线</span></p></div>
+        <div class="card"><div>总流量</div><div id="total-traffic" class="metric">0 B</div><p>所有客户端上行+下行累计</p></div>
         <div class="card"><div>Xray</div><div id="xray-status-metric" class="metric">检查中...</div><p>运行状态</p></div>
       </section>
       <section id="inbounds" class="card">
@@ -745,9 +745,9 @@ const panelHTML = `<!doctype html>
           <div class="protocol"><strong>Shadowsocks</strong><span>轻量转发协议</span></div>
         </div>
         <div class="actions">
-          <button>新增入站</button>
-          <button class="secondary">生成 Xray 配置</button>
-          <button class="secondary">查看订阅</button>
+          <button onclick="document.getElementById('inbound-form').scrollIntoView({behavior:'smooth'});document.getElementById('inbound-form').querySelector('[name=remark]').focus()">新增入站</button>
+          <button class="secondary" onclick="navigateTo('xray');setTimeout(previewXrayConfig,200)">生成 Xray 配置</button>
+          <button class="secondary" onclick="navigateTo('subscriptions')">查看订阅</button>
         </div>
         <form id="inbound-form">
           <input name="remark" placeholder="备注，例如 主入口" required>
@@ -970,16 +970,26 @@ const panelHTML = `<!doctype html>
       list.innerHTML = clients.map(c => {
         const subUrl = window.location.protocol + '//' + subscriptionHost + '/sub/' + c.uuid;
         const shareLink = inbound.protocol + '://' + c.uuid + '@' + subscriptionHost + ':' + inbound.port + '?type=' + (inbound.network||'tcp') + '&security=' + (inbound.security||'none') + '#' + escapeHtml(c.email);
-        return '<div class="row" style="grid-template-columns:1.2fr .8fr .8fr 1.5fr .4fr .7fr">' +
+        const used = (c.up||0) + (c.down||0);
+        const limit = c.traffic_limit || 0;
+        const pct = limit > 0 ? Math.min(100, used / limit * 100) : 0;
+        const isOverLimit = limit > 0 && used >= limit;
+        const isExpired = c.expiry_at && c.expiry_at > 0 && c.expiry_at <= Math.floor(Date.now() / 1000);
+        const expiredText = c.expiry_at && c.expiry_at > 0 ? new Date(c.expiry_at * 1000).toLocaleDateString() : '不限';
+        const expireStyle = isExpired ? 'color:var(--danger);font-weight:bold' : '';
+        const trafficStyle = isOverLimit ? 'color:var(--danger)' : '';
+        return '<div class="row" style="grid-template-columns:1.2fr .7fr 1.3fr .9fr .3fr .3fr .6fr">' +
           '<strong>' + escapeHtml(c.email) + '</strong>' +
-          '<span class="muted" style="font-size:11px;word-break:break-all">' + c.uuid + '</span>' +
-          '<span class="muted" style="font-size:11px">订阅链接</span>' +
-          '<span class="copy-link" style="font-size:11px;cursor:pointer;color:var(--accent);word-break:break-all" onclick="copySubUrl(\'' + subUrl + '\')" title="点击复制订阅链接">' + subUrl + '</span>' +
-          '<span class="copy-link" style="font-size:11px;cursor:pointer;color:var(--accent2)" onclick="copySubUrl(\'' + shareLink + '\')" title="点击复制分享链接">🔗</span>' +
-          '<span style="display:flex;gap:4px">' +
-          '<button class="btn-sm" style="background:var(--accent)" onclick="editClient(' + c.id + ',' + inbound.id + ')" title="EDIT">\u270f\ufe0f</button>' +
+          '<span class="muted" style="font-size:10px;word-break:break-all;font-family:monospace">' + c.uuid.substring(0,8) + '…</span>' +
+          '<div style="font-size:11px;' + trafficStyle + '">' + formatBytes(used) + ' / ' + (limit > 0 ? formatBytes(limit) : '∞') +
+            (limit > 0 ? '<div style="background:rgba(148,163,184,.15);border-radius:4px;height:4px;margin-top:4px;overflow:hidden"><div style="width:' + pct + '%;background:' + (isOverLimit ? 'var(--danger)' : 'var(--accent2)') + ';height:100%;border-radius:4px"></div></div>' : '') + '</div>' +
+          '<span class="muted" style="font-size:11px;' + expireStyle + '">' + expiredText + '</span>' +
+          '<span style="font-size:13px;cursor:pointer;text-align:center" onclick="copySubUrl(\'' + subUrl + '\')" title="复制订阅链接">📋</span>' +
+          '<span style="font-size:13px;cursor:pointer;text-align:center" onclick="copySubUrl(\'' + shareLink + '\')" title="复制分享链接">🔗</span>' +
+          '<span style="display:flex;gap:2px">' +
+          '<button class="btn-sm" style="background:var(--accent)" onclick="editClient(' + c.id + ',' + inbound.id + ')" title="EDIT">✏️</button>' +
           '<button class="btn-sm" style="background:' + (c.enabled ? 'var(--accent2)' : 'var(--muted)') + '" onclick="toggleClient(' + c.id + ')" title="TOGGLE">' + (c.enabled ? 'ON' : 'OFF') + '</button>' +
-          '<button class="btn-del" style="padding:4px 8px;font-size:11px" onclick="deleteClient(' + inbound.id + ',' + c.id + ')">DEL</button></span></div>';
+          '<button class="btn-del" style="padding:4px 6px;font-size:10px" onclick="deleteClient(' + inbound.id + ',' + c.id + ')">DEL</button></span></div>';
       }).join('');
     }
 
@@ -1108,11 +1118,18 @@ const panelHTML = `<!doctype html>
       const data = await response.json();
       const inbound = (data.inbounds || []).find(i => i.id === id);
       if (!inbound) return;
-      const newEnabled = !inbound.enabled;
+      inbound.enabled = !inbound.enabled;
       const res = await fetch('/api/inbounds/' + id, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({enabled: newEnabled})
+        body: JSON.stringify({
+          remark: inbound.remark,
+          protocol: inbound.protocol,
+          port: inbound.port,
+          network: inbound.network || 'tcp',
+          security: inbound.security || 'none',
+          enabled: inbound.enabled
+        })
       });
       if (!res.ok) {
         showToast('开关入站失败', 'error');
@@ -1179,11 +1196,16 @@ const panelHTML = `<!doctype html>
       if (!inbound) return;
       const client = (inbound.clients || []).find(c => c.id === id);
       if (!client) return;
-      const newEnabled = !client.enabled;
-      const res = await fetch('/api/inbounds/1/clients/' + id, {
+      client.enabled = !client.enabled;
+      const res = await fetch('/api/inbounds/' + inbound.id + '/clients/' + id, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({enabled: newEnabled})
+        body: JSON.stringify({
+          email: client.email,
+          enabled: client.enabled,
+          traffic_limit: client.traffic_limit || 0,
+          expiry_at: client.expiry_at || 0
+        })
       });
       if (!res.ok) {
         showToast('开关客户端失败', 'error');

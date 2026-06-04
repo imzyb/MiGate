@@ -63,18 +63,19 @@ type CreateClientParams struct {
 }
 
 type UpdateInboundParams struct {
-	Remark   string
-	Port     int
-	Network  string
-	Security string
-	Enabled  bool
+	Remark   string `json:"remark"`
+	Protocol string `json:"protocol"`
+	Port     int    `json:"port"`
+	Network  string `json:"network"`
+	Security string `json:"security"`
+	Enabled  bool   `json:"enabled"`
 }
 
 type UpdateClientParams struct {
-	Email        string
-	Enabled      bool
-	TrafficLimit int64
-	ExpiryAt     int64
+	Email        string `json:"email"`
+	Enabled      bool   `json:"enabled"`
+	TrafficLimit int64  `json:"traffic_limit"`
+	ExpiryAt     int64  `json:"expiry_at"`
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -238,12 +239,16 @@ func (s *Store) UpdateInbound(ctx context.Context, id int64, params UpdateInboun
 		network = "tcp"
 	}
 	security := strings.ToLower(strings.TrimSpace(params.Security))
+	protocol := strings.ToLower(strings.TrimSpace(params.Protocol))
+	if protocol == "" {
+		protocol = "vless"
+	}
 	enabled := 0
 	if params.Enabled {
 		enabled = 1
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE inbounds SET remark=?, port=?, network=?, security=?, enabled=? WHERE id=?`,
-		remark, params.Port, network, security, enabled, id)
+	result, err := s.db.ExecContext(ctx, `UPDATE inbounds SET remark=?, protocol=?, port=?, network=?, security=?, enabled=? WHERE id=?`,
+		remark, protocol, params.Port, network, security, enabled, id)
 	if err != nil {
 		return Inbound{}, err
 	}
