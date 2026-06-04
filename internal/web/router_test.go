@@ -243,6 +243,13 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 			t.Fatalf("panel missing JS function %q", want)
 		}
 	}
+
+	// Each nav shows exactly one section (no overlap)
+	t.Run("navigateToShowsOnlySelectedSection", func(t *testing.T) {
+		if !strings.Contains(body, "el.id === sectionId") {
+			t.Fatalf("navigateTo must compare el.id === sectionId, not sectionId === 'overview' OR condition")
+		}
+	})
 }
 
 func TestRouterDoesNotServeLegacyHeavyRoutes(t *testing.T) {

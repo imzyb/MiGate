@@ -700,7 +700,7 @@ const panelHTML = `<!doctype html>
       const validSections = ['overview', 'inbounds', 'clients', 'subscriptions', 'xray'];
       if (!validSections.includes(sectionId)) sectionId = 'overview';
       document.querySelectorAll('main > section').forEach((el) => {
-        el.style.display = (sectionId === 'overview' || el.id === sectionId) ? '' : 'none';
+        el.style.display = (el.id === sectionId) ? '' : 'none';
       });
       document.querySelectorAll('nav a').forEach((a) => {
         const href = a.getAttribute('href');
