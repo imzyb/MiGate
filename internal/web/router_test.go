@@ -449,6 +449,19 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		}
 	}
 
+	// Toggle toast must use the toggled entity state, not an undefined newEnabled variable
+	if strings.Contains(body, "newEnabled") {
+		t.Fatalf("panel toggle handlers must not reference undefined newEnabled")
+	}
+	for _, want := range []string{
+		`showToast('入站 ' + (inbound.enabled ? '已启用' : '已禁用'), 'success')`,
+		`showToast('客户端 ' + (client.enabled ? '已启用' : '已禁用'), 'success')`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing safe toggle toast expression %q", want)
+		}
+	}
+
 	// Traffic/expiry UI elements
 	for _, want := range []string{"ec-traffic-limit", "ec-expiry-at", "formatBytes", "traffic_limit", "bar-low"} {
 		if !strings.Contains(body, want) {

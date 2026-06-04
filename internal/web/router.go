@@ -1386,7 +1386,7 @@ const panelHTML = `<!doctype html>
         showToast('开关入站失败', 'error');
         return;
       }
-      showToast('入站 ' + (newEnabled ? '已启用' : '已禁用'), 'success');
+      showToast('入站 ' + (inbound.enabled ? '已启用' : '已禁用'), 'success');
       await loadInbounds();
     }
 
@@ -1462,7 +1462,7 @@ const panelHTML = `<!doctype html>
         showToast('开关客户端失败', 'error');
         return;
       }
-      showToast('客户端 ' + (newEnabled ? '已启用' : '已禁用'), 'success');
+      showToast('客户端 ' + (client.enabled ? '已启用' : '已禁用'), 'success');
       await loadClients();
       const inboundResponse = await fetch('/api/inbounds');
       const inboundData = await inboundResponse.json();
