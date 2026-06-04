@@ -718,6 +718,13 @@ const panelHTML = `<!doctype html>
     .topbar-copy p { margin:var(--space-2) 0 0; max-width:720px; }
     .badge { display:inline-flex; align-items:center; gap:var(--space-2); padding:0 10px; height:28px; border-radius:9999px; background:#ebf5ff; color:#0068d6; box-shadow:var(--shadow-sm); font-size:var(--text-xs); font-weight:500; }
     .grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:var(--space-4); margin-bottom:18px; }
+    .overview-grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:var(--space-4); margin-bottom:18px; }
+    .overview-insights { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:var(--space-4); grid-column:1 / -1; }
+    .overview-card { display:grid; gap:var(--space-3); align-content:start; background:var(--surface); border-radius:var(--radius-lg); box-shadow:var(--shadow-md); padding:var(--panel-padding); min-height:156px; }
+    .overview-card-title { color:var(--fg); font-size:var(--text-lg); font-weight:600; letter-spacing:-0.24px; }
+    .overview-pill { display:inline-flex; align-items:center; width:max-content; min-height:26px; padding:0 10px; border-radius:9999px; background:#f5f5f5; color:var(--fg); box-shadow:var(--shadow-sm); font-size:var(--text-xs); font-weight:500; }
+    .protocol-breakdown { display:grid; gap:8px; }
+    .protocol-breakdown-row { display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; color:var(--muted); font-size:var(--text-sm); }
     .panel, .card { background:var(--surface); border-radius:var(--radius-lg); box-shadow:var(--shadow-md); padding:var(--panel-padding); }
     .metric { font-size:30px; font-weight:600; line-height:1.05; letter-spacing:-0.96px; margin-top:10px; color:var(--fg); }
     .section-heading, .section-title { font-size:24px; line-height:1.2; letter-spacing:-0.96px; font-weight:600; margin:0 0 var(--space-3); color:var(--fg); }
@@ -803,8 +810,8 @@ const panelHTML = `<!doctype html>
     #ei-dynamic-fields { display:contents; }
     #edit-inbound-dialog input, #edit-inbound-dialog select, #edit-client-dialog input, #edit-client-dialog select { width:100%; box-sizing:border-box; margin-bottom:0; }
     @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
-    @media (max-width: 900px) { .app-shell { grid-template-columns:1fr; } .sidebar { border-right:0; border-bottom:1px solid var(--line-strong); } .grid,.protocols { grid-template-columns:1fr 1fr; } form { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-    @media (max-width: 560px) { .grid,.protocols, form { grid-template-columns:1fr; } main { padding:18px; } .topbar { flex-direction:column; align-items:flex-start; } }
+    @media (max-width: 900px) { .app-shell { grid-template-columns:1fr; } .sidebar { border-right:0; border-bottom:1px solid var(--line-strong); } .grid,.overview-grid,.protocols { grid-template-columns:1fr 1fr; } .overview-insights { grid-template-columns:1fr; } form { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (max-width: 560px) { .grid,.overview-grid,.protocols, form { grid-template-columns:1fr; } main { padding:18px; } .topbar { flex-direction:column; align-items:flex-start; } }
   </style>
 </head>
 <body>
@@ -981,11 +988,30 @@ const panelHTML = `<!doctype html>
         </div>
         <div class="badge">Single Binary</div>
       </div>
-      <section id="overview" class="grid" aria-label="概览指标">
+      <section id="overview" class="overview-grid" aria-label="概览指标">
         <div class="card panel"><div>入站</div><div id="inbound-count" class="metric">0</div><p>VLESS / VMess / Trojan / Shadowsocks</p></div>
         <div class="card panel"><div>客户端</div><div id="client-count" class="metric">0</div><p>活跃 / 总计</p></div>
         <div class="card panel"><div>总流量</div><div id="total-traffic" class="metric">0 B</div><p>所有客户端上行+下行累计</p></div>
         <div class="card panel"><div>Xray</div><div id="xray-status-metric" class="metric">检查中...</div><p>运行状态</p></div>
+        <div class="overview-insights">
+          <div class="overview-card">
+            <div class="overview-card-title">运行概况</div>
+            <div id="overview-health-summary" class="muted">正在读取入站、客户端与 Xray 状态...</div>
+            <div id="overview-active-summary" class="overview-pill">活跃客户端 0 / 0</div>
+          </div>
+          <div class="overview-card">
+            <div class="overview-card-title">协议分布</div>
+            <div id="overview-protocol-breakdown" class="protocol-breakdown"></div>
+          </div>
+          <div class="overview-card">
+            <div class="overview-card-title">快捷操作</div>
+            <div id="overview-quick-actions" class="actions" style="margin-top:0">
+              <button onclick="navigateTo('inbounds')">管理入站</button>
+              <button class="secondary" onclick="navigateTo('clients')">管理客户端</button>
+              <button class="secondary" onclick="navigateTo('xray')">查看 Xray</button>
+            </div>
+          </div>
+        </div>
       </section>
       <section id="inbounds" class="card panel">
         <h2 class="section-heading">核心协议</h2>
@@ -1219,6 +1245,8 @@ const panelHTML = `<!doctype html>
       const card = clientCount.closest('.card');
       const p = card ? card.querySelector('p') : null;
       if (p) p.textContent = active + ' / ' + allClients.length;
+      renderOverviewInsights(inbounds, allClients, active);
+      updateProtocolBreakdown(inbounds);
       if (inbounds.length === 0) {
         inboundList.className = 'list';
         inboundList.innerHTML = renderEmptyState('暂无入站', '先创建一个 VLESS / VMess / Trojan / Shadowsocks 节点；MiGate 会自动生成客户端与 Xray 配置。', [
@@ -1243,6 +1271,40 @@ const panelHTML = `<!doctype html>
           '</div>' +
         '</div>';
       }).join('');
+    }
+
+    function renderOverviewInsights(inbounds, allClients, active) {
+      const health = document.getElementById('overview-health-summary');
+      const activeSummary = document.getElementById('overview-active-summary');
+      const enabledInbounds = inbounds.filter(i => i.enabled).length;
+      const disabledInbounds = inbounds.length - enabledInbounds;
+      const limitedClients = allClients.filter(c => {
+        const used = (c.up || 0) + (c.down || 0);
+        return (c.traffic_limit || 0) > 0 && used >= c.traffic_limit;
+      }).length;
+      const expiredClients = allClients.filter(c => c.expiry_at && c.expiry_at > 0 && c.expiry_at <= Math.floor(Date.now() / 1000)).length;
+      if (health) {
+        health.textContent = inbounds.length === 0
+          ? '还没有入站。建议先创建一个 VLESS/REALITY 或 TLS 入站，再添加客户端。'
+          : '已启用 ' + enabledInbounds + ' 个入站，停用 ' + disabledInbounds + ' 个；受限客户端 ' + limitedClients + ' 个，过期客户端 ' + expiredClients + ' 个。';
+      }
+      if (activeSummary) {
+        activeSummary.textContent = '活跃客户端 ' + active + ' / ' + allClients.length;
+      }
+    }
+
+    function updateProtocolBreakdown(inbounds) {
+      const el = document.getElementById('overview-protocol-breakdown');
+      if (!el) return;
+      const protocols = ['vless', 'vmess', 'trojan', 'shadowsocks'];
+      const labels = {vless:'VLESS', vmess:'VMess', trojan:'Trojan', shadowsocks:'Shadowsocks'};
+      const counts = protocols.reduce((acc, proto) => {
+        acc[proto] = inbounds.filter(i => (i.protocol || '').toLowerCase() === proto).length;
+        return acc;
+      }, {});
+      el.innerHTML = protocols.map(proto =>
+        '<div class="protocol-breakdown-row"><span>' + labels[proto] + '</span><strong>' + counts[proto] + '</strong></div>'
+      ).join('');
     }
 
     function escapeHtml(value) {

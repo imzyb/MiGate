@@ -574,6 +574,35 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 			t.Fatalf("panel missing overview stat element %q", want)
 		}
 	}
+
+	// Overview operation insights: health summary, protocol distribution, and quick actions.
+	for _, want := range []string{
+		`.overview-grid`,
+		`.overview-insights`,
+		`.overview-card`,
+		`.overview-card-title`,
+		`.overview-pill`,
+		`.protocol-breakdown`,
+		`.protocol-breakdown-row`,
+		`id="overview-health-summary"`,
+		`id="overview-active-summary"`,
+		`id="overview-protocol-breakdown"`,
+		`id="overview-quick-actions"`,
+		`function renderOverviewInsights`,
+		`function updateProtocolBreakdown`,
+		`renderOverviewInsights(inbounds, allClients, active)`,
+		`updateProtocolBreakdown(inbounds)`,
+		`navigateTo('inbounds')`,
+		`navigateTo('clients')`,
+		`navigateTo('xray')`,
+		`运行概况`,
+		`协议分布`,
+		`快捷操作`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing overview insight contract %q", want)
+		}
+	}
 }
 
 func TestSettingsAPI(t *testing.T) {
