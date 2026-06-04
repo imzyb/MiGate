@@ -674,6 +674,10 @@ const panelHTML = `<!doctype html>
     .danger-icon-btn { background:#fff5f5; color:var(--danger); box-shadow:var(--shadow-sm); }
     .traffic-track { width:128px; height:4px; margin-top:5px; overflow:hidden; border-radius:9999px; background:#f3f4f6; }
     .traffic-fill { height:100%; border-radius:9999px; background:var(--accent2); }
+    .empty-state { display:grid; gap:10px; justify-items:start; padding:22px; border-radius:var(--radius-xl); background:var(--surface); box-shadow:var(--shadow-sm), inset 0 0 0 1px rgba(250,250,250,.9); color:var(--muted); }
+    .empty-state-title { color:var(--fg); font-size:16px; font-weight:600; letter-spacing:-0.32px; }
+    .empty-state-copy { max-width:560px; color:var(--muted); font-size:13px; line-height:1.6; }
+    .empty-state-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:4px; }
     .muted { color:var(--muted); }
     .error { color:#b91c1c; }
     .btn-del { background:var(--danger); border:none; color:white; padding:4px 10px; border-radius:var(--radius-sm); font-size:12px; cursor:pointer; }
@@ -962,7 +966,7 @@ const panelHTML = `<!doctype html>
           <div><strong>使用方式</strong>：将订阅链接填入 V2Ray / Clash Meta / Nekoray 等客户端</div>
         </div>
         <div class="list" style="margin-top:16px">
-          <div id="sub-inbound-summary">正在加载入站订阅概况...</div>
+          <div id="sub-inbound-summary" class="empty-state"><div class="empty-state-title">正在加载订阅概况</div><div class="empty-state-copy">正在读取入站与客户端数据，用于生成订阅入口概览。</div></div>
         </div>
       </section>
       <section id="xray" class="card panel">
@@ -1049,8 +1053,11 @@ const panelHTML = `<!doctype html>
       const p = card ? card.querySelector('p') : null;
       if (p) p.textContent = active + ' / ' + allClients.length;
       if (inbounds.length === 0) {
-        inboundList.className = 'list muted';
-        inboundList.textContent = '暂无入站，先创建一个 VLESS / VMess / Trojan / Shadowsocks 节点。';
+        inboundList.className = 'list';
+        inboundList.innerHTML = renderEmptyState('暂无入站', '先创建一个 VLESS / VMess / Trojan / Shadowsocks 节点；MiGate 会自动生成客户端与 Xray 配置。', [
+          {label:'创建入站', onclick:"document.getElementById('inbound-form').scrollIntoView({behavior:'smooth'});document.getElementById('inbound-remark').focus()"},
+          {label:'查看 Xray', onclick:"navigateTo('xray')", secondary:true}
+        ]);
         return;
       }
       inboundList.className = 'list';
@@ -1073,6 +1080,18 @@ const panelHTML = `<!doctype html>
 
     function escapeHtml(value) {
       return String(value || '').replace(/[&<>"]/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[char]));
+    }
+
+    function renderEmptyState(title, copy, actions) {
+      const actionHtml = (actions || []).map((action) => {
+        const cls = action.secondary ? ' class="secondary"' : '';
+        return '<button' + cls + ' onclick="' + action.onclick + '">' + escapeHtml(action.label) + '</button>';
+      }).join('');
+      return '<div class="empty-state">' +
+        '<div class="empty-state-title">' + escapeHtml(title) + '</div>' +
+        '<div class="empty-state-copy">' + escapeHtml(copy) + '</div>' +
+        (actionHtml ? '<div class="empty-state-actions">' + actionHtml + '</div>' : '') +
+      '</div>';
     }
 
     async function loadInbounds() {
@@ -1121,16 +1140,18 @@ const panelHTML = `<!doctype html>
       const sel = document.getElementById('client-inbound-select');
       const list = document.getElementById('client-list');
       if (!sel.value) {
-        list.className = 'list muted';
-        list.textContent = '选择一个入站以查看客户端...';
+        list.className = 'list';
+        list.innerHTML = renderEmptyState('选择入站', '先从上方下拉框选择一个入站，再查看、创建或编辑该入站下的客户端。');
         return;
       }
       const response = await fetch('/api/inbounds');
       const data = await response.json();
       const inbound = (data.inbounds || []).find(i => i.id === parseInt(sel.value));
       if (!inbound) {
-        list.className = 'list muted';
-        list.textContent = '入站未找到。';
+        list.className = 'list';
+        list.innerHTML = renderEmptyState('入站未找到', '这个入站可能已被删除，请刷新列表后重新选择。', [
+          {label:'刷新入站', onclick:'populateInboundSelect();loadClients()'}
+        ]);
         return;
       }
       renderClients(inbound, list);
@@ -1140,8 +1161,10 @@ const panelHTML = `<!doctype html>
       const subscriptionHost = window.location.host;
       const clients = inbound.clients || [];
       if (clients.length === 0) {
-        list.className = 'list muted';
-        list.textContent = '暂无客户端，在该入站下创建一个。';
+        list.className = 'list';
+        list.innerHTML = renderEmptyState('暂无客户端', '在当前入站下创建第一个客户端后，即可复制订阅或分享链接。', [
+          {label:'创建客户端', onclick:"document.getElementById('client-email').focus()"}
+        ]);
         return;
       }
       list.className = 'list';
@@ -1565,7 +1588,9 @@ const panelHTML = `<!doctype html>
         const host = window.location.host;
         const el = document.getElementById('sub-inbound-summary');
         if (inbounds.length === 0) {
-          el.innerHTML = '<span class="muted">暂无入站，请先在「入站」页面创建。</span>';
+          el.innerHTML = renderEmptyState('正在加载订阅概况', '还没有可生成订阅的入站。请先创建入站和客户端，再回到这里查看订阅概览。', [
+            {label:'去创建入站', onclick:"navigateTo('inbounds')"}
+          ]);
           return;
         }
         el.innerHTML = inbounds.map(inb => {

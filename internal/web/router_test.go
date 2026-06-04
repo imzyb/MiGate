@@ -407,6 +407,27 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		}
 	}
 
+	// Vercel-style empty/loading states
+	for _, want := range []string{
+		`.empty-state`,
+		`.empty-state-title`,
+		`.empty-state-copy`,
+		`.empty-state-actions`,
+		`function renderEmptyState`,
+		`renderEmptyState('暂无入站'`,
+		`renderEmptyState('选择入站'`,
+		`renderEmptyState('暂无客户端'`,
+		`renderEmptyState('正在加载订阅概况'`,
+		`class="empty-state"`,
+		`class="empty-state-title"`,
+		`class="empty-state-copy"`,
+		`class="empty-state-actions"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing empty-state contract %q", want)
+		}
+	}
+
 	// Traffic/expiry UI elements
 	for _, want := range []string{"ec-traffic-limit", "ec-expiry-at", "formatBytes", "traffic_limit", "bar-low"} {
 		if !strings.Contains(body, want) {
