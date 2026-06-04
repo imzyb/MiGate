@@ -380,3 +380,75 @@ func TestStoreCreateInboundWithTransportFields(t *testing.T) {
 		t.Fatalf("update remark: got %q, want transport-updated", updated.Remark)
 	}
 }
+
+func TestStoreCreateInboundWithTLSFields(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	// Create inbound with TLS fields
+	inbound, err := store.CreateInbound(context.Background(), db.CreateInboundParams{
+		Remark:      "tls-test",
+		Protocol:    "vless",
+		Port:        30010,
+		Network:     "tcp",
+		Security:    "tls",
+		TLSCertFile: "/etc/letsencrypt/live/example.com/fullchain.pem",
+		TLSKeyFile:  "/etc/letsencrypt/live/example.com/privkey.pem",
+	})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+
+	if inbound.TLSCertFile != "/etc/letsencrypt/live/example.com/fullchain.pem" {
+		t.Fatalf("tls_cert_file: got %q, want /etc/letsencrypt/live/example.com/fullchain.pem", inbound.TLSCertFile)
+	}
+	if inbound.TLSKeyFile != "/etc/letsencrypt/live/example.com/privkey.pem" {
+		t.Fatalf("tls_key_file: got %q, want /etc/letsencrypt/live/example.com/privkey.pem", inbound.TLSKeyFile)
+	}
+
+	// Verify via list
+	inbounds, err := store.ListInbounds(context.Background())
+	if err != nil {
+		t.Fatalf("list inbounds: %v", err)
+	}
+	var found bool
+	for _, ib := range inbounds {
+		if ib.ID == inbound.ID {
+			found = true
+			if ib.TLSCertFile != "/etc/letsencrypt/live/example.com/fullchain.pem" {
+				t.Fatalf("list tls_cert_file: got %q", ib.TLSCertFile)
+			}
+			if ib.TLSKeyFile != "/etc/letsencrypt/live/example.com/privkey.pem" {
+				t.Fatalf("list tls_key_file: got %q", ib.TLSKeyFile)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("inbound not found in list")
+	}
+
+	// Update and verify TLS fields preserved
+	updated, err := store.UpdateInbound(context.Background(), inbound.ID, db.UpdateInboundParams{
+		Remark:      "tls-updated",
+		Protocol:    "vless",
+		Port:        30011,
+		Network:     "tcp",
+		Security:    "tls",
+		Enabled:     true,
+		TLSCertFile: "/new/path/cert.pem",
+		TLSKeyFile:  "/new/path/key.pem",
+	})
+	if err != nil {
+		t.Fatalf("update inbound: %v", err)
+	}
+	if updated.TLSCertFile != "/new/path/cert.pem" {
+		t.Fatalf("update tls_cert_file: got %q", updated.TLSCertFile)
+	}
+	if updated.TLSKeyFile != "/new/path/key.pem" {
+		t.Fatalf("update tls_key_file: got %q", updated.TLSKeyFile)
+	}
+}

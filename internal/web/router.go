@@ -703,6 +703,10 @@ const panelHTML = `<!doctype html>
               <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
             </select>
           </div>
+          <div id="ei-tls-settings" class="hidden">
+            <input id="ei-tls-cert-file" placeholder="TLS 证书路径 (如 /etc/.../fullchain.pem)">
+            <input id="ei-tls-key-file" placeholder="TLS 密钥路径 (如 /etc/.../privkey.key)">
+          </div>
         </div>
         <div class="actions" style="margin-top:12px">
           <button type="button" class="btn-cancel" onclick="closeEditInbound()">取消</button>
@@ -802,6 +806,10 @@ const panelHTML = `<!doctype html>
                 <option value="aes-256-gcm">aes-256-gcm</option>
                 <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
               </select>
+            </div>
+            <div id="tls-settings" class="hidden">
+              <input name="tls_cert_file" placeholder="TLS 证书路径 (如 /etc/.../fullchain.pem)">
+              <input name="tls_key_file" placeholder="TLS 密钥路径 (如 /etc/.../privkey.key)">
             </div>
           </div>
           <button type="submit">保存入站</button>
@@ -1072,6 +1080,7 @@ const panelHTML = `<!doctype html>
       document.getElementById('ei-grpc-settings').classList.toggle('hidden', net !== 'grpc');
       document.getElementById('ei-reality-settings').classList.toggle('hidden', sec !== 'reality');
       document.getElementById('ei-ss-settings').classList.toggle('hidden', proto !== 'shadowsocks');
+      document.getElementById('ei-tls-settings').classList.toggle('hidden', sec !== 'tls');
     }
 
     async function editInbound(id) {
@@ -1092,6 +1101,8 @@ const panelHTML = `<!doctype html>
       document.getElementById('ei-reality-server-names').value = inbound.reality_server_names || '';
       document.getElementById('ei-reality-short-id').value = inbound.reality_short_id || '';
       document.getElementById('ei-ss-method').value = inbound.ss_method || '2022-blake3-aes-128-gcm';
+      document.getElementById('ei-tls-cert-file').value = inbound.tls_cert_file || '';
+      document.getElementById('ei-tls-key-file').value = inbound.tls_key_file || '';
       eiUpdateDynamicFields();
       document.getElementById('edit-inbound-overlay').classList.remove('hidden');
     }
@@ -1115,6 +1126,8 @@ const panelHTML = `<!doctype html>
         reality_server_names: document.getElementById('ei-reality-server-names').value,
         reality_short_id: document.getElementById('ei-reality-short-id').value,
         ss_method: document.getElementById('ei-ss-method').value,
+        tls_cert_file: document.getElementById('ei-tls-cert-file').value,
+        tls_key_file: document.getElementById('ei-tls-key-file').value,
       };
       if (!data.remark || !data.port) { showToast('请填写备注和端口', 'error'); return; }
       const res = await fetch('/api/inbounds/' + id, {
@@ -1153,7 +1166,9 @@ const panelHTML = `<!doctype html>
           reality_dest: inbound.reality_dest || '',
           reality_server_names: inbound.reality_server_names || '',
           reality_short_id: inbound.reality_short_id || '',
-          ss_method: inbound.ss_method || ''
+          ss_method: inbound.ss_method || '',
+          tls_cert_file: inbound.tls_cert_file || '',
+          tls_key_file: inbound.tls_key_file || ''
         })
       });
       if (!res.ok) {
@@ -1312,6 +1327,7 @@ const panelHTML = `<!doctype html>
       document.getElementById('grpc-settings').classList.toggle('hidden', net !== 'grpc');
       document.getElementById('reality-settings').classList.toggle('hidden', sec !== 'reality');
       document.getElementById('ss-settings').classList.toggle('hidden', proto !== 'shadowsocks');
+      document.getElementById('tls-settings').classList.toggle('hidden', sec !== 'tls');
     }
 
     document.querySelector('[name=protocol]').addEventListener('change', updateDynamicFields);

@@ -39,6 +39,8 @@ type Inbound struct {
 	RealityServerNames string `json:"reality_server_names"`
 	RealityShortID   string   `json:"reality_short_id"`
 	SSMethod         string   `json:"ss_method"`
+	TLSCertFile      string   `json:"tls_cert_file"`
+	TLSKeyFile       string   `json:"tls_key_file"`
 	Clients          []Client `json:"clients"`
 }
 
@@ -67,6 +69,8 @@ type CreateInboundParams struct {
 	RealityServerNames string `json:"reality_server_names"`
 	RealityShortID     string `json:"reality_short_id"`
 	SSMethod           string `json:"ss_method"`
+	TLSCertFile        string `json:"tls_cert_file"`
+	TLSKeyFile         string `json:"tls_key_file"`
 }
 
 type CreateClientParams struct {
@@ -90,6 +94,8 @@ type UpdateInboundParams struct {
 	RealityServerNames string `json:"reality_server_names"`
 	RealityShortID     string `json:"reality_short_id"`
 	SSMethod           string `json:"ss_method"`
+	TLSCertFile        string `json:"tls_cert_file"`
+	TLSKeyFile         string `json:"tls_key_file"`
 }
 
 type UpdateClientParams struct {
@@ -160,6 +166,8 @@ CREATE INDEX IF NOT EXISTS idx_clients_inbound_id ON clients(inbound_id);
 		{"reality_server_names", "TEXT", "DEFAULT ''"},
 		{"reality_short_id", "TEXT", "DEFAULT ''"},
 		{"ss_method", "TEXT", "DEFAULT '2022-blake3-aes-128-gcm'"},
+		{"tls_cert_file", "TEXT", "DEFAULT ''"},
+		{"tls_key_file", "TEXT", "DEFAULT ''"},
 	} {
 		_, _ = s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE inbounds ADD COLUMN %s %s %s", col.name, col.typ, col.def))
 	}
@@ -186,7 +194,7 @@ func (s *Store) CreateInbound(ctx context.Context, params CreateInboundParams) (
 	id, uuid, err := s.insertInbound(ctx, remark, protocol, params.Port, network, security,
 		params.WsPath, params.WsHost, params.GrpcServiceName,
 		params.RealityDest, params.RealityServerNames, params.RealityShortID,
-		params.SSMethod)
+		params.SSMethod, params.TLSCertFile, params.TLSKeyFile)
 	if err != nil {
 		return Inbound{}, err
 	}
@@ -194,18 +202,19 @@ func (s *Store) CreateInbound(ctx context.Context, params CreateInboundParams) (
 		WsPath: params.WsPath, WsHost: params.WsHost, GrpcServiceName: params.GrpcServiceName,
 		RealityDest: params.RealityDest, RealityServerNames: params.RealityServerNames, RealityShortID: params.RealityShortID,
 		SSMethod: params.SSMethod,
+		TLSCertFile: params.TLSCertFile, TLSKeyFile: params.TLSKeyFile,
 		Clients: []Client{}}, nil
 }
 
 func (s *Store) insertInbound(ctx context.Context, remark, protocol string, port int, network, security string,
-	wsPath, wsHost, grpcServiceName, realityDest, realityServerNames, realityShortID, ssMethod string) (int64, string, error) {
+	wsPath, wsHost, grpcServiceName, realityDest, realityServerNames, realityShortID, ssMethod, tlsCertFile, tlsKeyFile string) (int64, string, error) {
 	uuid := newUUID()
 	result, err := s.db.ExecContext(ctx, `
 INSERT INTO inbounds (uuid, remark, protocol, port, network, security, enabled, created_at,
-  ws_path, ws_host, grpc_service_name, reality_dest, reality_server_names, reality_short_id, ss_method)
-VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+  ws_path, ws_host, grpc_service_name, reality_dest, reality_server_names, reality_short_id, ss_method, tls_cert_file, tls_key_file)
+VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `, uuid, remark, protocol, port, network, security, time.Now().UTC().Format(time.RFC3339),
-		wsPath, wsHost, grpcServiceName, realityDest, realityServerNames, realityShortID, ssMethod)
+		wsPath, wsHost, grpcServiceName, realityDest, realityServerNames, realityShortID, ssMethod, tlsCertFile, tlsKeyFile)
 	if err != nil {
 		return 0, "", err
 	}
@@ -291,9 +300,11 @@ func (s *Store) UpdateInbound(ctx context.Context, id int64, params UpdateInboun
 		enabled = 1
 	}
 	result, err := s.db.ExecContext(ctx, `UPDATE inbounds SET remark=?, protocol=?, port=?, network=?, security=?, enabled=?,
-		ws_path=?, ws_host=?, grpc_service_name=?, reality_dest=?, reality_server_names=?, reality_short_id=?, ss_method=? WHERE id=?`,
+		ws_path=?, ws_host=?, grpc_service_name=?, reality_dest=?, reality_server_names=?, reality_short_id=?, ss_method=?,
+		tls_cert_file=?, tls_key_file=? WHERE id=?`,
 		remark, protocol, params.Port, network, security, enabled,
-		params.WsPath, params.WsHost, params.GrpcServiceName, params.RealityDest, params.RealityServerNames, params.RealityShortID, params.SSMethod, id)
+		params.WsPath, params.WsHost, params.GrpcServiceName, params.RealityDest, params.RealityServerNames, params.RealityShortID, params.SSMethod,
+		params.TLSCertFile, params.TLSKeyFile, id)
 	if err != nil {
 		return Inbound{}, err
 	}
@@ -306,11 +317,13 @@ func (s *Store) UpdateInbound(ctx context.Context, id int64, params UpdateInboun
 	}
 	// Reload to get the full row
 	row := s.db.QueryRowContext(ctx, `SELECT id, uuid, remark, protocol, port, network, security, enabled,
-		ws_path, ws_host, grpc_service_name, reality_dest, reality_server_names, reality_short_id, ss_method FROM inbounds WHERE id=?`, id)
+		ws_path, ws_host, grpc_service_name, reality_dest, reality_server_names, reality_short_id, ss_method,
+		tls_cert_file, tls_key_file FROM inbounds WHERE id=?`, id)
 	var inbound Inbound
 	var dbEnabled int
 	if err := row.Scan(&inbound.ID, &inbound.UUID, &inbound.Remark, &inbound.Protocol, &inbound.Port, &inbound.Network, &inbound.Security, &dbEnabled,
-		&inbound.WsPath, &inbound.WsHost, &inbound.GrpcServiceName, &inbound.RealityDest, &inbound.RealityServerNames, &inbound.RealityShortID, &inbound.SSMethod); err != nil {
+		&inbound.WsPath, &inbound.WsHost, &inbound.GrpcServiceName, &inbound.RealityDest, &inbound.RealityServerNames, &inbound.RealityShortID, &inbound.SSMethod,
+		&inbound.TLSCertFile, &inbound.TLSKeyFile); err != nil {
 		return Inbound{}, err
 	}
 	inbound.Enabled = dbEnabled != 0
@@ -352,7 +365,8 @@ func (s *Store) UpdateClient(ctx context.Context, id int64, params UpdateClientP
 func (s *Store) ListInbounds(ctx context.Context) ([]Inbound, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, uuid, remark, protocol, port, network, security, enabled,
-  ws_path, ws_host, grpc_service_name, reality_dest, reality_server_names, reality_short_id, ss_method
+  ws_path, ws_host, grpc_service_name, reality_dest, reality_server_names, reality_short_id, ss_method,
+  tls_cert_file, tls_key_file
 FROM inbounds
 ORDER BY id ASC
 `)
@@ -367,7 +381,8 @@ ORDER BY id ASC
 		var inbound Inbound
 		var enabled int
 		if err := rows.Scan(&inbound.ID, &inbound.UUID, &inbound.Remark, &inbound.Protocol, &inbound.Port, &inbound.Network, &inbound.Security, &enabled,
-			&inbound.WsPath, &inbound.WsHost, &inbound.GrpcServiceName, &inbound.RealityDest, &inbound.RealityServerNames, &inbound.RealityShortID, &inbound.SSMethod); err != nil {
+			&inbound.WsPath, &inbound.WsHost, &inbound.GrpcServiceName, &inbound.RealityDest, &inbound.RealityServerNames, &inbound.RealityShortID, &inbound.SSMethod,
+			&inbound.TLSCertFile, &inbound.TLSKeyFile); err != nil {
 			return nil, err
 		}
 		inbound.Enabled = enabled != 0

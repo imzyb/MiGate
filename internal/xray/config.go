@@ -194,5 +194,19 @@ func buildStreamSettings(inbound db.Inbound) map[string]interface{} {
 		}
 		settings["realitySettings"] = realitySettings
 	}
+	if security == "tls" {
+		tlsSettings := map[string]interface{}{}
+		if inbound.TLSCertFile != "" && inbound.TLSKeyFile != "" {
+			tlsSettings["certificates"] = []map[string]interface{}{
+				{
+					"certificateFile": inbound.TLSCertFile,
+					"keyFile":         inbound.TLSKeyFile,
+				},
+			}
+		}
+		if len(tlsSettings) > 0 {
+			settings["tlsSettings"] = tlsSettings
+		}
+	}
 	return settings
 }

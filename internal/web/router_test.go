@@ -174,6 +174,7 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		`id="grpc-settings"`,
 		`id="reality-settings"`,
 		`id="ss-settings"`,
+		`id="tls-settings"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("panel advanced UI missing dynamic field container %q", want)
@@ -221,6 +222,19 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("panel missing gRPC edit field %q", want)
+		}
+	}
+
+	// TLS edit modal fields
+	for _, want := range []string{
+		`id="ei-tls-settings"`,
+		`id="ei-tls-cert-file"`,
+		`id="ei-tls-key-file"`,
+		`tls_cert_file:`,
+		`tls_key_file:`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing TLS edit field %q", want)
 		}
 	}
 
