@@ -526,8 +526,8 @@ const panelHTML = `<!doctype html>
     .toast.success { border-color:var(--accent2); }
     @keyframes toastIn { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }
     @keyframes toastOut { from { opacity:1; } to { opacity:0; transform:translateX(40px); } }
+    #confirm-overlay.hidden { display:none; }
     #confirm-overlay { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; animation:fadeIn .2s; }
-    #confirm-dialog { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:28px; max-width:400px; width:90%; box-shadow:0 24px 80px rgba(0,0,0,.5); }
     #confirm-dialog p { margin:0 0 20px; font-size:15px; line-height:1.6; }
     #confirm-dialog .actions { display:flex; gap:10px; justify-content:flex-end; }
     #confirm-dialog .btn-cancel { background:rgba(148,163,184,.12); border:1px solid var(--line); color:var(--text); padding:10px 18px; border-radius:12px; cursor:pointer; font-weight:600; }

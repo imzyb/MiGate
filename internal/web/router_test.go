@@ -224,6 +224,11 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 	if !strings.Contains(body, "navigateTo(") {
 		t.Fatalf("panel missing navigateTo function for nav switching")
 	}
+
+	// Confirm overlay hidden class must use higher-specificity selector
+	if !strings.Contains(body, "#confirm-overlay.hidden") {
+		t.Fatalf("panel CSS must use #confirm-overlay.hidden (not .hidden) to override ID selector display:flex")
+	}
 }
 
 func TestRouterDoesNotServeLegacyHeavyRoutes(t *testing.T) {
