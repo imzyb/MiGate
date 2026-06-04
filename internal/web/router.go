@@ -561,14 +561,7 @@ const panelHTML = `<!doctype html>
       </nav>
     </aside>
     <main>
-      <section class="hero">
-        <div>
-          <h1>MiGate</h1>
-          <p>从零重写为轻量 Go 单二进制：SQLite、本地 Xray 配置、订阅链接与核心面板能力。</p>
-        </div>
-        <div class="badge">● 服务在线</div>
-      </section>
-      <section class="grid" aria-label="概览指标">
+      <section id="overview" class="grid" aria-label="概览指标">
         <div class="card"><div>入站</div><div id="inbound-count" class="metric">0</div><p>VLESS / VMess / Trojan / Shadowsocks</p></div>
         <div class="card"><div>客户端</div><div id="client-count" class="metric">0</div><p>按 inbound 管理账号</p></div>
         <div class="card"><div>订阅</div><div class="metric">Ready</div><p>Clash / 通用链接规划中</p></div>
@@ -631,7 +624,7 @@ const panelHTML = `<!doctype html>
         </form>
         <div id="inbound-list" class="list muted">正在加载入站...</div>
       </section>
-      <section id="client-section" class="card">
+      <section id="clients" class="card">
         <h2 class="section-title">客户端管理</h2>
         <p class="muted">选择入站 → 创建客户端 → 获取订阅链接</p>
         <div class="actions">
@@ -675,6 +668,31 @@ const panelHTML = `<!doctype html>
     }
 
     loadInbounds();
+
+    // === Navigation section switching ===
+    function navigateTo(sectionId) {
+      const validSections = ['overview', 'inbounds', 'clients'];
+      if (!validSections.includes(sectionId)) sectionId = 'overview';
+      document.querySelectorAll('main > section').forEach((el) => {
+        el.style.display = (sectionId === 'overview' || el.id === sectionId) ? '' : 'none';
+      });
+      document.querySelectorAll('nav a').forEach((a) => {
+        const href = a.getAttribute('href');
+        a.classList.toggle('active', (sectionId === 'overview' && href === '/') || href === '/#' + sectionId);
+      });
+    }
+    document.querySelectorAll('nav a').forEach((a) => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const href = a.getAttribute('href');
+        if (href === '/') { navigateTo('overview'); return; }
+        const id = href.replace('/#', '');
+        navigateTo(id);
+      });
+    });
+    // Only show overview and inbounds/clients that have content; keep subscriptions/xray hidden
+    // Start on overview
+    navigateTo('overview');
 
     async function loadClients() {
       const sel = document.getElementById('client-inbound-select');

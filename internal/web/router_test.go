@@ -87,7 +87,7 @@ func TestPanelWiresClientManagement(t *testing.T) {
 	}
 	body := page.Body.String()
 	for _, want := range []string{
-		`id="client-section"`,
+		`id="clients"`,
 		`id="client-form"`,
 		`name="email"`,
 		`id="client-list"`,
@@ -208,6 +208,21 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("panel missing edit/toggle function %q", want)
 		}
+	}
+
+	// No redundant hero title/subtitle
+	if strings.Contains(body, `#hero-section`) {
+		t.Fatalf("panel should not have redundant hero section")
+	}
+
+	// Nav links work with section switching
+	for _, want := range []string{`href="/"`, `href="/#inbounds"`, `href="/#clients"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing nav link %q", want)
+		}
+	}
+	if !strings.Contains(body, "navigateTo(") {
+		t.Fatalf("panel missing navigateTo function for nav switching")
 	}
 }
 
