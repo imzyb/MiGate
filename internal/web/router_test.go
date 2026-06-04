@@ -384,6 +384,29 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		}
 	}
 
+	// Vercel-style form field groups
+	for _, want := range []string{
+		`.form-grid`,
+		`.field-group`,
+		`.field-label`,
+		`.field-help`,
+		`.form-actions`,
+		`class="form-grid"`,
+		`class="field-group"`,
+		`class="field-label"`,
+		`class="field-help"`,
+		`class="form-actions"`,
+		`for="inbound-remark"`,
+		`id="inbound-remark"`,
+		`for="client-email"`,
+		`id="client-email"`,
+		`for="set-panel-port"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing Vercel-style form contract %q", want)
+		}
+	}
+
 	// Traffic/expiry UI elements
 	for _, want := range []string{"ec-traffic-limit", "ec-expiry-at", "formatBytes", "traffic_limit", "bar-low"} {
 		if !strings.Contains(body, want) {

@@ -649,6 +649,12 @@ const panelHTML = `<!doctype html>
     button.secondary, .btn-cancel { background:var(--surface); color:var(--fg); box-shadow:var(--shadow-sm); }
     .btn-confirm { background:var(--danger); color:#fff; }
     form { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; margin:16px 0; }
+    .form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin:18px 0; }
+    .field-group { display:grid; gap:7px; min-width:0; }
+    .field-group.span-2 { grid-column:1 / -1; }
+    .field-label { color:var(--fg); font-size:13px; font-weight:500; line-height:1.3; }
+    .field-help { color:var(--muted); font-size:12px; line-height:1.45; margin:0; }
+    .form-actions { grid-column:1 / -1; display:flex; justify-content:flex-end; align-items:center; gap:10px; padding-top:4px; margin-top:2px; }
     input, select { width:100%; border:none; outline:none; background:var(--surface); color:var(--fg); border-radius:var(--radius-sm); padding:10px 12px; box-shadow:var(--shadow-sm); font-family:'Geist',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; }
     input:focus, select:focus, button:focus { box-shadow:var(--shadow-sm), 0 0 0 2px var(--focus); }
     .list { display:grid; gap:10px; margin-top:14px; }
@@ -833,30 +839,52 @@ const panelHTML = `<!doctype html>
           <button class="secondary" onclick="navigateTo('xray');setTimeout(previewXrayConfig,200)">生成 Xray 配置</button>
           <button class="secondary" onclick="navigateTo('subscriptions')">查看订阅</button>
         </div>
-        <form id="inbound-form">
-          <input name="remark" placeholder="备注，例如 主入口" required>
-          <select name="protocol">
-            <option value="vless">VLESS</option>
-            <option value="vmess">VMess</option>
-            <option value="trojan">Trojan</option>
-            <option value="shadowsocks">Shadowsocks</option>
-          </select>
-          <input name="port" type="number" min="1" max="65535" placeholder="端口" required>
-          <select name="network">
-            <option value="tcp">TCP</option>
-            <option value="ws">WebSocket</option>
-            <option value="kcp">mKCP</option>
-            <option value="grpc">gRPC</option>
-            <option value="quic">QUIC</option>
-            <option value="h2">HTTP/2</option>
-            <option value="xhttp">XHTTP</option>
-          </select>
-          <select name="security">
-            <option value="none">none</option>
-            <option value="tls">tls</option>
-            <option value="reality">reality</option>
-          </select>
-          <div id="dynamic-fields">
+        <form id="inbound-form" class="form-grid">
+          <div class="field-group">
+            <label class="field-label" for="inbound-remark">入站备注</label>
+            <input id="inbound-remark" name="remark" placeholder="例如 主入口" required>
+            <p class="field-help">用于列表识别，不会写入客户端密钥。</p>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="inbound-protocol">协议</label>
+            <select id="inbound-protocol" name="protocol">
+              <option value="vless">VLESS</option>
+              <option value="vmess">VMess</option>
+              <option value="trojan">Trojan</option>
+              <option value="shadowsocks">Shadowsocks</option>
+            </select>
+            <p class="field-help">选择 Xray 入站协议。</p>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="inbound-port">监听端口</label>
+            <input id="inbound-port" name="port" type="number" min="1" max="65535" placeholder="例如 443" required>
+            <p class="field-help">建议使用未被占用的公网端口。</p>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="inbound-network">传输方式</label>
+            <select name="network" id="inbound-network">
+              <option value="tcp">TCP</option>
+              <option value="ws">WebSocket</option>
+              <option value="kcp">mKCP</option>
+              <option value="grpc">gRPC</option>
+              <option value="quic">QUIC</option>
+              <option value="h2">HTTP/2</option>
+              <option value="xhttp">XHTTP</option>
+            </select>
+            <p class="field-help">切换后会显示对应的高级字段。</p>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="inbound-security">安全层</label>
+            <select id="inbound-security" name="security">
+              <option value="none">none</option>
+              <option value="tls">tls</option>
+              <option value="reality">reality</option>
+            </select>
+            <p class="field-help">REALITY/TLS 会展开证书或伪装目标字段。</p>
+          </div>
+          <div id="dynamic-fields" class="field-group span-2">
+            <label class="field-label">高级传输字段</label>
+            <p class="field-help">仅在对应 network/security/protocol 下生效，留空则使用安全默认值。</p>
             <div id="ws-settings" class="hidden">
               <input name="ws_path" placeholder="WS Path (默认 /)">
               <input name="ws_host" placeholder="WS Host (可选)">
@@ -889,7 +917,9 @@ const panelHTML = `<!doctype html>
               <input name="tls_key_file" placeholder="TLS 密钥路径 (如 /etc/.../privkey.key)">
             </div>
           </div>
-          <button type="submit">保存入站</button>
+          <div class="form-actions">
+            <button type="submit">保存入站</button>
+          </div>
         </form>
         <div id="inbound-list" class="list muted">正在加载入站...</div>
       </section>
@@ -901,11 +931,25 @@ const panelHTML = `<!doctype html>
             <option value="">--选择入站--</option>
           </select>
         </div>
-        <form id="client-form" style="display:flex;flex-wrap:wrap;gap:8px;align-items:end">
-          <input name="email" placeholder="客户端标识，例如 user01" required style="flex:1;min-width:140px">
-          <input name="traffic_limit" type="number" min="0" placeholder="流量限额（字节，0=不限）" style="width:180px">
-          <input name="expiry_at" type="datetime-local" id="client-expiry" placeholder="到期时间" style="width:180px">
-          <button type="submit">创建客户端</button>
+        <form id="client-form" class="form-grid">
+          <div class="field-group">
+            <label class="field-label" for="client-email">客户端标识</label>
+            <input id="client-email" name="email" placeholder="例如 user01" required>
+            <p class="field-help">用于区分设备或用户，也会出现在分享链接备注中。</p>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="client-traffic-limit">流量限额</label>
+            <input id="client-traffic-limit" name="traffic_limit" type="number" min="0" placeholder="0 = 不限">
+            <p class="field-help">单位为字节；留空或 0 表示不限流量。</p>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="client-expiry">到期时间</label>
+            <input name="expiry_at" type="datetime-local" id="client-expiry" placeholder="到期时间">
+            <p class="field-help">到期后订阅会返回明确的过期提示。</p>
+          </div>
+          <div class="form-actions">
+            <button type="submit">创建客户端</button>
+          </div>
         </form>
         <div id="client-list" class="list muted">选择一个入站以查看客户端...</div>
       </section>
@@ -942,15 +986,35 @@ const panelHTML = `<!doctype html>
       <section id="settings" class="card panel">
         <h2 class="section-title">面板设置</h2>
         <p class="muted" style="margin-bottom:16px">编辑 panel.json 配置。修改面板端口或认证后需重启服务生效。</p>
-        <form id="settings-form" onsubmit="return false">
-          <input id="set-panel-port" type="number" min="1" max="65535" placeholder="面板端口" required>
-          <input id="set-username" placeholder="登录用户名">
-          <input id="set-password" type="password" placeholder="登录密码（留空不修改）">
-          <input id="set-xray-config-path" placeholder="Xray 配置路径（如 /etc/migate/xray.json）">
-          <input id="set-web-path" placeholder="Web 基础路径（如 /）">
-          <div class="actions" style="margin-top:8px">
-            <button type="submit" onclick="saveSettings()">保存设置</button>
+        <form id="settings-form" class="form-grid" onsubmit="return false">
+          <div class="field-group">
+            <label class="field-label" for="set-panel-port">面板端口</label>
+            <input id="set-panel-port" type="number" min="1" max="65535" placeholder="例如 9999" required>
+            <p class="field-help">保存后需要重启 MiGate 服务才会切换监听端口。</p>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="set-username">登录用户名</label>
+            <input id="set-username" placeholder="admin">
+            <p class="field-help">与密码同时配置时启用面板认证。</p>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="set-password">登录密码</label>
+            <input id="set-password" type="password" placeholder="留空不修改">
+            <p class="field-help">留空会保留现有密码，不会清空配置。</p>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="set-xray-config-path">Xray 配置目录</label>
+            <input id="set-xray-config-path" placeholder="例如 /usr/local/migate">
+            <p class="field-help">MiGate 会在该目录写入 xray.json。</p>
+          </div>
+          <div class="field-group span-2">
+            <label class="field-label" for="set-web-path">Web 基础路径</label>
+            <input id="set-web-path" placeholder="例如 /">
+            <p class="field-help">默认使用根路径；反代到子路径时再修改。</p>
+          </div>
+          <div class="form-actions">
             <button type="button" class="secondary" onclick="loadSettings()">刷新</button>
+            <button type="submit" onclick="saveSettings()">保存设置</button>
           </div>
         </form>
         <div id="settings-status" class="list muted" style="margin-top:12px"></div>
