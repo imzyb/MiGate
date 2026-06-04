@@ -55,18 +55,18 @@ type Client struct {
 }
 
 type CreateInboundParams struct {
-	Remark             string
-	Protocol           string
-	Port               int
-	Network            string
-	Security           string
-	WsPath             string
-	WsHost             string
-	GrpcServiceName    string
-	RealityDest        string
-	RealityServerNames string
-	RealityShortID     string
-	SSMethod           string
+	Remark             string `json:"remark"`
+	Protocol           string `json:"protocol"`
+	Port               int    `json:"port"`
+	Network            string `json:"network"`
+	Security           string `json:"security"`
+	WsPath             string `json:"ws_path"`
+	WsHost             string `json:"ws_host"`
+	GrpcServiceName    string `json:"grpc_service_name"`
+	RealityDest        string `json:"reality_dest"`
+	RealityServerNames string `json:"reality_server_names"`
+	RealityShortID     string `json:"reality_short_id"`
+	SSMethod           string `json:"ss_method"`
 }
 
 type CreateClientParams struct {
