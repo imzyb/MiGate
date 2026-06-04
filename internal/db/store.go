@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 var supportedProtocols = map[string]bool{
@@ -57,7 +57,7 @@ type CreateClientParams struct {
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
-	database, err := sql.Open("sqlite3", path)
+	database, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
