@@ -422,12 +422,28 @@ const panelHTML = `<!doctype html>
     .toast.success { border-color:var(--accent2); }
     @keyframes toastIn { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }
     @keyframes toastOut { from { opacity:1; } to { opacity:0; transform:translateX(40px); } }
+    #confirm-overlay { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; animation:fadeIn .2s; }
+    #confirm-dialog { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:28px; max-width:400px; width:90%; box-shadow:0 24px 80px rgba(0,0,0,.5); }
+    #confirm-dialog p { margin:0 0 20px; font-size:15px; line-height:1.6; }
+    #confirm-dialog .actions { display:flex; gap:10px; justify-content:flex-end; }
+    #confirm-dialog .btn-cancel { background:rgba(148,163,184,.12); border:1px solid var(--line); color:var(--text); padding:10px 18px; border-radius:12px; cursor:pointer; font-weight:600; }
+    #confirm-dialog .btn-confirm { background:var(--danger); border:none; color:white; padding:10px 18px; border-radius:12px; cursor:pointer; font-weight:700; }
+    @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
     @media (max-width: 900px) { .shell { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .grid,.protocols { grid-template-columns:1fr 1fr; } }
     @media (max-width: 560px) { .grid,.protocols { grid-template-columns:1fr; } main { padding:18px; } }
   </style>
 </head>
 <body>
   <div id="toast-container"></div>
+  <div id="confirm-overlay" class="hidden" onclick="if(event.target===this)rejectConfirm()">
+    <div id="confirm-dialog">
+      <p id="confirm-msg"></p>
+      <div class="actions">
+        <button class="btn-cancel" onclick="rejectConfirm()">取消</button>
+        <button class="btn-confirm" onclick="resolveConfirm()">确认</button>
+      </div>
+    </div>
+  </div>
   <div class="shell">
     <aside>
       <div class="brand">MiGate</div>
@@ -610,10 +626,10 @@ const panelHTML = `<!doctype html>
     }
 
     async function deleteInbound(id) {
-      if (!confirm('确认删除入站 ' + id + '？此操作不可撤销，其下的客户端也将被删除。')) return;
+      if (!await showConfirm('确认删除入站 ' + id + '？此操作不可撤销，其下的客户端也将被删除。')) return;
       const response = await fetch('/api/inbounds/' + id, {method: 'DELETE'});
       if (!response.ok) {
-        alert('删除失败：' + await response.text());
+        showToast('删除失败：' + await response.text(), 'error');
         return;
       }
       await loadInbounds();
@@ -621,10 +637,10 @@ const panelHTML = `<!doctype html>
     }
 
     async function deleteClient(inboundId, clientId) {
-      if (!confirm('确认删除客户端 ' + clientId + '？')) return;
+      if (!await showConfirm('确认删除客户端 ' + clientId + '？')) return;
       const response = await fetch('/api/inbounds/' + inboundId + '/clients/' + clientId, {method: 'DELETE'});
       if (!response.ok) {
-        alert('删除失败：' + await response.text());
+        showToast('删除失败：' + await response.text(), 'error');
         return;
       }
       await loadClients();
@@ -646,7 +662,7 @@ const panelHTML = `<!doctype html>
       event.preventDefault();
       const sel = document.getElementById('client-inbound-select');
       if (!sel.value) {
-        alert('请先选择一个入站');
+        showToast('请先选择一个入站', 'error');
         return;
       }
       const form = new FormData(event.currentTarget);
@@ -657,10 +673,11 @@ const panelHTML = `<!doctype html>
         body: JSON.stringify({email: email})
       });
       if (!response.ok) {
-        alert('创建客户端失败：' + await response.text());
+        showToast('创建客户端失败：' + await response.text(), 'error');
         return;
       }
       event.currentTarget.reset();
+      showToast('客户端创建成功', 'success');
       await loadClients();
       const inboundResponse = await fetch('/api/inbounds');
       const data = await inboundResponse.json();
@@ -677,6 +694,24 @@ const panelHTML = `<!doctype html>
       el.textContent = msg;
       container.appendChild(el);
       setTimeout(() => el.remove(), 3000);
+    }
+
+    // === Modal confirm (replaces native confirm()) ===
+    let _confirmResolve = null;
+    function showConfirm(msg) {
+      return new Promise((resolve) => {
+        _confirmResolve = resolve;
+        document.getElementById('confirm-msg').textContent = msg;
+        document.getElementById('confirm-overlay').classList.remove('hidden');
+      });
+    }
+    function resolveConfirm() {
+      document.getElementById('confirm-overlay').classList.add('hidden');
+      if (_confirmResolve) { _confirmResolve(true); _confirmResolve = null; }
+    }
+    function rejectConfirm() {
+      document.getElementById('confirm-overlay').classList.add('hidden');
+      if (_confirmResolve) { _confirmResolve(false); _confirmResolve = null; }
     }
 
     // === Dynamic transport/security fields ===

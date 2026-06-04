@@ -191,6 +191,17 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 			t.Fatalf("panel advanced UI missing dynamic field logic %q", want)
 		}
 	}
+
+	// All native alert/confirm replaced with toast and modal confirm
+	if strings.Contains(body, "alert(") {
+		t.Fatalf("panel should not use native alert(), found alert(")
+	}
+	if strings.Contains(body, "confirm(") && !strings.Contains(body, "showConfirm(") {
+		t.Fatalf("panel should not use native confirm(), found confirm(")
+	}
+	if !strings.Contains(body, "showConfirm(") {
+		t.Fatalf("panel should have showConfirm() to replace native confirm()")
+	}
 }
 
 func TestRouterDoesNotServeLegacyHeavyRoutes(t *testing.T) {
