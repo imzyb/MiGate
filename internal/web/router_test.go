@@ -157,6 +157,29 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 	}
 	body := page.Body.String()
 
+	// Vercel-style shell and design tokens
+	for _, want := range []string{
+		`fonts.googleapis.com/css2?family=Geist`,
+		`--bg: #ffffff;`,
+		`--fg: #171717;`,
+		`--surface: #ffffff;`,
+		`--muted: #666666;`,
+		`--line: rgba(0,0,0,.08);`,
+		`--shadow-sm: 0 0 0 1px rgba(0,0,0,.08);`,
+		`--shadow-md: 0 0 0 1px rgba(0,0,0,.08), 0 2px 2px rgba(0,0,0,.04), 0 8px 8px -8px rgba(0,0,0,.04);`,
+		`font-family:'Geist',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;`,
+		`font-family:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;`,
+		`class="app-shell"`,
+		`class="sidebar"`,
+		`class="topbar"`,
+		`class="card panel"`,
+		`class="section-heading"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel vercel-style shell missing %q", want)
+		}
+	}
+
 	// Network is a select with all transport options
 	for _, want := range []string{
 		`<select name="network"`,
@@ -268,6 +291,12 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 	}
 	if !strings.Contains(body, "navigateTo(") {
 		t.Fatalf("panel missing navigateTo function for nav switching")
+	}
+	if !strings.Contains(body, `main > section{display:none}`) {
+		t.Fatalf("panel should hide all sections by default via CSS to avoid SPA flash")
+	}
+	if !strings.Contains(body, `#overview{display:block}`) {
+		t.Fatalf("panel should show overview by default via CSS")
 	}
 
 	// Confirm overlay hidden class must use higher-specificity selector

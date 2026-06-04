@@ -594,67 +594,91 @@ const panelHTML = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MiGate</title>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    :root { color-scheme: dark; --bg:#070b14; --card:#101827; --muted:#94a3b8; --text:#e5eefb; --line:#223047; --accent:#4f8cff; --accent2:#22c55e; --danger:#ef4444; }
+    :root {
+      color-scheme: light;
+      --bg: #ffffff;
+      --fg: #171717;
+      --surface: #ffffff;
+      --surface-subtle: #fafafa;
+      --muted: #666666;
+      --line: rgba(0,0,0,.08);
+      --line-strong: #ebebeb;
+      --accent: #171717;
+      --accent2: #16a34a;
+      --danger: #dc2626;
+      --focus: hsla(212, 100%, 48%, 1);
+      --shadow-sm: 0 0 0 1px rgba(0,0,0,.08);
+      --shadow-md: 0 0 0 1px rgba(0,0,0,.08), 0 2px 2px rgba(0,0,0,.04), 0 8px 8px -8px rgba(0,0,0,.04);
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-xl: 16px;
+      --sidebar-width: 248px;
+    }
     * { box-sizing: border-box; }
-    body { margin:0; min-height:100vh; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: radial-gradient(circle at 20% 10%, rgba(79,140,255,.24), transparent 36%), radial-gradient(circle at 80% 0%, rgba(34,197,94,.14), transparent 30%), var(--bg); color:var(--text); }
-    .shell { display:grid; grid-template-columns: 240px 1fr; min-height:100vh; }
-    aside { border-right:1px solid var(--line); padding:24px 18px; background:rgba(7,11,20,.74); backdrop-filter: blur(18px); }
-    .brand { font-size:24px; font-weight:800; letter-spacing:.4px; margin-bottom:4px; }
-    .brand span { color:var(--accent); }
-    .subtitle { color:var(--muted); font-size:13px; margin-bottom:28px; }
-    nav a { display:block; color:var(--text); text-decoration:none; padding:11px 12px; border-radius:12px; margin:6px 0; border:1px solid transparent; }
-    nav a.active, nav a:hover { background:rgba(79,140,255,.13); border-color:rgba(79,140,255,.25); }
-    main { padding:28px; }
-    main > section { display: none; }
-    #overview { display: block; }
-    .hero { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; margin-bottom:22px; }
-    h1 { margin:0 0 8px; font-size:32px; }
+    html { background: var(--bg); }
+    body { margin:0; min-height:100vh; font-family:'Geist',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+    code, pre, .mono { font-family:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace; }
+    a { color:inherit; }
     p { color:var(--muted); line-height:1.6; }
-    .badge { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:999px; background:rgba(34,197,94,.12); color:#bbf7d0; border:1px solid rgba(34,197,94,.24); font-size:13px; }
+    .app-shell { display:grid; grid-template-columns: var(--sidebar-width) 1fr; min-height:100vh; }
+    .sidebar { border-right:1px solid var(--line-strong); padding:24px 18px; background:var(--surface); }
+    .brand { font-size:24px; font-weight:600; letter-spacing:-0.96px; margin-bottom:4px; color:var(--fg); }
+    .subtitle { color:var(--muted); font-size:13px; line-height:1.5; margin-bottom:28px; }
+    nav a { display:block; color:var(--fg); text-decoration:none; padding:10px 12px; border-radius:var(--radius-md); margin:4px 0; box-shadow:none; font-size:14px; font-weight:500; }
+    nav a.active, nav a:hover { background:var(--surface-subtle); box-shadow:var(--shadow-sm); }
+    main { padding:24px; background:var(--bg); }
+    main > section{display:none}
+    #overview{display:block}
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--line-strong); }
+    .topbar-copy h1 { margin:0; font-size:32px; line-height:1.1; letter-spacing:-1.28px; font-weight:600; color:var(--fg); }
+    .topbar-copy p { margin:8px 0 0; max-width:720px; }
+    .badge { display:inline-flex; align-items:center; gap:8px; padding:0 10px; height:28px; border-radius:9999px; background:#ebf5ff; color:#0068d6; box-shadow:var(--shadow-sm); font-size:12px; font-weight:500; }
     .grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:16px; margin-bottom:18px; }
-    .card { background:linear-gradient(180deg, rgba(16,24,39,.92), rgba(12,18,30,.92)); border:1px solid var(--line); border-radius:18px; padding:18px; box-shadow:0 18px 60px rgba(0,0,0,.22); }
-    .metric { font-size:26px; font-weight:800; margin-top:10px; }
-    .section-title { font-size:18px; font-weight:750; margin:0 0 12px; }
+    .panel, .card { background:var(--surface); border-radius:var(--radius-lg); box-shadow:var(--shadow-md); padding:18px; }
+    .metric { font-size:30px; font-weight:600; line-height:1.05; letter-spacing:-0.96px; margin-top:10px; color:var(--fg); }
+    .section-heading, .section-title { font-size:24px; line-height:1.2; letter-spacing:-0.96px; font-weight:600; margin:0 0 12px; color:var(--fg); }
     .protocols { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
-    .protocol { padding:14px; border-radius:16px; background:rgba(148,163,184,.08); border:1px solid rgba(148,163,184,.14); }
-    .protocol strong { display:block; margin-bottom:6px; }
+    .protocol { padding:14px; border-radius:var(--radius-lg); background:var(--surface); box-shadow:var(--shadow-sm); }
+    .protocol strong { display:block; margin-bottom:6px; color:var(--fg); }
     .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
-    button { background:linear-gradient(135deg,var(--accent),#7c3aed); border:none; color:white; padding:10px 14px; border-radius:12px; font-weight:700; cursor:pointer; }
-    button.secondary { background:rgba(148,163,184,.12); border:1px solid var(--line); }
+    button { appearance:none; border:none; background:var(--accent); color:#ffffff; padding:10px 14px; border-radius:var(--radius-sm); font-family:'Geist',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; font-size:14px; font-weight:500; cursor:pointer; box-shadow:var(--shadow-sm); }
+    button:hover { opacity:.96; }
+    button.secondary, .btn-cancel { background:var(--surface); color:var(--fg); box-shadow:var(--shadow-sm); }
+    .btn-confirm { background:var(--danger); color:#fff; }
     form { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; margin:16px 0; }
-    input, select { width:100%; border:1px solid var(--line); background:rgba(7,11,20,.72); color:var(--text); border-radius:12px; padding:10px 12px; }
+    input, select { width:100%; border:none; outline:none; background:var(--surface); color:var(--fg); border-radius:var(--radius-sm); padding:10px 12px; box-shadow:var(--shadow-sm); font-family:'Geist',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; }
+    input:focus, select:focus, button:focus { box-shadow:var(--shadow-sm), 0 0 0 2px var(--focus); }
     .list { display:grid; gap:10px; margin-top:14px; }
-    .row { display:grid; grid-template-columns:1.2fr .8fr .8fr .8fr .8fr .6fr; gap:10px; align-items:center; padding:12px; border:1px solid rgba(148,163,184,.14); border-radius:14px; background:rgba(148,163,184,.07); }
+    .row { display:grid; grid-template-columns:1.2fr .8fr .8fr .8fr .8fr .6fr; gap:10px; align-items:center; padding:12px; border-radius:var(--radius-lg); background:var(--surface); box-shadow:var(--shadow-sm); }
     .muted { color:var(--muted); }
-    .error { color:#fecaca; }
-    .btn-del { background:var(--danger); border:none; color:white; padding:4px 10px; border-radius:8px; font-size:12px; cursor:pointer; }
+    .error { color:#b91c1c; }
+    .btn-del { background:var(--danger); border:none; color:white; padding:4px 10px; border-radius:var(--radius-sm); font-size:12px; cursor:pointer; }
     .bar-low { background:var(--accent2); }
     .bar-mid { background:#fbbf24; }
     .bar-high { background:var(--danger); }
-    .copy-link { font-size:11px;cursor:pointer; }
-    .btn-sm { border:none; color:white; padding:4px 8px; border-radius:8px; font-size:11px; cursor:pointer; }
+    .copy-link { font-size:11px; cursor:pointer; }
+    .btn-sm { border:none; color:white; padding:4px 8px; border-radius:var(--radius-sm); font-size:11px; cursor:pointer; }
     .hidden { display:none; }
     #toast-container { position:fixed; top:20px; right:20px; z-index:9999; display:flex; flex-direction:column; gap:10px; }
-    .toast { background:var(--card); border:1px solid var(--accent); color:var(--text); padding:12px 18px; border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.4); animation: toastIn .3s ease, toastOut .3s ease 2.7s forwards; }
-    .toast.error { border-color:var(--danger); }
-    .toast.success { border-color:var(--accent2); }
+    .toast { background:var(--surface); border:none; color:var(--fg); padding:12px 18px; border-radius:var(--radius-lg); box-shadow:var(--shadow-md); animation: toastIn .3s ease, toastOut .3s ease 2.7s forwards; }
+    .toast.error { box-shadow:var(--shadow-sm), inset 0 0 0 1px rgba(220,38,38,.18); }
+    .toast.success { box-shadow:var(--shadow-sm), inset 0 0 0 1px rgba(22,163,74,.18); }
     @keyframes toastIn { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }
     @keyframes toastOut { from { opacity:1; } to { opacity:0; transform:translateX(40px); } }
     #confirm-overlay.hidden { display:none; }
-  #edit-inbound-overlay.hidden { display:none; }
-  #edit-client-overlay.hidden { display:none; }
-#confirm-overlay { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; animation:fadeIn .2s; }
-  #confirm-dialog p { margin:0 0 20px; font-size:15px; line-height:1.6; }
-  #confirm-dialog .actions { display:flex; gap:10px; justify-content:flex-end; }
-  #confirm-dialog .btn-cancel { background:rgba(148,163,184,.12); border:1px solid var(--line); color:var(--text); padding:10px 18px; border-radius:12px; cursor:pointer; font-weight:600; }
-  #confirm-dialog .btn-confirm { background:var(--danger); border:none; color:white; padding:10px 18px; border-radius:12px; cursor:pointer; font-weight:700; }
-  #edit-inbound-overlay, #edit-client-overlay { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; animation:fadeIn .2s; }
-  #edit-inbound-dialog, #edit-client-dialog { background:var(--bg); border:1px solid var(--line); border-radius:18px; padding:24px; min-width:360px; max-width:480px; max-height:80vh; overflow-y:auto; }
-  #edit-inbound-dialog input, #edit-inbound-dialog select { width:100%; box-sizing:border-box; margin-bottom:10px; }
+    #edit-inbound-overlay.hidden { display:none; }
+    #edit-client-overlay.hidden { display:none; }
+    #confirm-overlay, #edit-inbound-overlay, #edit-client-overlay { position:fixed; inset:0; z-index:10000; background:rgba(23,23,23,.12); backdrop-filter: blur(6px); display:flex; align-items:center; justify-content:center; animation:fadeIn .2s; }
+    #confirm-dialog, #edit-inbound-dialog, #edit-client-dialog { background:var(--surface); box-shadow:var(--shadow-md); border-radius:var(--radius-xl); padding:24px; min-width:360px; max-width:480px; max-height:80vh; overflow-y:auto; }
+    #confirm-dialog p { margin:0 0 20px; font-size:15px; line-height:1.6; color:var(--fg); }
+    #confirm-dialog .actions { display:flex; gap:10px; justify-content:flex-end; }
+    #edit-inbound-dialog input, #edit-inbound-dialog select { width:100%; box-sizing:border-box; margin-bottom:10px; }
     @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
-    @media (max-width: 900px) { .shell { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .grid,.protocols { grid-template-columns:1fr 1fr; } }
-    @media (max-width: 560px) { .grid,.protocols { grid-template-columns:1fr; } main { padding:18px; } }
+    @media (max-width: 900px) { .app-shell { grid-template-columns:1fr; } .sidebar { border-right:0; border-bottom:1px solid var(--line-strong); } .grid,.protocols { grid-template-columns:1fr 1fr; } form { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (max-width: 560px) { .grid,.protocols, form { grid-template-columns:1fr; } main { padding:18px; } .topbar { flex-direction:column; align-items:flex-start; } }
   </style>
 </head>
 <body>
@@ -754,10 +778,10 @@ const panelHTML = `<!doctype html>
     </div>
   </div>
 
-  <div class="shell">
-    <aside>
+  <div class="app-shell">
+    <aside class="sidebar">
       <div class="brand">MiGate</div>
-      <div class="subtitle">轻量面板风格单二进制面板</div>
+      <div class="subtitle">轻量单二进制面板，专注协议、客户端与 Xray 管理。</div>
       <nav>
         <a class="active" href="/">概览</a>
         <a href="/#inbounds">入站</a>
@@ -768,14 +792,21 @@ const panelHTML = `<!doctype html>
       </nav>
     </aside>
     <main>
+      <div class="topbar">
+        <div class="topbar-copy">
+          <h1>MiGate 控制台</h1>
+          <p>用更克制、更工程化的界面管理入站、客户端、订阅与 Xray 配置。</p>
+        </div>
+        <div class="badge">Single Binary</div>
+      </div>
       <section id="overview" class="grid" aria-label="概览指标">
-        <div class="card"><div>入站</div><div id="inbound-count" class="metric">0</div><p>VLESS / VMess / Trojan / Shadowsocks</p></div>
-        <div class="card"><div>客户端</div><div id="client-count" class="metric">0</div><p>活跃 / 总计</p></div>
-        <div class="card"><div>总流量</div><div id="total-traffic" class="metric">0 B</div><p>所有客户端上行+下行累计</p></div>
-        <div class="card"><div>Xray</div><div id="xray-status-metric" class="metric">检查中...</div><p>运行状态</p></div>
+        <div class="card panel"><div>入站</div><div id="inbound-count" class="metric">0</div><p>VLESS / VMess / Trojan / Shadowsocks</p></div>
+        <div class="card panel"><div>客户端</div><div id="client-count" class="metric">0</div><p>活跃 / 总计</p></div>
+        <div class="card panel"><div>总流量</div><div id="total-traffic" class="metric">0 B</div><p>所有客户端上行+下行累计</p></div>
+        <div class="card panel"><div>Xray</div><div id="xray-status-metric" class="metric">检查中...</div><p>运行状态</p></div>
       </section>
-      <section id="inbounds" class="card">
-        <h2 class="section-title">核心协议</h2>
+      <section id="inbounds" class="card panel">
+        <h2 class="section-heading">核心协议</h2>
         <div class="protocols">
           <div class="protocol"><strong>VLESS</strong><span>Reality / TLS 入站</span></div>
           <div class="protocol"><strong>VMess</strong><span>WebSocket / TLS 兼容</span></div>
@@ -847,7 +878,7 @@ const panelHTML = `<!doctype html>
         </form>
         <div id="inbound-list" class="list muted">正在加载入站...</div>
       </section>
-      <section id="clients" class="card">
+      <section id="clients" class="card panel">
         <h2 class="section-title">客户端管理</h2>
         <p class="muted">选择入站 → 创建客户端 → 获取订阅链接</p>
         <div class="actions">
@@ -863,7 +894,7 @@ const panelHTML = `<!doctype html>
         </form>
         <div id="client-list" class="list muted">选择一个入站以查看客户端...</div>
       </section>
-      <section id="subscriptions" class="card">
+      <section id="subscriptions" class="card panel">
         <h2 class="section-title">订阅管理</h2>
         <p class="muted" style="margin-bottom:16px">每个客户端自动生成订阅链接和分享链接，可在客户端列表中查看和复制。</p>
         <div id="subscription-info" style="background:rgba(148,163,184,.06); border-radius:16px; padding:20px; line-height:2">
@@ -875,7 +906,7 @@ const panelHTML = `<!doctype html>
           <div id="sub-inbound-summary">正在加载入站订阅概况...</div>
         </div>
       </section>
-      <section id="xray" class="card">
+      <section id="xray" class="card panel">
         <h2 class="section-title">Xray 管理</h2>
         <p class="muted" style="margin-bottom:16px">查看 Xray 服务状态，应用配置变更。</p>
         <div style="background:rgba(148,163,184,.06); border-radius:16px; padding:20px; margin-bottom:16px">
@@ -893,7 +924,7 @@ const panelHTML = `<!doctype html>
         </div>
         <div id="xray-config-preview" class="list muted" style="margin-top:12px;display:none"><pre id="xray-config-json" style="background:rgba(148,163,184,.06);border-radius:12px;padding:16px;font-size:12px;overflow-x:auto;white-space:pre-wrap;max-height:400px;overflow-y:auto"></pre></div>
       </section>
-      <section id="settings" class="card">
+      <section id="settings" class="card panel">
         <h2 class="section-title">面板设置</h2>
         <p class="muted" style="margin-bottom:16px">编辑 panel.json 配置。修改面板端口或认证后需重启服务生效。</p>
         <form id="settings-form" onsubmit="return false">
