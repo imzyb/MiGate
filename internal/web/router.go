@@ -718,10 +718,15 @@ const panelHTML = `<!doctype html>
     #edit-inbound-overlay.hidden { display:none; }
     #edit-client-overlay.hidden { display:none; }
     #confirm-overlay, #edit-inbound-overlay, #edit-client-overlay { position:fixed; inset:0; z-index:10000; background:rgba(23,23,23,.12); backdrop-filter: blur(6px); display:flex; align-items:center; justify-content:center; animation:fadeIn .2s; }
-    #confirm-dialog, #edit-inbound-dialog, #edit-client-dialog { background:var(--surface); box-shadow:var(--shadow-md); border-radius:var(--radius-xl); padding:24px; min-width:360px; max-width:480px; max-height:80vh; overflow-y:auto; }
+    #confirm-dialog, #edit-inbound-dialog, #edit-client-dialog { background:var(--surface); box-shadow:var(--shadow-md); border-radius:var(--radius-xl); padding:var(--space-6); min-width:360px; max-width:520px; max-height:80vh; overflow-y:auto; }
     #confirm-dialog p { margin:0 0 20px; font-size:15px; line-height:1.6; color:var(--fg); }
     #confirm-dialog .actions { display:flex; gap:10px; justify-content:flex-end; }
-    #edit-inbound-dialog input, #edit-inbound-dialog select { width:100%; box-sizing:border-box; margin-bottom:10px; }
+    .modal-title { margin:0 0 var(--space-4); font-size:var(--text-lg); line-height:1.3; font-weight:600; letter-spacing:-0.2px; color:var(--fg); }
+    .modal-form { margin:0; grid-template-columns:repeat(2,minmax(0,1fr)); }
+    #edit-inbound-form.modal-form, #edit-client-form.modal-form { gap:var(--space-4); }
+    .modal-actions { margin-top:0; }
+    #ei-dynamic-fields { display:contents; }
+    #edit-inbound-dialog input, #edit-inbound-dialog select, #edit-client-dialog input, #edit-client-dialog select { width:100%; box-sizing:border-box; margin-bottom:0; }
     @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
     @media (max-width: 900px) { .app-shell { grid-template-columns:1fr; } .sidebar { border-right:0; border-bottom:1px solid var(--line-strong); } .grid,.protocols { grid-template-columns:1fr 1fr; } form { grid-template-columns:repeat(2,minmax(0,1fr)); } }
     @media (max-width: 560px) { .grid,.protocols, form { grid-template-columns:1fr; } main { padding:18px; } .topbar { flex-direction:column; align-items:flex-start; } }
@@ -742,65 +747,97 @@ const panelHTML = `<!doctype html>
   <!-- Edit Inbound Modal -->
   <div id="edit-inbound-overlay" class="hidden" onclick="if(event.target===this)closeEditInbound()">
     <div id="edit-inbound-dialog">
-      <h3 style="margin:0 0 16px">编辑入站</h3>
-      <form id="edit-inbound-form" onsubmit="return false">
-        <input id="ei-remark" placeholder="备注" required>
-        <select id="ei-protocol">
-          <option value="vless">VLESS</option>
-          <option value="vmess">VMess</option>
-          <option value="trojan">Trojan</option>
-          <option value="shadowsocks">Shadowsocks</option>
-        </select>
-        <input id="ei-port" type="number" min="1" max="65535" placeholder="端口" required>
-        <select id="ei-network">
-          <option value="tcp">TCP</option>
-          <option value="ws">WebSocket</option>
-          <option value="kcp">mKCP</option>
-          <option value="grpc">gRPC</option>
-          <option value="quic">QUIC</option>
-          <option value="h2">HTTP/2</option>
-          <option value="xhttp">XHTTP</option>
-        </select>
-        <select id="ei-security">
-          <option value="none">none</option>
-          <option value="tls">tls</option>
-          <option value="reality">reality</option>
-        </select>
+      <h3 class="modal-title">编辑入站</h3>
+      <form id="edit-inbound-form" class="form-grid modal-form" onsubmit="return false">
+        <div class="field-group">
+          <label class="field-label" for="ei-remark">入站备注</label>
+          <input id="ei-remark" placeholder="备注" required>
+          <p class="field-help">用于列表识别，建议使用节点地区或用途。</p>
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="ei-protocol">协议</label>
+          <select id="ei-protocol">
+            <option value="vless">VLESS</option>
+            <option value="vmess">VMess</option>
+            <option value="trojan">Trojan</option>
+            <option value="shadowsocks">Shadowsocks</option>
+          </select>
+          <p class="field-help">保存后会影响客户端链接格式。</p>
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="ei-port">监听端口</label>
+          <input id="ei-port" type="number" min="1" max="65535" placeholder="端口" required>
+          <p class="field-help">1-65535，需确保防火墙已放行。</p>
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="ei-network">传输</label>
+          <select id="ei-network">
+            <option value="tcp">TCP</option>
+            <option value="ws">WebSocket</option>
+            <option value="kcp">mKCP</option>
+            <option value="grpc">gRPC</option>
+            <option value="quic">QUIC</option>
+            <option value="h2">HTTP/2</option>
+            <option value="xhttp">XHTTP</option>
+          </select>
+          <p class="field-help">切换后会显示对应高级字段。</p>
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="ei-security">安全</label>
+          <select id="ei-security">
+            <option value="none">none</option>
+            <option value="tls">tls</option>
+            <option value="reality">reality</option>
+          </select>
+          <p class="field-help">TLS/REALITY 会显示证书或伪装参数。</p>
+        </div>
         <div id="ei-dynamic-fields">
-          <div id="ei-ws-settings" class="hidden">
+          <div id="ei-ws-settings" class="field-group span-2 hidden">
+            <label class="field-label" for="ei-ws-path">WebSocket</label>
             <input id="ei-ws-path" placeholder="WS Path (默认 /)">
             <input id="ei-ws-host" placeholder="WS Host (可选)">
+            <p class="field-help">路径和 Host 用于 CDN 或反代场景。</p>
           </div>
-          <div id="ei-grpc-settings" class="hidden">
+          <div id="ei-grpc-settings" class="field-group span-2 hidden">
+            <label class="field-label" for="ei-grpc-service-name">gRPC ServiceName</label>
             <input id="ei-grpc-service-name" value="migate" placeholder="gRPC ServiceName">
+            <p class="field-help">客户端需与服务端保持一致。</p>
           </div>
-          <div id="ei-xhttp-settings" class="hidden">
+          <div id="ei-xhttp-settings" class="field-group span-2 hidden">
+            <label class="field-label" for="ei-xhttp-path">XHTTP</label>
             <input id="ei-xhttp-path" value="/" placeholder="XHTTP Path (默认 /)">
             <select id="ei-xhttp-mode">
               <option value="stream-one">stream-one</option>
               <option value="packet-up">packet-up</option>
               <option value="stream-up">stream-up</option>
             </select>
+            <p class="field-help">选择 XHTTP 路径和上传模式。</p>
           </div>
-          <div id="ei-reality-settings" class="hidden">
+          <div id="ei-reality-settings" class="field-group span-2 hidden">
+            <label class="field-label" for="ei-reality-dest">REALITY</label>
             <input id="ei-reality-dest" value="www.cloudflare.com:443" placeholder="目标 (dest)">
             <input id="ei-reality-server-names" value="www.cloudflare.com" placeholder="ServerNames (逗号分隔)">
             <input id="ei-reality-short-id" placeholder="ShortId (可选)">
             <input type="hidden" id="ei-reality-private-key">
+            <p class="field-help">用于 REALITY 伪装目标、SNI 和短 ID。</p>
           </div>
-          <div id="ei-ss-settings" class="hidden">
+          <div id="ei-ss-settings" class="field-group span-2 hidden">
+            <label class="field-label" for="ei-ss-method">Shadowsocks 加密</label>
             <select id="ei-ss-method">
               <option value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm</option>
               <option value="aes-256-gcm">aes-256-gcm</option>
               <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
             </select>
+            <p class="field-help">选择与客户端兼容的加密方法。</p>
           </div>
-          <div id="ei-tls-settings" class="hidden">
+          <div id="ei-tls-settings" class="field-group span-2 hidden">
+            <label class="field-label" for="ei-tls-cert-file">TLS 证书</label>
             <input id="ei-tls-cert-file" placeholder="TLS 证书路径 (如 /etc/.../fullchain.pem)">
             <input id="ei-tls-key-file" placeholder="TLS 密钥路径 (如 /etc/.../privkey.key)">
+            <p class="field-help">保存后应用 Xray 前会由 Xray 校验证书路径。</p>
           </div>
         </div>
-        <div class="actions" style="margin-top:12px">
+        <div class="form-actions modal-actions">
           <button type="button" class="btn-cancel" onclick="closeEditInbound()">取消</button>
           <button type="submit" class="btn-confirm" style="background:var(--accent)" onclick="saveEditInbound()">保存</button>
         </div>
@@ -811,16 +848,28 @@ const panelHTML = `<!doctype html>
   <!-- Edit Client Modal -->
   <div id="edit-client-overlay" class="hidden" onclick="if(event.target===this)closeEditClient()">
     <div id="edit-client-dialog">
-      <h3 style="margin:0 0 16px">编辑客户端</h3>
-      <div class="actions" style="flex-direction:column;gap:10px">
-        <input id="ec-email" placeholder="客户端标识，例如 user01" required style="width:100%;box-sizing:border-box">
-        <input id="ec-traffic-limit" type="number" min="0" placeholder="流量限额（字节，0=不限）" style="width:100%;box-sizing:border-box">
-        <input id="ec-expiry-at" type="datetime-local" style="width:100%;box-sizing:border-box">
-      </div>
-      <div class="actions" style="margin-top:12px">
-        <button class="btn-cancel" onclick="closeEditClient()">取消</button>
-        <button class="btn-confirm" style="background:var(--accent)" onclick="saveEditClient()">保存</button>
-      </div>
+      <h3 class="modal-title">编辑客户端</h3>
+      <form id="edit-client-form" class="form-grid modal-form" onsubmit="return false">
+        <div class="field-group span-2">
+          <label class="field-label" for="ec-email">客户端标识</label>
+          <input id="ec-email" placeholder="客户端标识，例如 user01" required>
+          <p class="field-help">用于识别用户或设备，不影响 UUID。</p>
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="ec-traffic-limit">流量限额</label>
+          <input id="ec-traffic-limit" type="number" min="0" placeholder="流量限额（字节，0=不限）">
+          <p class="field-help">单位为字节，填 0 表示不限。</p>
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="ec-expiry-at">过期时间</label>
+          <input id="ec-expiry-at" type="datetime-local">
+          <p class="field-help">留空表示不过期。</p>
+        </div>
+        <div class="form-actions modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeEditClient()">取消</button>
+          <button type="submit" class="btn-confirm" style="background:var(--accent)" onclick="saveEditClient()">保存</button>
+        </div>
+      </form>
     </div>
   </div>
 

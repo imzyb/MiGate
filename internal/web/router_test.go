@@ -220,6 +220,30 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		}
 	}
 
+	// Edit modals use the same form-grid/field-group system as main panel forms.
+	for _, want := range []string{
+		`.modal-title`,
+		`.modal-form`,
+		`#edit-inbound-form.modal-form`,
+		`#edit-client-form.modal-form`,
+		`<form id="edit-inbound-form" class="form-grid modal-form" onsubmit="return false">`,
+		`<form id="edit-client-form" class="form-grid modal-form" onsubmit="return false">`,
+		`<label class="field-label" for="ei-remark">入站备注</label>`,
+		`<label class="field-label" for="ei-protocol">协议</label>`,
+		`<label class="field-label" for="ei-port">监听端口</label>`,
+		`<label class="field-label" for="ei-network">传输</label>`,
+		`<label class="field-label" for="ei-security">安全</label>`,
+		`<label class="field-label" for="ec-email">客户端标识</label>`,
+		`<label class="field-label" for="ec-traffic-limit">流量限额</label>`,
+		`<label class="field-label" for="ec-expiry-at">过期时间</label>`,
+		`class="field-group span-2 hidden"`,
+		`class="form-actions modal-actions"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing unified edit-modal form contract %q", want)
+		}
+	}
+
 	// Network is a select with all transport options
 	for _, want := range []string{
 		`<select name="network"`,
