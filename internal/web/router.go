@@ -527,11 +527,16 @@ const panelHTML = `<!doctype html>
     @keyframes toastIn { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }
     @keyframes toastOut { from { opacity:1; } to { opacity:0; transform:translateX(40px); } }
     #confirm-overlay.hidden { display:none; }
-    #confirm-overlay { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; animation:fadeIn .2s; }
-    #confirm-dialog p { margin:0 0 20px; font-size:15px; line-height:1.6; }
-    #confirm-dialog .actions { display:flex; gap:10px; justify-content:flex-end; }
-    #confirm-dialog .btn-cancel { background:rgba(148,163,184,.12); border:1px solid var(--line); color:var(--text); padding:10px 18px; border-radius:12px; cursor:pointer; font-weight:600; }
-    #confirm-dialog .btn-confirm { background:var(--danger); border:none; color:white; padding:10px 18px; border-radius:12px; cursor:pointer; font-weight:700; }
+  #edit-inbound-overlay.hidden { display:none; }
+  #edit-client-overlay.hidden { display:none; }
+#confirm-overlay { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; animation:fadeIn .2s; }
+  #confirm-dialog p { margin:0 0 20px; font-size:15px; line-height:1.6; }
+  #confirm-dialog .actions { display:flex; gap:10px; justify-content:flex-end; }
+  #confirm-dialog .btn-cancel { background:rgba(148,163,184,.12); border:1px solid var(--line); color:var(--text); padding:10px 18px; border-radius:12px; cursor:pointer; font-weight:600; }
+  #confirm-dialog .btn-confirm { background:var(--danger); border:none; color:white; padding:10px 18px; border-radius:12px; cursor:pointer; font-weight:700; }
+  #edit-inbound-overlay, #edit-client-overlay { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; animation:fadeIn .2s; }
+  #edit-inbound-dialog, #edit-client-dialog { background:var(--bg); border:1px solid var(--line); border-radius:18px; padding:24px; min-width:360px; max-width:480px; max-height:80vh; overflow-y:auto; }
+  #edit-inbound-dialog input, #edit-inbound-dialog select { width:100%; box-sizing:border-box; margin-bottom:10px; }
     @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
     @media (max-width: 900px) { .shell { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .grid,.protocols { grid-template-columns:1fr 1fr; } }
     @media (max-width: 560px) { .grid,.protocols { grid-template-columns:1fr; } main { padding:18px; } }
@@ -548,6 +553,73 @@ const panelHTML = `<!doctype html>
       </div>
     </div>
   </div>
+
+  <!-- Edit Inbound Modal -->
+  <div id="edit-inbound-overlay" class="hidden" onclick="if(event.target===this)closeEditInbound()">
+    <div id="edit-inbound-dialog">
+      <h3 style="margin:0 0 16px">编辑入站</h3>
+      <form id="edit-inbound-form" onsubmit="return false">
+        <input id="ei-remark" placeholder="备注" required>
+        <select id="ei-protocol">
+          <option value="vless">VLESS</option>
+          <option value="vmess">VMess</option>
+          <option value="trojan">Trojan</option>
+          <option value="shadowsocks">Shadowsocks</option>
+        </select>
+        <input id="ei-port" type="number" min="1" max="65535" placeholder="端口" required>
+        <select id="ei-network">
+          <option value="tcp">TCP</option>
+          <option value="ws">WebSocket</option>
+          <option value="kcp">mKCP</option>
+          <option value="grpc">gRPC</option>
+          <option value="quic">QUIC</option>
+          <option value="h2">HTTP/2</option>
+        </select>
+        <select id="ei-security">
+          <option value="none">none</option>
+          <option value="tls">tls</option>
+          <option value="reality">reality</option>
+        </select>
+        <div id="ei-dynamic-fields">
+          <div id="ei-ws-settings" class="hidden">
+            <input id="ei-ws-path" placeholder="WS Path (默认 /)">
+            <input id="ei-ws-host" placeholder="WS Host (可选)">
+          </div>
+          <div id="ei-reality-settings" class="hidden">
+            <input id="ei-reality-dest" value="www.cloudflare.com:443" placeholder="目标 (dest)">
+            <input id="ei-reality-server-names" value="www.cloudflare.com" placeholder="ServerNames (逗号分隔)">
+            <input id="ei-reality-short-id" placeholder="ShortId (可选)">
+          </div>
+          <div id="ei-ss-settings" class="hidden">
+            <select id="ei-ss-method">
+              <option value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm</option>
+              <option value="aes-256-gcm">aes-256-gcm</option>
+              <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
+            </select>
+          </div>
+        </div>
+        <div class="actions" style="margin-top:12px">
+          <button type="button" class="btn-cancel" onclick="closeEditInbound()">取消</button>
+          <button type="submit" class="btn-confirm" style="background:var(--accent)" onclick="saveEditInbound()">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit Client Modal -->
+  <div id="edit-client-overlay" class="hidden" onclick="if(event.target===this)closeEditClient()">
+    <div id="edit-client-dialog">
+      <h3 style="margin:0 0 16px">编辑客户端</h3>
+      <div class="actions">
+        <input id="ec-email" placeholder="客户端标识，例如 user01" required style="flex:1">
+      </div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn-cancel" onclick="closeEditClient()">取消</button>
+        <button class="btn-confirm" style="background:var(--accent)" onclick="saveEditClient()">保存</button>
+      </div>
+    </div>
+  </div>
+
   <div class="shell">
     <aside>
       <div class="brand">MiGate</div>
@@ -757,7 +829,7 @@ const panelHTML = `<!doctype html>
           '<span class="copy-link" style="font-size:11px;cursor:pointer;color:var(--accent);word-break:break-all" onclick="copySubUrl(\'' + subUrl + '\')" title="点击复制订阅链接">' + subUrl + '</span>' +
           '<span class="copy-link" style="font-size:11px;cursor:pointer;color:var(--accent2)" onclick="copySubUrl(\'' + shareLink + '\')" title="点击复制分享链接">🔗</span>' +
           '<span style="display:flex;gap:4px">' +
-          '<button class="btn-sm" style="background:var(--accent)" onclick="editClient(' + c.id + ')" title="EDIT">\u270f\ufe0f</button>' +
+          '<button class="btn-sm" style="background:var(--accent)" onclick="editClient(' + c.id + ',' + inbound.id + ')" title="EDIT">\u270f\ufe0f</button>' +
           '<button class="btn-sm" style="background:' + (c.enabled ? 'var(--accent2)' : 'var(--muted)') + '" onclick="toggleClient(' + c.id + ')" title="TOGGLE">' + (c.enabled ? 'ON' : 'OFF') + '</button>' +
           '<button class="btn-del" style="padding:4px 8px;font-size:11px" onclick="deleteClient(' + inbound.id + ',' + c.id + ')">DEL</button></span></div>';
       }).join('');
@@ -809,21 +881,72 @@ const panelHTML = `<!doctype html>
     }
 
     // === Edit & toggle functions ===
+    let _editingInboundId = null;
+    let _editingClientData = null;
+
+    function eiUpdateDynamicFields() {
+      const proto = document.getElementById('ei-protocol').value;
+      const net = document.getElementById('ei-network').value;
+      const sec = document.getElementById('ei-security').value;
+      document.getElementById('ei-ws-settings').classList.toggle('hidden', net !== 'ws' && net !== 'h2');
+      document.getElementById('ei-reality-settings').classList.toggle('hidden', sec !== 'reality');
+      document.getElementById('ei-ss-settings').classList.toggle('hidden', proto !== 'shadowsocks');
+    }
+
     async function editInbound(id) {
-      const newRemark = prompt('新备注：');
-      if (newRemark === null) return;
-      const response = await fetch('/api/inbounds/' + id, {
+      const res = await fetch('/api/inbounds');
+      const data = await res.json();
+      const inbound = (data.inbounds || []).find(i => i.id === id);
+      if (!inbound) { showToast('入站未找到', 'error'); return; }
+      _editingInboundId = id;
+      document.getElementById('ei-remark').value = inbound.remark || '';
+      document.getElementById('ei-protocol').value = inbound.protocol || 'vless';
+      document.getElementById('ei-port').value = inbound.port || '';
+      document.getElementById('ei-network').value = inbound.network || 'tcp';
+      document.getElementById('ei-security').value = inbound.security || 'none';
+      document.getElementById('ei-ws-path').value = inbound.ws_path || '';
+      document.getElementById('ei-ws-host').value = inbound.ws_host || '';
+      document.getElementById('ei-reality-dest').value = inbound.reality_dest || '';
+      document.getElementById('ei-reality-server-names').value = inbound.reality_server_names || '';
+      document.getElementById('ei-reality-short-id').value = inbound.reality_short_id || '';
+      document.getElementById('ei-ss-method').value = inbound.ss_method || '2022-blake3-aes-128-gcm';
+      eiUpdateDynamicFields();
+      document.getElementById('edit-inbound-overlay').classList.remove('hidden');
+    }
+    function closeEditInbound() {
+      _editingInboundId = null;
+      document.getElementById('edit-inbound-overlay').classList.add('hidden');
+    }
+    async function saveEditInbound() {
+      const id = _editingInboundId;
+      if (id === null) return;
+      const data = {
+        remark: document.getElementById('ei-remark').value.trim() || '-',
+        protocol: document.getElementById('ei-protocol').value,
+        port: parseInt(document.getElementById('ei-port').value) || 0,
+        network: document.getElementById('ei-network').value,
+        security: document.getElementById('ei-security').value,
+        ws_path: document.getElementById('ei-ws-path').value,
+        ws_host: document.getElementById('ei-ws-host').value,
+        reality_dest: document.getElementById('ei-reality-dest').value,
+        reality_server_names: document.getElementById('ei-reality-server-names').value,
+        reality_short_id: document.getElementById('ei-reality-short-id').value,
+        ss_method: document.getElementById('ei-ss-method').value,
+      };
+      if (!data.remark || !data.port) { showToast('请填写备注和端口', 'error'); return; }
+      const res = await fetch('/api/inbounds/' + id, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({remark: newRemark})
+        body: JSON.stringify(data)
       });
-      if (!response.ok) {
-        showToast('编辑入站失败', 'error');
-        return;
-      }
+      if (!res.ok) { showToast('编辑入站失败', 'error'); return; }
       showToast('入站已更新', 'success');
+      closeEditInbound();
       await loadInbounds();
     }
+    document.getElementById('ei-protocol').addEventListener('change', eiUpdateDynamicFields);
+    document.getElementById('ei-network').addEventListener('change', eiUpdateDynamicFields);
+    document.getElementById('ei-security').addEventListener('change', eiUpdateDynamicFields);
 
     async function toggleInbound(id) {
       const response = await fetch('/api/inbounds');
@@ -844,19 +967,41 @@ const panelHTML = `<!doctype html>
       await loadInbounds();
     }
 
-    async function editClient(id) {
-      const newEmail = prompt('新邮箱：');
-      if (newEmail === null) return;
-      const response = await fetch('/api/inbounds/1/clients/' + id, {
+    async function editClient(id, inboundId) {
+      const res = await fetch('/api/inbounds');
+      const data = await res.json();
+      const inbound = (data.inbounds || []).find(i => inboundId ? i.id === inboundId : true);
+      const allClients = (inbound && inbound.clients) || [];
+      // Search across all inbounds for the client
+      let client = allClients.find(c => c.id === id);
+      if (!client) {
+        for (const ib of (data.inbounds || [])) {
+          client = (ib.clients || []).find(c => c.id === id);
+          if (client) break;
+        }
+      }
+      if (!client) { showToast('客户端未找到', 'error'); return; }
+      _editingClientData = {id: id, inboundId: client.inbound_id};
+      document.getElementById('ec-email').value = client.email || '';
+      document.getElementById('edit-client-overlay').classList.remove('hidden');
+    }
+    function closeEditClient() {
+      _editingClientData = null;
+      document.getElementById('edit-client-overlay').classList.add('hidden');
+    }
+    async function saveEditClient() {
+      const d = _editingClientData;
+      if (!d) return;
+      const email = document.getElementById('ec-email').value.trim();
+      if (!email) { showToast('请输入客户端标识', 'error'); return; }
+      const res = await fetch('/api/inbounds/' + d.inboundId + '/clients/' + d.id, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({email: newEmail})
+        body: JSON.stringify({email: email})
       });
-      if (!response.ok) {
-        showToast('编辑客户端失败', 'error');
-        return;
-      }
+      if (!res.ok) { showToast('编辑客户端失败', 'error'); return; }
       showToast('客户端已更新', 'success');
+      closeEditClient();
       await loadClients();
     }
 

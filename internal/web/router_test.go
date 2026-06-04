@@ -250,6 +250,21 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 			t.Fatalf("navigateTo must compare el.id === sectionId, not sectionId === 'overview' OR condition")
 		}
 	})
+
+	// Edit modals replace prompt()
+	for _, want := range []string{"edit-inbound-overlay", "edit-client-overlay", "ei-remark", "ei-protocol", "ei-port", "ei-network", "ei-security", "ec-email"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing edit modal element %q", want)
+		}
+	}
+	for _, want := range []string{"saveEditInbound", "closeEditInbound", "saveEditClient", "closeEditClient", "eiUpdateDynamicFields"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing edit modal JS function %q", want)
+		}
+	}
+	if strings.Contains(body, "prompt(") && !strings.Contains(body, "edit-inbound-overlay") {
+		t.Fatalf("panel should not use prompt(), should use modal overlays")
+	}
 }
 
 func TestRouterDoesNotServeLegacyHeavyRoutes(t *testing.T) {
