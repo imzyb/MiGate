@@ -531,6 +531,23 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		}
 	}
 
+	// Xray and settings operation buttons use one shared action toolbar layout.
+	for _, want := range []string{
+		`.action-toolbar`,
+		`.toolbar-copy`,
+		`.toolbar-actions`,
+		`class="action-toolbar xray-toolbar"`,
+		`class="toolbar-copy"`,
+		`class="toolbar-actions"`,
+		`class="action-toolbar settings-toolbar span-2"`,
+		`应用、预览与刷新统一集中在右侧操作区。`,
+		`保存配置后按需重启 MiGate 服务。`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing shared action-toolbar contract %q", want)
+		}
+	}
+
 	// Toggle toast must use the toggled entity state, not an undefined newEnabled variable
 	if strings.Contains(body, "newEnabled") {
 		t.Fatalf("panel toggle handlers must not reference undefined newEnabled")

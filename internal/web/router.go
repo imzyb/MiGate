@@ -669,6 +669,11 @@ const panelHTML = `<!doctype html>
     .field-label { color:var(--fg); font-size:var(--text-sm); font-weight:500; line-height:1.3; }
     .field-help { color:var(--muted); font-size:var(--text-xs); line-height:1.45; margin:0; }
     .form-actions { grid-column:1 / -1; display:flex; justify-content:flex-end; align-items:center; gap:10px; padding-top:var(--space-1); margin-top:2px; }
+    .action-toolbar { display:flex; align-items:center; justify-content:space-between; gap:var(--space-4); padding:var(--space-4); border-radius:var(--radius-lg); background:rgba(148,163,184,.06); box-shadow:var(--shadow-sm); margin:var(--space-4) 0; }
+    .action-toolbar.span-2 { grid-column:1 / -1; }
+    .toolbar-copy { display:grid; gap:var(--space-1); min-width:0; color:var(--muted); font-size:var(--text-sm); line-height:1.5; }
+    .toolbar-copy strong { color:var(--fg); font-size:var(--text-md); font-weight:600; letter-spacing:-0.14px; }
+    .toolbar-actions { display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
     .ui-control, input, select, textarea { width:100%; min-height:var(--control-height); border:none; outline:none; background:var(--surface); color:var(--fg); border-radius:var(--control-radius); padding:0 var(--space-3); box-shadow:var(--shadow-sm); font-family:'Geist',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; font-size:var(--text-md); line-height:1.4; }
     textarea { padding-top:10px; padding-bottom:10px; }
     input:focus, select:focus, textarea:focus, button:focus { box-shadow:var(--shadow-sm), 0 0 0 2px var(--focus); }
@@ -1062,14 +1067,18 @@ const panelHTML = `<!doctype html>
           <div><strong>托管</strong>：<span id="xray-managed">-</span></div>
           <div><strong>服务</strong>：<span id="xray-service">xray</span></div>
         </div>
-        <div class="actions" style="gap:10px">
-          <button onclick="fetchXrayStatus()">刷新状态</button>
-          <button class="secondary" onclick="applyXrayConfig()">应用配置</button>
+        <div class="action-toolbar xray-toolbar">
+          <div class="toolbar-copy">
+            <strong>配置操作</strong>
+            <span>应用、预览与刷新统一集中在右侧操作区。</span>
+          </div>
+          <div class="toolbar-actions">
+            <button onclick="fetchXrayStatus()">刷新状态</button>
+            <button class="secondary" onclick="previewXrayConfig()">预览配置</button>
+            <button class="secondary" onclick="applyXrayConfig()">应用配置</button>
+          </div>
         </div>
         <div id="xray-result" class="notice-slot"></div>
-        <div style="margin-top:16px">
-          <button class="secondary" onclick="previewXrayConfig()">预览配置</button>
-        </div>
         <div id="xray-config-preview" class="list muted" style="margin-top:12px;display:none"><pre id="xray-config-json" style="background:rgba(148,163,184,.06);border-radius:12px;padding:16px;font-size:12px;overflow-x:auto;white-space:pre-wrap;max-height:400px;overflow-y:auto"></pre></div>
       </section>
       <section id="settings" class="card panel">
@@ -1101,9 +1110,15 @@ const panelHTML = `<!doctype html>
             <input id="set-web-path" placeholder="例如 /">
             <p class="field-help">默认使用根路径；反代到子路径时再修改。</p>
           </div>
-          <div class="form-actions">
-            <button type="button" class="secondary" onclick="loadSettings()">刷新</button>
-            <button type="submit" onclick="saveSettings()">保存设置</button>
+          <div class="action-toolbar settings-toolbar span-2">
+            <div class="toolbar-copy">
+              <strong>设置操作</strong>
+              <span>保存配置后按需重启 MiGate 服务。</span>
+            </div>
+            <div class="toolbar-actions">
+              <button type="button" class="secondary" onclick="loadSettings()">刷新</button>
+              <button type="submit" onclick="saveSettings()">保存设置</button>
+            </div>
           </div>
         </form>
         <div id="settings-status" class="notice-slot"></div>
