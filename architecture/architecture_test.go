@@ -28,7 +28,7 @@ func read(t *testing.T, parts ...string) string {
 
 func TestServiceRunsSinglePrebuiltBinary(t *testing.T) {
 	service := read(t, "packaging", "migate.service")
-	if !strings.Contains(service, "ExecStart=/usr/local/migate/migate") {
+	if !strings.Contains(service, "ExecStart=/usr/local/bin/migate") {
 		t.Fatalf("service must run single prebuilt binary:\n%s", service)
 	}
 	forbidden := []string{"python", "uv", "pip", "npm", "migate-proxy", "openvpn", "tun", "egress", "remote", "leak", "rollout"}

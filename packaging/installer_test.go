@@ -92,7 +92,7 @@ func TestInstallerDownloadsReleaseAssetAndVerifiesChecksum(t *testing.T) {
 func TestServiceUsesGeneratedPanelConfigAndSingleBinary(t *testing.T) {
 	service := read(t, "packaging", "migate.service")
 	for _, want := range []string{
-		"ExecStart=/usr/local/migate/migate",
+		"ExecStart=/usr/local/bin/migate",
 		"--config /etc/migate/panel.json",
 		"User=root",
 		"Restart=on-failure",

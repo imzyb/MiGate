@@ -7,7 +7,7 @@ Wants=network.target
 Type=simple
 User=root
 WorkingDirectory=/usr/local/migate
-ExecStart=/usr/local/migate/migate --config /etc/migate/panel.json
+ExecStart=/usr/local/bin/migate --config /etc/migate/panel.json
 Restart=on-failure
 RestartSec=5s
 

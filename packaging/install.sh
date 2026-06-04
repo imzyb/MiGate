@@ -77,11 +77,12 @@ main() {
 
   systemctl stop migate 2>/dev/null || true
   mkdir -p "$INSTALL_DIR"
-  tar -xzf "$TMP/migate-linux-${ARCH}.tar.gz" -C "$INSTALL_DIR"
-  chmod +x "$INSTALL_DIR/migate"
+  tar -xzf "$TMP/migate-linux-${ARCH}.tar.gz" -C "$TMP"
+  cp "$TMP/migate" /usr/local/bin/migate
+  chmod +x /usr/local/bin/migate
   write_config "$panel_port" "$panel_username" "$panel_password" "$web_base_path"
 
-  cp "$INSTALL_DIR/packaging/migate.service" "$SERVICE_PATH"
+  cp "$TMP/packaging/migate.service" "$SERVICE_PATH"
   systemctl daemon-reload
   systemctl enable migate
   systemctl start migate
@@ -90,7 +91,7 @@ main() {
   if [ -z "$host_ip" ]; then
     host_ip="SERVER_IP"
   fi
-  echo "MiGate installed: /usr/local/migate/migate"
+  echo "MiGate installed: /usr/local/bin/migate"
   echo "WebUI: http://${host_ip}:${panel_port}${web_base_path}"
   echo "Username: ${panel_username}"
 }
