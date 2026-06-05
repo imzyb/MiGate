@@ -217,6 +217,16 @@ func createInbound(w http.ResponseWriter, r *http.Request, store Store) {
 			payload.RealityPublicKey = pubKey
 		}
 	}
+	// Port conflict check
+	if payload.Port > 0 {
+		existing, _ := store.ListInbounds(r.Context())
+		for _, ib := range existing {
+			if ib.Port == payload.Port {
+				http.Error(w, `{"error":"port_conflict","message":"端口 `+strconv.FormatInt(int64(ib.Port), 10)+` 已被入站 `+strconv.FormatInt(ib.ID, 10)+` 使用"}`, http.StatusConflict)
+				return
+			}
+		}
+	}
 	created, err := store.CreateInbound(r.Context(), payload)
 	if err != nil {
 		http.Error(w, `{"error":"unsupported_protocol"}`, http.StatusBadRequest)
@@ -435,6 +445,16 @@ func updateInbound(w http.ResponseWriter, r *http.Request, store Store, inboundI
 	if payload.Security == "reality" && payload.RealityPrivateKey == "" {
 		if key, _, err := xray.GenerateRealityKey(); err == nil {
 			payload.RealityPrivateKey = key
+		}
+	}
+	// Port conflict check (exclude current inbound)
+	if payload.Port > 0 {
+		existing, _ := store.ListInbounds(r.Context())
+		for _, ib := range existing {
+			if ib.ID != inboundID && ib.Port == payload.Port {
+				http.Error(w, `{"error":"port_conflict","message":"端口 `+strconv.FormatInt(int64(ib.Port), 10)+` 已被入站 `+strconv.FormatInt(ib.ID, 10)+` 使用"}`, http.StatusConflict)
+				return
+			}
 		}
 	}
 	updated, err := store.UpdateInbound(r.Context(), inboundID, payload)
@@ -1429,6 +1449,7 @@ const panelHTML = `<!doctype html>
     const xrayStatusMetric = document.getElementById('xray-status-metric');
 
     function renderInbounds(inbounds) {
+      window._cachedInbounds = inbounds;  // cache for port conflict check
       inboundCount.textContent = String(inbounds.length);
       const allClients = inbounds.flatMap(i => i.clients || []);
       clientCount.textContent = String(allClients.length);
@@ -1887,6 +1908,10 @@ const panelHTML = `<!doctype html>
         tls_key_file: document.getElementById('ei-tls-key-file').value,
       };
       if (!data.remark || !data.port) { showToast('请填写备注和端口', 'error'); return; }
+      // Port conflict check (client-side, exclude current inbound)
+      const existingInbounds = window._cachedInbounds || [];
+      const conflictInb = existingInbounds.find(ib => ib.id !== id && ib.port === data.port);
+      if (conflictInb) { showToast('端口 ' + data.port + ' 已被入站 ' + (conflictInb.remark || conflictInb.id) + ' 使用', 'error'); return; }
       const res = await fetch('/api/inbounds/' + id, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
@@ -2102,6 +2127,10 @@ const panelHTML = `<!doctype html>
       const payload = Object.fromEntries(form.entries());
       payload.port = Number(payload.port);
       if (!payload.remark || !payload.port) { showToast('请填写备注和端口', 'error'); return; }
+      // Port conflict check (client-side)
+      const existingInbounds = window._cachedInbounds || [];
+      const conflictInb = existingInbounds.find(ib => ib.port === payload.port);
+      if (conflictInb) { showToast('端口 ' + payload.port + ' 已被入站 ' + (conflictInb.remark || conflictInb.id) + ' 使用', 'error'); return; }
       // Pack initial client if email is provided
       const initEmail = document.getElementById('init-client-email').value.trim();
       if (initEmail) {
