@@ -298,6 +298,18 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		t.Fatalf("expected 200 for panel, got %d", page.Code)
 	}
 	body := page.Body.String()
+	if strings.Count(body, `id="version-banner"`) != 1 {
+		t.Fatalf("panel must render a single version banner, got %d", strings.Count(body, `id="version-banner"`))
+	}
+	createInboundClose := strings.Index(body, `</form>
+    </div>
+  </div>
+
+  <!-- Create Client Modal -->`)
+	appShellIndex := strings.Index(body, `class="app-shell"`)
+	if createInboundClose == -1 || appShellIndex == -1 || createInboundClose > appShellIndex {
+		t.Fatalf("app shell must not be nested inside create inbound modal")
+	}
 
 	// Vercel-style shell, light/dark themes, user/account controls.
 	for _, want := range []string{
