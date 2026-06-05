@@ -187,6 +187,8 @@ func TestCreateInboundFormShowsRandomizableDefaults(t *testing.T) {
 		`id="init-client-uuid"`,
 		`客户端 UUID / 密码 / 密钥（自动生成，可修改）`,
 		`credentialForProtocol(proto)`,
+		`function randUUID()`,
+		`return randUUID();`,
 		`randBase64(16)`,
 		`applyProtocolPreset(proto)`,
 		`protocolPresets = {`,
