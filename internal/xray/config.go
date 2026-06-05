@@ -251,6 +251,12 @@ func buildStreamSettings(inbound db.Inbound) map[string]interface{} {
 		if inbound.RealityShortID != "" {
 			shortIds = []string{inbound.RealityShortID}
 		}
+		// Auto-generate a random shortId if none is set (REALITY requires non-empty hex shortIds)
+		if shortIds[0] == "" {
+			b := make([]byte, 4)
+			_, _ = rand.Read(b)
+			shortIds[0] = fmt.Sprintf("%x", b)
+		}
 		realitySettings := map[string]interface{}{
 			"show":        false,
 			"dest":        dest,
