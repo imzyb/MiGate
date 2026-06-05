@@ -508,3 +508,70 @@ func TestStoreCreateInboundWithXHTTPFields(t *testing.T) {
 		t.Fatalf("xhttp fields not updated: %+v", updated)
 	}
 }
+
+func TestStoreCreateInboundWithInitialClient(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	// Create inbound with an initial client in one call
+	inbound, err := store.CreateInbound(context.Background(), db.CreateInboundParams{
+		Remark:   "init-client-test",
+		Protocol: "vless",
+		Port:     8443,
+		Network:  "tcp",
+		Security: "none",
+		InitialClient: &db.CreateClientParams{
+			Email:        "init@test.com",
+			TrafficLimit: 100_000_000_000,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create inbound with initial client: %v", err)
+	}
+	if inbound.ID == 0 {
+		t.Fatalf("expected non-zero inbound ID")
+	}
+	if len(inbound.Clients) != 1 {
+		t.Fatalf("expected 1 client attached to inbound, got %d: %+v", len(inbound.Clients), inbound.Clients)
+	}
+	if inbound.Clients[0].Email != "init@test.com" {
+		t.Fatalf("unexpected client email: %s", inbound.Clients[0].Email)
+	}
+	if inbound.Clients[0].TrafficLimit != 100_000_000_000 {
+		t.Fatalf("unexpected traffic limit: %d", inbound.Clients[0].TrafficLimit)
+	}
+
+	// Verify via ListInbounds
+	inbounds, err := store.ListInbounds(context.Background())
+	if err != nil {
+		t.Fatalf("list inbounds: %v", err)
+	}
+	if len(inbounds) != 1 || len(inbounds[0].Clients) != 1 {
+		t.Fatalf("expected 1 inbound with 1 client, got %+v", inbounds)
+	}
+}
+
+func TestStoreCreateInboundWithoutInitialClient(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	// Creating inbound without initial client should work as before
+	inbound, err := store.CreateInbound(context.Background(), db.CreateInboundParams{
+		Remark: "no-init-client", Protocol: "vless", Port: 9443, Network: "tcp", Security: "none",
+	})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	if inbound.ID == 0 {
+		t.Fatalf("expected non-zero inbound ID")
+	}
+	if len(inbound.Clients) != 0 {
+		t.Fatalf("expected 0 clients, got %d", len(inbound.Clients))
+	}
+}

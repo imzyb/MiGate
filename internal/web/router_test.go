@@ -109,6 +109,9 @@ func TestPanelWiresInboundManagementToAPI(t *testing.T) {
 		`fetch('/api/inbounds')`,
 		`method: 'POST'`,
 		`renderInbounds`,
+		`toggleInitClient`,
+		`init-client-email`,
+		`同时添加首个客户端`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("panel inbound management missing %q: %s", want, body)

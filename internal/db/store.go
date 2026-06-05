@@ -79,6 +79,7 @@ type CreateInboundParams struct {
 	TLSKeyFile         string `json:"tls_key_file"`
 	XHTTPPath          string `json:"xhttp_path"`
 	XHTTPMode          string `json:"xhttp_mode"`
+	InitialClient      *CreateClientParams `json:"initial_client,omitempty"`
 }
 
 type CreateClientParams struct {
@@ -214,6 +215,15 @@ func (s *Store) CreateInbound(ctx context.Context, params CreateInboundParams) (
 	if err != nil {
 		return Inbound{}, err
 	}
+	var clients []Client
+	if params.InitialClient != nil {
+		params.InitialClient.InboundID = id
+		createdClient, err := s.CreateClient(ctx, *params.InitialClient)
+		if err != nil {
+			return Inbound{}, err
+		}
+		clients = []Client{createdClient}
+	}
 	return Inbound{ID: id, UUID: uuid, Remark: remark, Protocol: protocol, Port: params.Port, Network: network, Security: security, Enabled: true,
 		WsPath: params.WsPath, WsHost: params.WsHost, GrpcServiceName: params.GrpcServiceName,
 		RealityDest: params.RealityDest, RealityServerNames: params.RealityServerNames, RealityShortID: params.RealityShortID,
@@ -222,7 +232,7 @@ func (s *Store) CreateInbound(ctx context.Context, params CreateInboundParams) (
 		SSMethod:          params.SSMethod,
 		TLSCertFile:       params.TLSCertFile, TLSKeyFile: params.TLSKeyFile,
 		XHTTPPath: params.XHTTPPath, XHTTPMode: params.XHTTPMode,
-		Clients: []Client{}}, nil
+		Clients: clients}, nil
 }
 
 func (s *Store) insertInbound(ctx context.Context, remark, protocol string, port int, network, security string,

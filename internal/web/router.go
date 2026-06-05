@@ -1040,6 +1040,16 @@ const panelHTML = `<!doctype html>
             <input name="tls_key_file" placeholder="TLS 密钥路径 (如 /etc/.../privkey.key)">
           </div>
         </div>
+        <div class="advanced-fieldset field-group span-2" style="border-left:2px solid var(--accent);padding-left:12px;margin-bottom:0">
+          <div onclick="toggleInitClient(this)" style="cursor:pointer;color:var(--accent);user-select:none;font-size:13px">
+            <span class="chevron">▶</span> 同时添加首个客户端
+          </div>
+          <div id="init-client-fields" class="hidden" style="margin-top:8px">
+            <input id="init-client-email" placeholder="客户端邮箱 (必填，如 sam@example.com)">
+            <input id="init-client-traffic" type="number" min="0" placeholder="流量上限 (字节, 0=无限)" value="0">
+            <p class="field-help">创建入站后自动生成第一个客户端，省去后续再添加的步骤。</p>
+          </div>
+        </div>
         <div class="form-actions modal-actions">
           <button type="button" class="btn-cancel" onclick="closeCreateInbound()">取消</button>
           <button type="submit" class="btn-confirm" style="background:var(--accent)" onclick="saveCreateInbound()">保存入站</button>
@@ -2054,6 +2064,16 @@ const panelHTML = `<!doctype html>
     }
     function closeCreateInbound() {
       document.getElementById('create-inbound-overlay').classList.add('hidden');
+      // Hide and reset initial client fields on close
+      document.getElementById('init-client-fields').classList.add('hidden');
+      document.querySelector('#create-inbound-dialog .chevron').textContent = '\u25B6';
+    }
+    function toggleInitClient(el) {
+      const fields = document.getElementById('init-client-fields');
+      const chevron = el.querySelector('.chevron');
+      const isHidden = fields.classList.contains('hidden');
+      fields.classList.toggle('hidden');
+      chevron.textContent = isHidden ? '\u25BC' : '\u25B6';
     }
     async function saveCreateInbound() {
       const formEl = document.getElementById('create-inbound-form');
@@ -2061,6 +2081,16 @@ const panelHTML = `<!doctype html>
       const payload = Object.fromEntries(form.entries());
       payload.port = Number(payload.port);
       if (!payload.remark || !payload.port) { showToast('请填写备注和端口', 'error'); return; }
+      // Pack initial client if email is provided
+      const initEmail = document.getElementById('init-client-email').value.trim();
+      if (initEmail) {
+        payload.initial_client = {
+          email: initEmail,
+          traffic_limit: Number(document.getElementById('init-client-traffic').value || 0)
+        };
+      }
+      delete payload.init_email;
+      delete payload.init_traffic;
       const response = await fetch('/api/inbounds', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
       if (!response.ok) {
         showToast('创建入站失败', 'error');
