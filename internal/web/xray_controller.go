@@ -135,3 +135,16 @@ func (c *RealController) Apply(ctx context.Context) XrayApplyResult {
 		CommandsExecuted: executed,
 	}
 }
+
+// Version runs `xray version` and returns the first line.
+func (c *RealController) Version(ctx context.Context) string {
+	out, err := c.runCmd("xray", "version")
+	if err != nil {
+		return ""
+	}
+	lines := strings.SplitN(strings.TrimSpace(out), "\n", 2)
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(lines[0])
+}

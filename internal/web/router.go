@@ -32,6 +32,7 @@ type Store interface {
 type XrayController interface {
 	Status(ctx context.Context) XrayStatus
 	Apply(ctx context.Context) XrayApplyResult
+	Version(ctx context.Context) string
 }
 
 type XrayStatus struct {
@@ -57,6 +58,8 @@ func (defaultXrayController) Status(ctx context.Context) XrayStatus {
 func (defaultXrayController) Apply(ctx context.Context) XrayApplyResult {
 	return XrayApplyResult{Status: "unavailable", Service: "xray", CommandsExecuted: []string{}}
 }
+
+func (defaultXrayController) Version(ctx context.Context) string { return "" }
 
 type routerConfig struct {
 	store          Store
@@ -123,6 +126,9 @@ func NewRouter(options ...Option) http.Handler {
 	mux.HandleFunc("/api/xray/status", xrayStatusHandler(cfg.xrayController))
 	mux.HandleFunc("/api/xray/apply", xrayApplyHandler(cfg.xrayController))
 	mux.HandleFunc("/api/xray/logs", xrayLogsHandler())
+	mux.HandleFunc("/api/xray/version", xrayVersionHandler(cfg.xrayController))
+	mux.HandleFunc("/api/cert/status", certStatusHandler(&cfg))
+	mux.HandleFunc("/api/cert/issue", certIssueHandler(&cfg))
 	mux.HandleFunc("/api/settings", settingsHandler(&cfg))
 	mux.HandleFunc("/api/restart", restartHandler(cfg.restartCmd))
 	mux.HandleFunc("/api/version", versionHandler(cfg.version))
@@ -587,6 +593,170 @@ func xrayLogsHandler() http.HandlerFunc {
 	}
 }
 
+func xrayVersionHandler(controller XrayController) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		ver := controller.Version(r.Context())
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"version": ver})
+	}
+}
+
+func certStatusHandler(cfg *routerConfig) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		domain := ""
+		email := ""
+		certPath := ""
+		keyPath := ""
+		issued := false
+
+		if cfg.configDir != "" {
+			configPath := cfg.configDir + "/panel.json"
+			data, err := os.ReadFile(configPath)
+			if err == nil {
+				var raw map[string]interface{}
+				if err := json.Unmarshal(data, &raw); err == nil {
+					if d, ok := raw["cert_domain"].(string); ok {
+						domain = d
+					}
+					if e, ok := raw["cert_email"].(string); ok {
+						email = e
+					}
+				}
+			}
+			if domain != "" {
+				certDir := cfg.configDir + "/certs/" + domain
+				certPath = certDir + "/fullchain.pem"
+				keyPath = certDir + "/privkey.pem"
+				if _, err := os.Stat(certPath); err == nil {
+					if _, err := os.Stat(keyPath); err == nil {
+						issued = true
+					}
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"domain":    domain,
+			"email":     email,
+			"issued":    issued,
+			"cert_path": certPath,
+			"key_path":  keyPath,
+		})
+	}
+}
+
+func certIssueHandler(cfg *routerConfig) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Domain string `json:"domain"`
+			Email  string `json:"email"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_json"})
+			return
+		}
+		if req.Domain == "" || req.Email == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "domain_and_email_required"})
+			return
+		}
+		if cfg.configDir == "" {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "cert_not_available"})
+			return
+		}
+
+		// Issue cert via acme.sh
+		certDir := cfg.configDir + "/certs/" + req.Domain
+		if err := os.MkdirAll(certDir, 0755); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "mkdir_cert_dir_failed"})
+			return
+		}
+
+		// Check if acme.sh is installed; if not, install it
+		if _, err := exec.LookPath("acme.sh"); err != nil {
+			installOut, err := exec.Command("bash", "-c",
+				"curl -fsSL https://get.acme.sh | sh -s email="+req.Email).CombinedOutput()
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"error":  "install_acme_failed",
+					"detail": string(installOut),
+				})
+				return
+			}
+		}
+
+		// Run acme.sh --issue --standalone
+		out, err := exec.Command("bash", "-c",
+			"acme.sh --issue --standalone -d "+req.Domain+
+				" --keylength ec-256"+
+				" --fullchain-file "+certDir+"/fullchain.pem"+
+				" --key-file "+certDir+"/privkey.pem"+
+				" --cert-file "+certDir+"/cert.pem"+
+				" --reloadcmd 'systemctl restart xray || true'").CombinedOutput()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error":  "issue_cert_failed",
+				"detail": string(out),
+			})
+			return
+		}
+
+		// Update panel.json with cert domain/email
+		configPath := cfg.configDir + "/panel.json"
+		existing, err := os.ReadFile(configPath)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "read_panel_config_failed"})
+			return
+		}
+		var raw map[string]interface{}
+		if err := json.Unmarshal(existing, &raw); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "parse_panel_config_failed"})
+			return
+		}
+		raw["cert_domain"] = req.Domain
+		raw["cert_email"] = req.Email
+		updated, err := json.MarshalIndent(raw, "", "  ")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "serialize_failed"})
+			return
+		}
+		if err := os.WriteFile(configPath, updated, 0o600); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "write_panel_config_failed"})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":    "issued",
+			"domain":    req.Domain,
+			"cert_path": certDir + "/fullchain.pem",
+			"key_path":  certDir + "/privkey.pem",
+		})
+	}
+}
+
 func versionHandler(version string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -903,6 +1073,7 @@ const panelHTML = `<!doctype html>
       --fg: #171717;
       --surface: #ffffff;
       --surface-subtle: #fafafa;
+      --surface-warning: #fffbeb;
       --muted: #666666;
       --line: rgba(0,0,0,.08);
       --line-strong: #ebebeb;
@@ -939,6 +1110,7 @@ const panelHTML = `<!doctype html>
       --fg: #ededed;
       --surface: #111111;
       --surface-subtle: #18181b;
+      --surface-warning: #27251c;  /* dark amber-tinted surface */
       --muted: #a1a1aa;
       --line: rgba(255,255,255,.10);
       --line-strong: rgba(255,255,255,.14);
@@ -1495,9 +1667,11 @@ const panelHTML = `<!doctype html>
         <p class="muted" style="margin-bottom:16px">查看 Xray 服务状态，应用配置变更。</p>
         <div class="xray-status-panel">
           <div><strong>状态</strong>：<span id="xray-status">未知</span></div>
+          <div><strong>版本</strong>：<span id="xray-version">-</span></div>
           <div><strong>托管</strong>：<span id="xray-managed">-</span></div>
           <div><strong>服务</strong>：<span id="xray-service">xray</span></div>
         </div>
+        <div id="xray-unsupported-warning" class="xray-warning muted" style="display:none;margin-top:12px;padding:12px 16px;border-radius:var(--radius-md);background:var(--surface-warning);color:var(--fg)">当前 Xray 版本不支持 Hysteria2 协议，需要使用 sing-box 等后端配合。</div>
         <div class="action-toolbar xray-toolbar">
           <div class="toolbar-copy">
             <strong>配置操作</strong>
@@ -1542,6 +1716,26 @@ const panelHTML = `<!doctype html>
             <label class="field-label" for="set-web-path">Web 基础路径</label>
             <input id="set-web-path" placeholder="例如 /">
             <p class="field-help">默认使用根路径；反代到子路径时再修改。</p>
+          </div>
+          <div class="field-group span-2" style="margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--line)">
+            <h3 style="margin-bottom:var(--space-3);font-size:var(--text-md)">TLS 证书（Let's Encrypt）</h3>
+            <p class="field-help">配置域名后可通过 acme.sh 自动获取 Let's Encrypt 证书，证书文件保存在面板配置目录下。</p>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="set-cert-domain">域名</label>
+            <input id="set-cert-domain" placeholder="例如 example.com">
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="set-cert-email">邮箱</label>
+            <input id="set-cert-email" type="email" placeholder="admin@example.com">
+            <p class="field-help">用于 Let's Encrypt 注册和证书到期提醒。</p>
+          </div>
+          <div class="field-group span-2" id="cert-status-area" style="display:none">
+            <div class="cert-status-box" style="padding:var(--space-3) var(--space-4);border-radius:var(--radius-md);background:var(--surface-subtle);margin-bottom:var(--space-3)">
+              <div><strong>证书状态</strong>：<span id="cert-status-label">未获取</span></div>
+              <div id="cert-path-label" class="muted" style="font-size:var(--text-sm);margin-top:var(--space-1)"></div>
+            </div>
+            <button type="button" class="secondary" id="btn-issue-cert" onclick="issueCert()">获取证书</button>
           </div>
           <div class="action-toolbar settings-toolbar span-2">
             <div class="toolbar-copy">
@@ -2358,6 +2552,15 @@ const panelHTML = `<!doctype html>
       } catch (e) {
         document.getElementById('xray-status').textContent = '连接失败';
       }
+      try {
+        const vr = await fetch('/api/xray/version');
+        const vdata = await vr.json();
+        document.getElementById('xray-version').textContent = vdata.version || '-';
+        // Hysteria2 is not supported by any current Xray version
+        document.getElementById('xray-unsupported-warning').style.display = 'block';
+      } catch (e) {
+        document.getElementById('xray-version').textContent = '获取失败';
+      }
     }
     async function applyXrayConfig() {
       document.getElementById('xray-result').innerHTML = renderNotice('正在应用', '正在写入 xray.json、执行配置校验并尝试重启 Xray。');
@@ -2436,12 +2639,70 @@ const panelHTML = `<!doctype html>
         document.getElementById('set-password').value = '';
         document.getElementById('set-xray-config-path').value = data.xray_config_path || '';
         document.getElementById('set-web-path').value = data.web_base_path || '';
+        document.getElementById('set-cert-domain').value = data.cert_domain || '';
+        document.getElementById('set-cert-email').value = data.cert_email || '';
         if (data.database_path) {
           document.getElementById('settings-status').innerHTML = renderNotice('数据库', data.database_path + (data.has_password ? ' | 密码已设置' : ' | 无密码'), 'success');
         }
+        fetchCertStatus();
       } catch (e) {
         document.getElementById('settings-status').innerHTML = renderNotice('设置不可用', '需要在 panel.json 配置文件下运行，或检查配置目录是否已传入。', 'error');
       }
+    }
+    async function fetchCertStatus() {
+      try {
+        const res = await fetch('/api/cert/status');
+        if (!res.ok) { return; }
+        const data = await res.json();
+        document.getElementById('cert-status-area').style.display = '';
+        const label = document.getElementById('cert-status-label');
+        const pathEl = document.getElementById('cert-path-label');
+        if (data.issued) {
+          label.textContent = '✓ 已签发';
+          label.style.color = 'var(--accent2)';
+          pathEl.textContent = '证书：' + (data.cert_path || '') + ' | 密钥：' + (data.key_path || '');
+        } else if (data.domain) {
+          label.textContent = '待获取（域名已配置）';
+          label.style.color = 'var(--amber)';
+          pathEl.textContent = '';
+        } else {
+          label.textContent = '未配置';
+          label.style.color = '';
+          pathEl.textContent = '';
+        }
+      } catch (e) {}
+    }
+    async function issueCert() {
+      const domain = document.getElementById('set-cert-domain').value.trim();
+      const email = document.getElementById('set-cert-email').value.trim();
+      if (!domain || !email) {
+        showToast('请先填写域名和邮箱', 'error');
+        return;
+      }
+      const btn = document.getElementById('btn-issue-cert');
+      btn.disabled = true;
+      btn.textContent = '签发中…';
+      document.getElementById('cert-status-label').textContent = '签发中，请等待…';
+      try {
+        const res = await fetch('/api/cert/issue', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({domain, email})
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'issued') {
+          showToast('证书获取成功', 'success');
+          fetchCertStatus();
+        } else {
+          showToast('签发失败：' + (data.detail || data.error || '未知错误'), 'error');
+          document.getElementById('cert-status-label').textContent = '签发失败';
+        }
+      } catch (e) {
+        showToast('签发失败：网络错误', 'error');
+        document.getElementById('cert-status-label').textContent = '签发失败';
+      }
+      btn.disabled = false;
+      btn.textContent = '获取证书';
     }
     async function saveSettings() {
       const data = {
@@ -2450,6 +2711,8 @@ const panelHTML = `<!doctype html>
         panel_password: document.getElementById('set-password').value,
         xray_config_path: document.getElementById('set-xray-config-path').value.trim(),
         web_base_path: document.getElementById('set-web-path').value.trim() || '/',
+        cert_domain: document.getElementById('set-cert-domain').value.trim(),
+        cert_email: document.getElementById('set-cert-email').value.trim(),
       };
       if (!data.panel_port) { showToast('请输入面板端口', 'error'); return; }
       try {

@@ -773,6 +773,8 @@ func (f *fakeXrayController) Apply(ctx context.Context) web.XrayApplyResult {
 	return web.XrayApplyResult{Status: "applied", Service: "xray", CommandsExecuted: []string{"xray -test -config /usr/local/etc/xray/config.json", "systemctl restart xray"}}
 }
 
+func (f *fakeXrayController) Version(ctx context.Context) string { return "Xray 1.8.0" }
+
 func TestXrayStatusAPIIsReadOnly(t *testing.T) {
 	controller := &fakeXrayController{}
 	router := web.NewRouter(web.WithXrayController(controller))
@@ -835,6 +837,25 @@ func TestXrayApplyAPICallsControllerAfterDoubleConfirmation(t *testing.T) {
 	}
 	if controller.applyCalls != 1 || controller.statusCalls != 0 {
 		t.Fatalf("apply should call only apply once, calls: status=%d apply=%d", controller.statusCalls, controller.applyCalls)
+	}
+}
+
+func TestXrayVersionAPIReturnsVersionFromController(t *testing.T) {
+	controller := &fakeXrayController{}
+	router := web.NewRouter(web.WithXrayController(controller))
+	response := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/xray/version", nil)
+	router.ServeHTTP(response, req)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var data map[string]string
+	if err := json.NewDecoder(response.Body).Decode(&data); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if data["version"] != "Xray 1.8.0" {
+		t.Fatalf("expected version 'Xray 1.8.0', got %q", data["version"])
 	}
 }
 
@@ -1105,5 +1126,94 @@ func TestSubscriptionPassesValidClientWithFutureExpiry(t *testing.T) {
 	router.ServeHTTP(response, req)
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected 200 for valid client with future expiry, got %d", response.Code)
+	}
+}
+
+func TestCertStatusReturnsEmptyStateWhenNotConfigured(t *testing.T) {
+	router := web.NewRouter()
+	response := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/cert/status", nil)
+	router.ServeHTTP(response, req)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var data map[string]interface{}
+	if err := json.NewDecoder(response.Body).Decode(&data); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if data["domain"] != "" {
+		t.Fatalf("expected empty domain, got %v", data["domain"])
+	}
+	if data["issued"] != false {
+		t.Fatalf("expected issued=false, got %v", data["issued"])
+	}
+}
+
+func TestCertStatusReturnsCertInfoWhenConfigured(t *testing.T) {
+	dir := t.TempDir()
+	configPath := dir + "/panel.json"
+	if err := os.WriteFile(configPath, []byte(`{"cert_domain":"example.com","cert_email":"admin@example.com"}`), 0644); err != nil {
+		t.Fatalf("write panel.json: %v", err)
+	}
+	certDir := dir + "/certs/example.com"
+	if err := os.MkdirAll(certDir, 0755); err != nil {
+		t.Fatalf("mkdir cert dir: %v", err)
+	}
+	if err := os.WriteFile(certDir+"/fullchain.pem", []byte("fake cert"), 0644); err != nil {
+		t.Fatalf("write fullchain: %v", err)
+	}
+	if err := os.WriteFile(certDir+"/privkey.pem", []byte("fake key"), 0644); err != nil {
+		t.Fatalf("write privkey: %v", err)
+	}
+
+	router := web.NewRouter(web.WithConfigDir(dir))
+	response := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/cert/status", nil)
+	router.ServeHTTP(response, req)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var data map[string]interface{}
+	if err := json.NewDecoder(response.Body).Decode(&data); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if data["domain"] != "example.com" {
+		t.Fatalf("expected domain 'example.com', got %v", data["domain"])
+	}
+	if data["issued"] != true {
+		t.Fatalf("expected issued=true, got %v", data["issued"])
+	}
+	if data["cert_path"] == nil || data["cert_path"] == "" {
+		t.Fatalf("expected non-empty cert_path, got %v", data["cert_path"])
+	}
+}
+
+func TestCertIssueValidatesRequiredFields(t *testing.T) {
+	router := web.NewRouter()
+	// Missing domain
+	response := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/cert/issue", strings.NewReader(`{"domain":"","email":"admin@example.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(response, req)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty domain, got %d: %s", response.Code, response.Body.String())
+	}
+	// Missing email
+	response2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodPost, "/api/cert/issue", strings.NewReader(`{"domain":"example.com","email":""}`))
+	req2.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(response2, req2)
+	if response2.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty email, got %d: %s", response2.Code, response2.Body.String())
+	}
+	// Not available (no configDir)
+	response3 := httptest.NewRecorder()
+	req3 := httptest.NewRequest(http.MethodPost, "/api/cert/issue", strings.NewReader(`{"domain":"example.com","email":"admin@example.com"}`))
+	req3.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(response3, req3)
+	if response3.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when no configDir, got %d: %s", response3.Code, response3.Body.String())
 	}
 }
