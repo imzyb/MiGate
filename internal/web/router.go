@@ -1427,8 +1427,8 @@ const panelHTML = `<!doctype html>
             '</div>' +
           '</div>' +
           '<div class="resource-actions">' +
-            '<button class="icon-btn" onclick="copySubUrl(' + jsString(subUrl) + ')" title="复制订阅链接">Sub</button>' +
-            '<button class="icon-btn" onclick="copySubUrl(' + jsString(shareLink) + ')" title="复制分享链接">Link</button>' +
+            '<button class="icon-btn" onclick="copySubUrl(' + htmlAttrString(subUrl) + ')" title="复制订阅链接">Sub</button>' +
+            '<button class="icon-btn" onclick="copySubUrl(' + htmlAttrString(shareLink) + ')" title="复制分享链接">Link</button>' +
             '<button class="icon-btn" onclick="editClient(' + c.id + ',' + inbound.id + ')" title="编辑">Edit</button>' +
             '<button class="icon-btn" onclick="toggleClient(' + c.id + ')" title="启用/禁用">' + (c.enabled ? 'ON' : 'OFF') + '</button>' +
             '<button class="danger-icon-btn" onclick="deleteClient(' + inbound.id + ',' + c.id + ')" title="删除">DEL</button>' +
@@ -1446,6 +1446,10 @@ const panelHTML = `<!doctype html>
 
     function jsString(value) {
       return JSON.stringify(String(value || ''));
+    }
+
+    function htmlAttrString(value) {
+      return jsString(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
     function copyTextFallback(text) {
