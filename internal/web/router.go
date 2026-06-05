@@ -1129,34 +1129,32 @@ const panelHTML = `<!doctype html>
     a { color:inherit; }
     p { color:var(--muted); line-height:1.6; }
     .app-shell { display:grid; grid-template-columns: var(--sidebar-width) 1fr; min-height:100vh; }
-    .sidebar { box-shadow:inset -1px 0 0 var(--line-strong); padding:var(--space-6) 18px; background:var(--surface); display:flex; flex-direction:column; }
-    .brand { font-size:24px; font-weight:600; letter-spacing:-0.96px; margin-bottom:var(--space-1); color:var(--fg); }
-    .subtitle { color:var(--muted); font-size:var(--text-sm); line-height:1.5; margin-bottom:var(--space-6); }
-    nav { flex:1; }
-    #sidebar-toggle { display:none; align-items:center; justify-content:center; width:36px; height:36px; border:none; background:var(--surface); color:var(--fg); font-size:22px; cursor:pointer; border-radius:var(--radius-sm); box-shadow:var(--shadow-md); z-index:101; position:fixed; top:12px; left:12px; }
-    .account-panel { display:grid; gap:var(--space-2); padding:var(--space-3); margin-top:auto; margin-bottom:0; border-radius:var(--radius-lg); background:var(--surface-subtle); box-shadow:var(--shadow-sm); }
-    .account-label { color:var(--muted); font-size:var(--text-xs); }
-    .account-name { color:var(--fg); font-size:var(--text-sm); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .account-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-    .account-actions button { min-height:34px; padding:0 10px; font-size:var(--text-xs); }
-    nav a { display:block; color:var(--fg); text-decoration:none; padding:10px var(--space-3); border-radius:var(--radius-md); margin:var(--space-1) 0; box-shadow:none; font-size:var(--text-md); font-weight:500; }
-    nav a.active, nav a:hover { background:var(--surface-subtle); box-shadow:var(--shadow-sm); }
     main { padding:var(--space-6); background:var(--bg); }
     main > section{display:none}
     #overview.overview-grid{display:grid}
-    .badge { display:inline-flex; align-items:center; gap:var(--space-2); padding:0 10px; height:28px; border-radius:9999px; background:#ebf5ff; color:#0068d6; box-shadow:var(--shadow-sm); font-size:var(--text-xs); font-weight:500; }
-    .grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:var(--space-4); margin-bottom:var(--space-4); }
     .overview-grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:var(--space-4); margin-bottom:var(--space-4); }
+    .sidebar { box-shadow:inset -1px 0 0 var(--line-strong); padding:var(--space-6) 18px; background:var(--surface); display:flex; flex-direction:column; }
+    .sidebar { position:sticky; top:0; height:100vh; overflow:auto; box-shadow:inset -1px 0 0 var(--line-strong); padding:var(--space-6) 18px; background:var(--surface); display:flex; flex-direction:column; }
+    .subtitle { color:var(--muted); font-size:var(--text-sm); line-height:1.5; margin-bottom:var(--space-4); }
+    nav { flex:1; overflow:visible; }
+    .account-panel { display:grid; gap:var(--space-3); padding:var(--space-4); margin-top:var(--space-4); margin-bottom:0; border-radius:var(--radius-xl); background:var(--surface); box-shadow:var(--shadow-md), inset 0 0 0 1px var(--line); }
+    .account-panel::before { content:''; display:block; height:1px; margin-bottom:var(--space-1); background:var(--line); opacity:.8; }
+    .account-label { color:var(--muted); font-size:var(--text-xs); text-transform:uppercase; letter-spacing:.08em; }
+    .account-actions button { min-height:34px; padding:0 10px; font-size:var(--text-xs); border-radius:var(--radius-md); }
+    .version-banner { margin-bottom:var(--space-3); padding:14px 18px; border-radius:var(--radius-md); background:var(--surface-subtle); box-shadow:var(--shadow-sm), inset 3px 0 0 var(--accent); font-size:var(--text-sm); line-height:1.5; color:var(--fg); }
+    .notice-slot { margin-top:12px; }
+    .client-subsection { box-shadow:inset 0 1px 0 var(--line); padding:0 var(--space-4) var(--space-2); }
+
     .overview-insights { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:var(--space-4); grid-column:1 / -1; }
     .overview-card { display:grid; gap:var(--space-3); align-content:start; background:var(--surface); border-radius:var(--radius-lg); box-shadow:var(--shadow-md); padding:var(--panel-padding); min-height:156px; }
     .overview-card-title { color:var(--fg); font-size:var(--text-lg); font-weight:600; letter-spacing:-0.24px; }
     .overview-pill { display:inline-flex; align-items:center; width:max-content; min-height:26px; padding:0 10px; border-radius:9999px; background:var(--surface-subtle); color:var(--fg); box-shadow:var(--shadow-sm); font-size:var(--text-xs); font-weight:500; }
-    .protocol-breakdown { display:grid; gap:8px; }
-    .protocol-breakdown-row { display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; color:var(--muted); font-size:var(--text-sm); }
     .panel, .card { background:var(--surface); border-radius:var(--radius-lg); box-shadow:var(--shadow-md); padding:var(--panel-padding); }
     .metric { font-size:30px; font-weight:600; line-height:1.05; letter-spacing:-0.96px; margin-top:10px; color:var(--fg); }
     .section-heading, .section-title { font-size:24px; line-height:1.2; letter-spacing:-0.96px; font-weight:600; margin:0 0 var(--space-3); color:var(--fg); }
     .protocols { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--space-3); }
+    .protocol-breakdown { display:grid; gap:8px; }
+    .protocol-breakdown-row { display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; color:var(--muted); font-size:var(--text-sm); }
     .protocol { padding:14px; border-radius:var(--radius-lg); background:var(--surface); box-shadow:var(--shadow-sm); }
     .protocol strong { display:block; margin-bottom:6px; color:var(--fg); }
     .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
@@ -1211,7 +1209,7 @@ const panelHTML = `<!doctype html>
     .search-input:focus { box-shadow:var(--shadow-sm), 0 0 0 2px var(--focus); }
     .sort-select { height:36px; border:none; border-radius:var(--radius-md); padding:0 10px; font-size:var(--text-sm); background:var(--surface); color:var(--fg); box-shadow:var(--shadow-sm); cursor:pointer; outline:none; font-family:'Geist',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; transition:box-shadow .15s; }
     .xray-preview-pre { background:var(--surface-subtle); border-radius:var(--radius-lg); padding:16px; font-size:12px; overflow-x:auto; white-space:pre-wrap; max-height:400px; overflow-y:auto; box-shadow:var(--shadow-sm); margin:0; }
-    .client-subsection { box-shadow:inset 0 1px 0 var(--line); padding:0 var(--space-4) var(--space-3); }
+    .client-subsection { box-shadow:inset 0 1px 0 var(--line); padding:0 var(--space-4) var(--space-2); }
     .notice { display:grid; gap:8px; padding:16px; border-radius:var(--radius-lg); background:var(--surface); box-shadow:var(--shadow-sm), inset 3px 0 0 var(--accent); }
     .notice-title { color:var(--fg); font-size:14px; font-weight:600; letter-spacing:-0.14px; }
     .notice-copy { color:var(--muted); font-size:13px; line-height:1.55; white-space:pre-wrap; }
@@ -1298,7 +1296,7 @@ const panelHTML = `<!doctype html>
             <option value="shadowsocks">Shadowsocks</option>
             <option value="hysteria2">Hysteria2</option>
           </select>
-          <p class="field-help">选择 Xray 入站协议。</p>
+          <p class="field-help">选择核心入站协议。</p>
         </div>
         <div class="field-group">
           <label class="field-label" for="inbound-port">监听端口</label>
@@ -1607,6 +1605,7 @@ const panelHTML = `<!doctype html>
     <div id="sidebar-overlay" onclick="closeSidebar()"></div>
     <main>
       <section id="overview" class="overview-grid" aria-label="概览指标">
+        <div id="version-banner" class="version-banner" style="display:none; grid-column:1 / -1"></div>
         <div class="card panel"><div>入站</div><div id="inbound-count" class="metric">0</div><p>VLESS / VMess / Trojan / Shadowsocks</p></div>
         <div class="card panel"><div>客户端</div><div id="client-count" class="metric">0</div><p>活跃 / 总计</p></div>
         <div class="card panel"><div>总流量</div><div id="total-traffic" class="metric">0 B</div><p>所有客户端上行+下行累计</p></div>
