@@ -776,7 +776,7 @@ const panelHTML = `<!doctype html>
     .protocol { padding:14px; border-radius:var(--radius-lg); background:var(--surface); box-shadow:var(--shadow-sm); }
     .protocol strong { display:block; margin-bottom:6px; color:var(--fg); }
     .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
-    button { appearance:none; border:none; background:var(--accent); color:#ffffff; min-height:var(--control-height); padding:0 14px; border-radius:var(--control-radius); font-family:'Geist',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; font-size:var(--text-md); font-weight:500; cursor:pointer; box-shadow:var(--shadow-sm); }
+    button { appearance:none; border:none; background:var(--accent); color:var(--bg); min-height:var(--control-height); padding:0 14px; border-radius:var(--control-radius); font-family:'Geist',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; font-size:var(--text-md); font-weight:500; cursor:pointer; box-shadow:var(--shadow-sm); }
     button:hover { opacity:.96; }
     button.secondary, .btn-cancel { background:var(--surface); color:var(--fg); box-shadow:var(--shadow-sm); }
     .btn-confirm { background:var(--danger); color:#fff; }
@@ -829,7 +829,7 @@ const panelHTML = `<!doctype html>
     .bar-mid { background:#fbbf24; }
     .bar-high { background:var(--danger); }
     .copy-link { font-size:11px; cursor:pointer; }
-    .btn-sm { border:none; color:white; padding:4px 8px; border-radius:var(--radius-sm); font-size:11px; cursor:pointer; }
+    .btn-sm { border:none; color:var(--bg); padding:4px 8px; border-radius:var(--radius-sm); font-size:11px; cursor:pointer; }
     .hidden { display:none; }
     #toast-container { position:fixed; top:20px; right:20px; z-index:9999; display:flex; flex-direction:column; gap:10px; }
     .toast { background:var(--surface); border:none; color:var(--fg); padding:12px 18px; border-radius:var(--radius-lg); box-shadow:var(--shadow-md); animation: toastIn .3s ease, toastOut .3s ease 2.7s forwards; }
@@ -1547,6 +1547,7 @@ const panelHTML = `<!doctype html>
 
     function renderClients(inbound, list) {
       const subscriptionHost = window.location.host;
+      const hostName = window.location.hostname;
       const clients = inbound.clients || [];
       if (clients.length === 0) {
         list.className = 'list';
@@ -1558,7 +1559,7 @@ const panelHTML = `<!doctype html>
       list.className = 'list';
       list.innerHTML = clients.map(c => {
         const subUrl = window.location.protocol + '//' + subscriptionHost + '/sub/' + c.uuid;
-        const shareLink = inbound.protocol + '://' + c.uuid + '@' + subscriptionHost + ':' + inbound.port + '?type=' + (inbound.network||'tcp') + '&security=' + (inbound.security||'none') + '#' + escapeHtml(c.email);
+        const shareLink = inbound.protocol + '://' + c.uuid + '@' + hostName + ':' + inbound.port + '?type=' + (inbound.network||'tcp') + '&security=' + (inbound.security||'none') + '#' + escapeHtml(c.email);
         const used = (c.up||0) + (c.down||0);
         const limit = c.traffic_limit || 0;
         const pct = limit > 0 ? Math.min(100, used / limit * 100) : 0;
