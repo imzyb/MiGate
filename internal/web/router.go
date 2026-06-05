@@ -1285,12 +1285,12 @@ const panelHTML = `<!doctype html>
       <h3 class="modal-title">新增入站</h3>
       <form id="create-inbound-form" class="form-grid modal-form" onsubmit="return false">
         <div class="field-group">
-          <label class="field-label" for="inbound-remark">入站备注</label>
+          <label class="field-label" for="inbound-remark">名称</label>
           <input id="inbound-remark" name="remark" placeholder="例如 主入口" required>
-          <p class="field-help">用于列表识别，不会写入客户端密钥。</p>
+          <p class="field-help">只需要填写名称，其他参数会自动生成并可继续手动修改。</p>
         </div>
         <div class="field-group">
-          <label class="field-label" for="inbound-protocol">协议</label>
+          <label class="field-label" for="inbound-protocol">协议类型</label>
           <select id="inbound-protocol" name="protocol">
             <option value="vless">VLESS</option>
             <option value="vmess">VMess</option>
@@ -1306,7 +1306,7 @@ const panelHTML = `<!doctype html>
           <p class="field-help">建议使用未被占用的公网端口。</p>
         </div>
         <div class="field-group">
-          <label class="field-label" for="inbound-network">传输方式</label>
+          <label class="field-label" for="inbound-network">参数类型 / 传输方式</label>
           <select name="network" id="inbound-network">
             <option value="tcp">TCP</option>
             <option value="ws">WebSocket</option>
@@ -1316,7 +1316,7 @@ const panelHTML = `<!doctype html>
             <option value="h2">HTTP/2</option>
             <option value="xhttp">XHTTP</option>
           </select>
-          <p class="field-help">切换后会显示对应的高级字段。</p>
+          <p class="field-help">只要选定参数类型，其余如 UUID、密码、短 ID、证书路径等会随机填充并可手动修改。</p>
         </div>
         <div class="field-group">
           <label class="field-label" for="inbound-security">安全层</label>
@@ -2473,6 +2473,8 @@ const panelHTML = `<!doctype html>
       document.getElementById('ss-settings').classList.toggle('hidden', proto !== 'shadowsocks');
       document.getElementById('tls-settings').classList.toggle('hidden', sec !== 'tls');
       document.getElementById('hy2-settings').classList.toggle('hidden', proto !== 'hysteria2');
+      const formEl = document.getElementById('create-inbound-form');
+      if (formEl) fillRandomDefaults(formEl);
     }
 
     function openCreateInbound() {
@@ -2481,6 +2483,7 @@ const panelHTML = `<!doctype html>
       document.getElementById('inbound-network').value = 'tcp';
       document.getElementById('inbound-security').value = 'none';
       updateDynamicFields();
+      fillRandomDefaults(formEl);
       document.getElementById('create-inbound-overlay').classList.remove('hidden');
       document.getElementById('inbound-remark').focus();
     }
@@ -2497,6 +2500,40 @@ const panelHTML = `<!doctype html>
       fields.classList.toggle('hidden');
       chevron.textContent = isHidden ? '\u25BC' : '\u25B6';
     }
+    function fillRandomDefaults(formEl) {
+      const proto = document.getElementById('inbound-protocol').value;
+      const sec = document.getElementById('inbound-security').value;
+      const randHex = (n) => Array.from(crypto.getRandomValues(new Uint8Array(Math.ceil(n/2)))).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, n);
+      const setIfEmpty = (sel, val) => {
+        const el = formEl.querySelector(sel);
+        if (el && !el.value) el.value = val;
+      };
+      if (sec === 'reality') {
+        setIfEmpty('[name="reality_dest"]', 'www.cloudflare.com:443');
+        setIfEmpty('[name="reality_server_names"]', 'www.cloudflare.com');
+        setIfEmpty('[name="reality_short_id"]', randHex(8));
+      }
+      if (sec === 'tls') {
+        setIfEmpty('[name="tls_cert_file"]', '/etc/ssl/certs/fullchain.pem');
+        setIfEmpty('[name="tls_key_file"]', '/etc/ssl/private/privkey.pem');
+      }
+      if (proto === 'hysteria2') {
+        setIfEmpty('[name="hy2_obfs"]', 'salamander');
+        setIfEmpty('[name="hy2_obfs_password"]', randHex(12));
+      }
+      if (proto === 'vless' || proto === 'trojan' || proto === 'vmess') {
+        setIfEmpty('[name="reality_short_id"]', randHex(8));
+      }
+      if (proto === 'shadowsocks') {
+        setIfEmpty('[name="ss_method"]', '2022-blake3-aes-128-gcm');
+      }
+      const initFields = document.getElementById('init-client-fields');
+      if (initFields && !initFields.classList.contains('hidden')) {
+        const emailEl = document.getElementById('init-client-email');
+        if (emailEl && !emailEl.value) emailEl.value = 'user@example.com';
+      }
+    }
+
     async function saveCreateInbound() {
       const formEl = document.getElementById('create-inbound-form');
       const form = new FormData(formEl);

@@ -158,6 +158,36 @@ func TestPanelWiresClientManagement(t *testing.T) {
 	}
 }
 
+func TestCreateInboundFormShowsRandomizableDefaults(t *testing.T) {
+	router := web.NewRouter()
+	page := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	router.ServeHTTP(page, req)
+	if page.Code != http.StatusOK {
+		t.Fatalf("expected 200 for panel, got %d: %s", page.Code, page.Body.String())
+	}
+	body := page.Body.String()
+	for _, want := range []string{
+		`fillRandomDefaults(formEl)`,
+		`reality_short_id`,
+		`ss_method`,
+		`hy2_obfs_password`,
+		`init-client-email`,
+		`参数类型 / 传输方式`,
+		`名称`,
+		`协议类型`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("create inbound form missing %q: %s", want, body)
+		}
+	}
+	for _, forbidden := range []string{`id="inbound-form"`, `document.getElementById('inbound-form')`, `name="uuid"`} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("create inbound form should not expose legacy contracts, found %q", forbidden)
+		}
+	}
+}
+
 func TestLoginPageVercelStyle(t *testing.T) {
 	router := web.NewRouter()
 	resp := httptest.NewRecorder()
