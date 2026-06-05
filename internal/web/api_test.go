@@ -270,7 +270,7 @@ func TestSubscriptionEndpointReturnsClientShareLink(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
-	for _, want := range []string{"vless://" + client.UUID + "@panel.example.com:443", "type=tcp", "security=reality", "#sam@example.com"} {
+	for _, want := range []string{"vless://" + client.UUID + "@panel.example.com:443", "type=tcp", "security=reality", "sam%40example.com"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("subscription missing %q: %s", want, body)
 		}

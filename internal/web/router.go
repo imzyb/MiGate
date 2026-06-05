@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -689,48 +690,41 @@ func shareLink(host string, inbound db.Inbound, client db.Client) string {
 	default:
 		// vless, trojan, etc. use universal link format
 		var params []string
-		params = append(params, "type="+inbound.Network)
-		params = append(params, "security="+inbound.Security)
+		addParam := func(k, v string) {
+			if v != "" {
+				params = append(params, k+"="+url.QueryEscape(v))
+			}
+		}
+		addParam("type", inbound.Network)
+		addParam("security", inbound.Security)
 		if inbound.Security == "reality" {
 			params = append(params, "flow=xtls-rprx-vision")
-			if inbound.RealityServerNames != "" {
-				params = append(params, "sni="+inbound.RealityServerNames)
-			}
+			addParam("sni", inbound.RealityServerNames)
 			params = append(params, "fp=chrome")
-			if inbound.RealityPublicKey != "" {
-				params = append(params, "pbk="+inbound.RealityPublicKey)
-			}
-			if inbound.RealityShortID != "" {
-				params = append(params, "sid="+inbound.RealityShortID)
-			}
+			addParam("pbk", inbound.RealityPublicKey)
+			addParam("sid", inbound.RealityShortID)
 		} else if inbound.Security == "tls" {
-			if inbound.RealityServerNames != "" {
-				params = append(params, "sni="+inbound.RealityServerNames)
-			}
+			addParam("sni", inbound.RealityServerNames)
 			params = append(params, "allowInsecure=1")
 		}
 		// Transport-specific params
-		if inbound.Network == "ws" {
-			if inbound.WsPath != "" {
-				params = append(params, "path="+inbound.WsPath)
-			}
-			if inbound.WsHost != "" {
-				params = append(params, "host="+inbound.WsHost)
-			}
-		} else if inbound.Network == "grpc" {
-			if inbound.GrpcServiceName != "" {
-				params = append(params, "serviceName="+inbound.GrpcServiceName)
-			}
-		} else if inbound.Network == "xhttp" {
-			if inbound.XHTTPPath != "" {
-				params = append(params, "path="+inbound.XHTTPPath)
-			}
-			if inbound.XHTTPMode != "" {
-				params = append(params, "mode="+inbound.XHTTPMode)
-			}
+		switch inbound.Network {
+		case "ws":
+			addParam("path", inbound.WsPath)
+			addParam("host", inbound.WsHost)
+		case "h2":
+			addParam("path", inbound.WsPath)
+			addParam("host", inbound.WsHost)
+		case "grpc":
+			addParam("serviceName", inbound.GrpcServiceName)
+		case "xhttp":
+			addParam("path", inbound.XHTTPPath)
+			addParam("mode", inbound.XHTTPMode)
+		case "kcp":
+		case "quic":
 		}
 		query := strings.Join(params, "&")
-		return inbound.Protocol + "://" + client.UUID + "@" + host + ":" + strconv.Itoa(inbound.Port) + "?" + query + "#" + client.Email
+		return inbound.Protocol + "://" + client.UUID + "@" + host + ":" + strconv.Itoa(inbound.Port) + "?" + query + "#" + url.QueryEscape(client.Email)
 	}
 }
 
@@ -740,6 +734,25 @@ func vmessShareLink(host string, inbound db.Inbound, client db.Client) string {
 	tls := ""
 	if inbound.Security == "tls" || inbound.Security == "reality" {
 		tls = "tls"
+	}
+
+	// Transport-specific host and path
+	vHost, vPath := "", ""
+	sni := ""
+	switch inbound.Network {
+	case "ws":
+		vHost = inbound.WsHost
+		vPath = inbound.WsPath
+	case "grpc":
+		vPath = inbound.GrpcServiceName
+	case "xhttp":
+		vPath = inbound.XHTTPPath
+	case "h2":
+		vHost = inbound.WsHost
+		vPath = inbound.WsPath
+	}
+	if inbound.Security == "tls" || inbound.Security == "reality" {
+		sni = inbound.RealityServerNames
 	}
 	vmessData := map[string]interface{}{
 		"v":    "2",
@@ -751,9 +764,10 @@ func vmessShareLink(host string, inbound db.Inbound, client db.Client) string {
 		"scy":  "auto",
 		"net":  inbound.Network,
 		"type": "none",
-		"host": "",
-		"path": "",
+		"host": vHost,
+		"path": vPath,
 		"tls":  tls,
+		"sni":  sni,
 	}
 	b, _ := json.Marshal(vmessData)
 	encoded := base64.StdEncoding.EncodeToString(b)
@@ -1661,7 +1675,19 @@ const panelHTML = `<!doctype html>
         const subUrl = window.location.protocol + '//' + subscriptionHost + '/sub/' + c.uuid;
         let shareLink;
         if (inbound.protocol === 'vmess') {
-          var vmessData = {v:'2',ps:c.email,add:hostName,port:String(inbound.port),id:c.uuid,aid:'0',scy:'auto',net:inbound.network||'tcp',type:'none',host:'',path:'',tls:(inbound.security==='tls'||inbound.security==='reality')?'tls':''};
+          var vmessHost = '', vmessPath = '', vmessSni = '';
+          if (inbound.network === 'ws' || inbound.network === 'h2') {
+            vmessHost = inbound.ws_host || '';
+            vmessPath = inbound.ws_path || '';
+          } else if (inbound.network === 'grpc') {
+            vmessPath = inbound.grpc_service_name || '';
+          } else if (inbound.network === 'xhttp') {
+            vmessPath = inbound.xhttp_path || '';
+          }
+          if (inbound.security === 'tls' || inbound.security === 'reality') {
+            vmessSni = inbound.reality_server_names || '';
+          }
+          var vmessData = {v:'2',ps:c.email,add:hostName,port:String(inbound.port),id:c.uuid,aid:'0',scy:'auto',net:inbound.network||'tcp',type:'none',host:vmessHost,path:vmessPath,tls:(inbound.security==='tls'||inbound.security==='reality')?'tls':'',sni:vmessSni};
           try { shareLink = 'vmess://' + btoa(JSON.stringify(vmessData)); } catch(e) { shareLink = ''; }
         } else if (inbound.protocol === 'shadowsocks') {
           var userPass = '2022-blake3-aes-128-gcm:' + c.uuid;
@@ -1681,6 +1707,9 @@ const panelHTML = `<!doctype html>
             p.push('allowInsecure=1');
           }
           if (inbound.network === 'ws') {
+            if (inbound.ws_path) p.push('path=' + encodeURIComponent(inbound.ws_path));
+            if (inbound.ws_host) p.push('host=' + encodeURIComponent(inbound.ws_host));
+          } else if (inbound.network === 'h2') {
             if (inbound.ws_path) p.push('path=' + encodeURIComponent(inbound.ws_path));
             if (inbound.ws_host) p.push('host=' + encodeURIComponent(inbound.ws_host));
           } else if (inbound.network === 'grpc') {
