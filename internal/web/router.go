@@ -113,6 +113,24 @@ type VPNGateServer struct {
 	LogType      string `json:"log_type"`
 	Operator     string `json:"operator"`
 	Message      string `json:"message"`
+	ServerType   string `json:"server_type"`
+}
+
+// classifyVPNGateType derives a type label from the operator string.
+func classifyVPNGateType(operator string) string {
+	op := strings.ToLower(operator)
+	bizKeywords := []string{"aws", "amazon", "digitalocean", "vultr", "hetzner",
+		"contabo", "linode", "ovh", "scaleway", "netcup", "leaseweb",
+		"microsoft", "azure", "google", "gcp", "oracle", "rackspace",
+		"ionos", "upcloud", "alibaba", "tencent", "vps", "hosting",
+		"dedicated", "cloud", "datacenter", "server", "colocation",
+		"inc", "llc", "ltd", "gmbh", "sarl"}
+	for _, kw := range bizKeywords {
+		if strings.Contains(op, kw) {
+			return "商宽"
+		}
+	}
+	return "家宽"
 }
 
 type Option func(*routerConfig)
@@ -1613,6 +1631,7 @@ func (vpngateFetcherImpl) FetchServers() ([]VPNGateServer, error) {
 			LogType:      s.LogType,
 			Operator:     s.Operator,
 			Message:      s.Message,
+			ServerType:   classifyVPNGateType(s.Operator),
 		}
 	}
 	return result, nil
@@ -1789,6 +1808,9 @@ const panelHTML = `<!doctype html>
     .overview-card { display:grid; gap:var(--space-3); align-content:start; background:var(--surface); border-radius:var(--radius-lg); box-shadow:var(--shadow-md); padding:var(--panel-padding); min-height:156px; }
     .overview-card-title { color:var(--fg); font-size:var(--text-lg); font-weight:600; letter-spacing:-0.24px; }
     .overview-pill { display:inline-flex; align-items:center; width:max-content; min-height:26px; padding:0 10px; border-radius:9999px; background:var(--surface-subtle); color:var(--fg); box-shadow:var(--shadow-sm); font-size:var(--text-xs); font-weight:500; }
+    .type-pill { display:inline-flex; align-items:center; padding:2px 8px; border-radius:8px; font-size:11px; font-weight:600; line-height:1.4; }
+    .type-pill.type-home { background:color-mix(in srgb, #2e7d32 15%, transparent); color:var(--green, #2e7d32); }
+    .type-pill.type-biz { background:color-mix(in srgb, #1565c0 15%, transparent); color:var(--blue, #1565c0); }
     .panel, .card { background:var(--surface); border-radius:var(--radius-lg); box-shadow:var(--shadow-md); padding:var(--panel-padding); }
     .metric { font-size:30px; font-weight:600; line-height:1.05; letter-spacing:-0.96px; margin-top:10px; color:var(--fg); }
     .section-heading, .section-title { font-size:24px; line-height:1.2; letter-spacing:-0.96px; font-weight:600; margin:0 0 var(--space-3); color:var(--fg); }
@@ -1917,7 +1939,7 @@ const panelHTML = `<!doctype html>
 </head>
 <body>
   <div id="toast-container"></div>
-  <div id="confirm-overlay" class="hidden" onclick="if(event.target===this)rejectConfirm()">
+  <div id="confirm-overlay" class="modal-overlay hidden" onclick="if(event.target===this)rejectConfirm()">
     <div id="confirm-dialog">
       <p id="confirm-msg"></p>
       <div class="actions">
@@ -2338,14 +2360,6 @@ const panelHTML = `<!doctype html>
             <div class="overview-card-title">协议分布</div>
             <div id="overview-protocol-breakdown" class="protocol-breakdown"></div>
           </div>
-          <div class="overview-card">
-            <div class="overview-card-title">快捷操作</div>
-            <div id="overview-quick-actions" class="actions" style="margin-top:0">
-              <button onclick="navigateTo('inbounds')">管理入站</button>
-              <button class="secondary" onclick="navigateTo('clients')">管理客户端</button>
-              <button class="secondary" onclick="navigateTo('xray')">查看 Xray</button>
-            </div>
-          </div>
         </div>
       </section>
       <section id="inbounds" class="card panel">
@@ -2707,7 +2721,7 @@ const panelHTML = `<!doctype html>
                   <th style="padding:6px 8px;text-align:left">IP</th>
                   <th style="padding:6px 8px;text-align:right">延迟</th>
                   <th style="padding:6px 8px;text-align:right">速度</th>
-                  <th style="padding:6px 8px;text-align:right">分数</th>
+                  <th style="padding:6px 8px;text-align:left">类型</th>
                   <th style="padding:6px 8px;text-align:left">运营商</th>
                 </tr>
               </thead>
@@ -3187,7 +3201,8 @@ const panelHTML = `<!doctype html>
     function deleteOutbound(id) {
       showConfirm('确认删除此出站？', async function() {
         try {
-          await fetch(apiPath('/api/outbounds/' + id), {method:'DELETE'});
+          const resp = await fetch(apiPath('/api/outbounds/' + id), {method:'DELETE'});
+          if (!resp.ok) { const err = await resp.json(); throw new Error(err.error || '删除失败'); }
           showToast('出站已删除', 'success');
           await loadOutbounds();
         } catch(e) { showToast('删除失败: ' + e.message, 'error'); }
@@ -3465,7 +3480,7 @@ function openCreateRoutingRule() {
           '<td style="padding:4px 8px;font-family:monospace">' + escapeHtml(s.ip || '') + '</td>' +
           '<td style="padding:4px 8px;text-align:right">' + s.ping + 'ms</td>' +
           '<td style="padding:4px 8px;text-align:right">' + speedStr + '</td>' +
-          '<td style="padding:4px 8px;text-align:right">' + (s.score || '-') + '</td>' +
+          '<td style="padding:4px 8px"><span class="type-pill type-' + (s.server_type === '商宽' ? 'biz' : 'home') + '">' + (s.server_type || '家宽') + '</span></td>' +
           '<td style="padding:4px 8px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(s.operator || '') + '">' + escapeHtml(s.operator || '-') + '</td>' +
           '</tr>';
       });
@@ -3502,7 +3517,14 @@ function openCreateRoutingRule() {
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({servers: selected})
         });
-        if (!resp.ok) { showToast('导入失败', 'error'); btn.textContent = '导入选中'; return; }
+        if (!resp.ok) {
+          var errText = '导入失败';
+          try { var errData = await resp.json(); errText = errData.error || errText; if (errData.detail) errText += ': ' + errData.detail; } catch(e) {}
+          showToast(errText, 'error');
+          btn.textContent = '导入选中';
+          btn.disabled = false;
+          return;
+        }
         showToast('已导入 ' + selected.length + ' 台 VPN Gate 服务器', 'success');
         closeModal();
         await Promise.all([loadOutbounds(), loadXrayStatus()]);
