@@ -931,6 +931,24 @@ func (s *Store) ResetClientTraffic(ctx context.Context, id int64) (Client, error
 	return client, nil
 }
 
+// UpdateClientTraffic updates the traffic counters for a client by email.
+// This is used by the traffic sync scheduler to update DB with Xray stats.
+func (s *Store) UpdateClientTraffic(ctx context.Context, email string, uplink, downlink int64) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE clients SET up=?, down=? WHERE email=?`, uplink, downlink, email)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		// Client not found - may have been deleted, silently ignore
+		return nil
+	}
+	return nil
+}
+
 func newUUID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {

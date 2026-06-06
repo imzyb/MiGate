@@ -85,6 +85,7 @@ type routerConfig struct {
 	version        string
 	basePath       string
 	vpnGateFetcher VPNGateFetcher
+	statsClient    xray.StatsClient
 }
 
 type VPNGateFetcher interface {
@@ -153,6 +154,12 @@ func WithVPNGateFetcher(fetcher VPNGateFetcher) Option {
 	}
 }
 
+func WithStatsClient(client xray.StatsClient) Option {
+	return func(cfg *routerConfig) {
+		cfg.statsClient = client
+	}
+}
+
 func NewRouter(options ...Option) http.Handler {
 	cfg := routerConfig{
 		xrayController: defaultXrayController{},
@@ -174,7 +181,7 @@ func NewRouter(options ...Option) http.Handler {
 	mux.HandleFunc("/api/outbounds/", outboundChildrenHandler(cfg.store, cfg.xrayController))
 	mux.HandleFunc("/api/routing-rules", routingRulesHandler(cfg.store, cfg.xrayController))
 	mux.HandleFunc("/api/routing-rules/", routingRuleChildrenHandler(cfg.store, cfg.xrayController))
-	mux.HandleFunc("/api/stats", statsHandler(cfg.store))
+	mux.HandleFunc("/api/stats", statsHandler(cfg.store, cfg.statsClient))
 	mux.HandleFunc("/api/xray/config", xrayConfigHandler(cfg.store))
 	mux.HandleFunc("/api/xray/status", xrayStatusHandler(cfg.xrayController))
 	mux.HandleFunc("/api/xray/apply", xrayApplyHandler(cfg.xrayController))
@@ -523,7 +530,7 @@ func routingRuleChildrenHandler(store Store, ctrl XrayController) http.HandlerFu
 	}
 }
 
-func statsHandler(store Store) http.HandlerFunc {
+func statsHandler(store Store, statsClient xray.StatsClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		inb, _ := store.ListInbounds(ctx)
@@ -547,10 +554,42 @@ func statsHandler(store Store) http.HandlerFunc {
 				enabledRules++
 			}
 		}
+
+		// Get per-client traffic stats if statsClient is available
+		clientStats := make(map[string]*xray.ClientStats)
+		if statsClient != nil {
+			stats, _ := statsClient.QueryAllStats(ctx)
+			clientStats = stats
+		}
+
+		// Build client traffic list from DB + stats
+		var clientList []map[string]interface{}
+		for _, in := range inb {
+			for _, c := range in.Clients {
+				info := map[string]interface{}{
+					"id":           c.ID,
+					"inbound_id":   c.InboundID,
+					"email":        c.Email,
+					"enabled":      c.Enabled,
+					"up":           c.Up,
+					"down":         c.Down,
+					"traffic_limit": c.TrafficLimit,
+					"expiry_at":    c.ExpiryAt,
+				}
+				// Override with live stats if available
+				if liveStats, ok := clientStats[c.Email]; ok {
+					info["up"] = liveStats.Uplink
+					info["down"] = liveStats.Downlink
+				}
+				clientList = append(clientList, info)
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"inbounds":              len(inb),
 			"clients":               clientCount,
+			"client_details":        clientList,
 			"outbounds":             totalObs,
 			"outbounds_enabled":     enabledObs,
 			"routing_rules":         totalRules,

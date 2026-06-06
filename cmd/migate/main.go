@@ -1,6 +1,5 @@
 package main
 
-
 import (
 	"context"
 	"encoding/json"
@@ -11,9 +10,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/imzyb/MiGate/internal/db"
+	"github.com/imzyb/MiGate/internal/scheduler"
 	"github.com/imzyb/MiGate/internal/web"
+	"github.com/imzyb/MiGate/internal/xray"
 )
 
 // Version is set via ldflags at build time.
@@ -93,7 +95,27 @@ func routerFromConfig(path string) (http.Handler, func(), error) {
 			web.NewRealController(store, cfg.XrayConfigPath, execCmd),
 		))
 	}
-	return web.NewRouter(opts...), closeStore, nil
+	// Inject stub stats client (lightweight, no gRPC dependency)
+	// Real stats can be enabled by swapping with GRPCStatsClient at runtime
+	opts = append(opts, web.WithStatsClient(xray.NewStubStatsClient()))
+
+	router := web.NewRouter(opts...)
+
+	// Start traffic sync scheduler in background
+	// Uses stub client by default (returns empty stats)
+	// When gRPC stats client is available, it will sync real traffic data
+	sched := scheduler.NewTrafficSyncScheduler(store, xray.NewStubStatsClient(), 1*time.Minute)
+	go func() {
+		log.Println("traffic sync scheduler started (stub mode - no real stats)")
+		sched.Start()
+	}()
+
+	cleanup := func() {
+		sched.Stop()
+		closeStore()
+	}
+
+	return router, cleanup, nil
 }
 
 func readPanelConfig(path string) (panelConfig, error) {
