@@ -258,6 +258,22 @@ func outboundsHandler(store Store, ctrl XrayController) http.HandlerFunc {
 	}
 }
 
+func pingOutbound(address string, port int) map[string]interface{} {
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(address, strconv.Itoa(port)), 3*time.Second)
+	if err != nil {
+		return map[string]interface{}{"latency": -1, "error": err.Error()}
+	}
+	start := time.Now()
+	// Send a SOCKS5 handshake greeting to measure round-trip
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	_, _ = conn.Write([]byte{5, 1, 0})
+	var buf [1]byte
+	_, _ = conn.Read(buf[:])
+	latency := time.Since(start).Milliseconds()
+	_ = conn.Close()
+	return map[string]interface{}{"latency": latency}
+}
+
 func outboundChildrenHandler(store Store, ctrl XrayController) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/api/outbounds/")
@@ -377,6 +393,38 @@ func routingRuleChildrenHandler(store Store, ctrl XrayController) http.HandlerFu
 			applyResult := ctrl.Apply(r.Context())
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "deleted", "xray": applyResult})
+		case http.MethodGet:
+			if strings.HasSuffix(r.URL.Path, "/ping") {
+				idStr := strings.TrimSuffix(path, "/ping")
+				obID, err := strconv.ParseInt(strings.TrimSpace(idStr), 10, 64)
+				if err != nil {
+					http.Error(w, `{"error":"invalid_id"}`, http.StatusBadRequest)
+					return
+				}
+				// Re-fetch the outbound to get address:port
+				outbounds, err := store.ListOutbounds(r.Context())
+				if err != nil {
+					http.Error(w, `{"error":"list_failed"}`, http.StatusInternalServerError)
+					return
+				}
+				var target *db.Outbound
+				for i := range outbounds {
+					if outbounds[i].ID == obID {
+						target = &outbounds[i]
+						break
+					}
+				}
+				if target == nil || !target.Enabled || target.Protocol == "freedom" || target.Protocol == "blackhole" {
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{"latency": -1, "error": "not_pingable"})
+					return
+				}
+				result := pingOutbound(target.Address, target.Port)
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(result)
+				return
+			}
+			http.Error(w, `{"error":"not_found"}`, http.StatusNotFound)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
@@ -2354,16 +2402,36 @@ const panelHTML = `<!doctype html>
       const detail = ob.address ? ob.address + ':' + ob.port : '';
       const editable = ob.protocol !== 'freedom' && ob.protocol !== 'blackhole';
       const enabledColor = ob.enabled ? 'var(--green)' : 'var(--muted)';
+      const pinned = ob.sort === 0 || ob.sort === 1;
       return '<div class=\"card\" style=\"padding:12px 16px;display:flex;align-items:center;gap:12px\">' +
         '<span style=\"color:' + enabledColor + ';font-size:18px\">' + (ob.enabled ? '&#9679;' : '&#9678;') + '</span>' +
         '<div style=\"flex:1;min-width:0\">' +
         '<div style=\"font-weight:600;font-size:var(--text-sm)\">' + escHtml(ob.remark||ob.tag) + '</div>' +
-        '<div class=\"muted\" style=\"font-size:var(--text-xs)\">' + escHtml(ob.tag) + ' &middot; ' + protoLabel + (detail ? ' &middot; ' + escHtml(detail) : '') + '</div>' +
+        '<div class=\"muted\" style=\"font-size:var(--text-xs)\">' + escHtml(ob.tag) + ' &middot; ' + protoLabel + (detail ? ' &middot; ' + escHtml(detail) : '') + ' <span id=\"ping-' + ob.id + '\"></span></div>' +
         '</div><div style=\"display:flex;gap:6px\">' +
-        (editable ? '<button class=\"cell-action\" onclick=\"openEditOutbound(' + ob.id + ')\" title=\"编辑\">&#9998;</button>' +
+        (editable ? '<button class=\"cell-action\" onclick=\"speedTestOutbound(' + ob.id + ')\" title=\"测速\">&#9889;</button>' +
+          '<button class=\"cell-action\" onclick=\"openEditOutbound(' + ob.id + ')\" title=\"编辑\">&#9998;</button>' +
           '<button class=\"cell-action\" onclick=\"deleteOutbound(' + ob.id + ')\" title=\"删除\">&#10005;</button>' :
         '<span class=\"muted\" style=\"font-size:var(--text-xs);padding:4px 8px\">内置</span>') +
         '</div></div>';
+    }
+
+    function speedTestOutbound(id) {
+      const el = document.getElementById('ping-' + id);
+      if (!el) return;
+      el.textContent = '测速中...';
+      fetch(apiPath('/api/outbounds/' + id + '/ping')).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.latency >= 0) {
+          el.textContent = ' ' + data.latency + 'ms';
+          el.style.color = data.latency < 200 ? 'var(--green)' : data.latency < 500 ? 'var(--accent2)' : 'var(--danger)';
+        } else {
+          el.textContent = ' 超时';
+          el.style.color = 'var(--danger)';
+        }
+      }).catch(function() {
+        el.textContent = ' 失败';
+        el.style.color = 'var(--danger)';
+      });
     }
 
     function openCreateOutbound() {
