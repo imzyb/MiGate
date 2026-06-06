@@ -72,6 +72,33 @@ func TestBuildConfigIncludesSupportedProtocolInboundsAndFreedomOutbound(t *testi
 	}
 }
 
+func TestBuildConfigWithOutboundsUsesStoredOutbounds(t *testing.T) {
+	config, err := xray.BuildConfigWithOutbounds(nil, []db.Outbound{
+		{Tag: "direct", Protocol: "freedom", Enabled: true, Sort: 0},
+		{Tag: "blocked", Protocol: "blackhole", Enabled: true, Sort: 1},
+		{Tag: "proxy-socks", Protocol: "socks", Address: "127.0.0.1", Port: 1080, Username: "sam", Password: "secret", Enabled: true, Sort: 2},
+		{Tag: "disabled-proxy", Protocol: "http", Address: "127.0.0.1", Port: 8080, Enabled: false, Sort: 3},
+	})
+	if err != nil {
+		t.Fatalf("build config with outbounds: %v", err)
+	}
+	if len(config.Outbounds) != 3 {
+		t.Fatalf("expected three enabled outbounds, got %+v", config.Outbounds)
+	}
+	encoded, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	text := string(encoded)
+	for _, want := range []string{`"tag":"direct"`, `"protocol":"freedom"`, `"tag":"blocked"`, `"protocol":"blackhole"`, `"tag":"proxy-socks"`, `"protocol":"socks"`, `"address":"127.0.0.1"`, `"port":1080`, `"user":"sam"`, `"pass":"secret"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("outbound config missing %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "disabled-proxy") {
+		t.Fatalf("disabled outbound leaked into config: %s", text)
+	}
+}
 func TestBuildConfigRejectsUnsupportedProtocol(t *testing.T) {
 	_, err := xray.BuildConfig([]db.Inbound{{Protocol: "openvpn", Port: 1194, Enabled: true}})
 	if err == nil {

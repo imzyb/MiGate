@@ -7,6 +7,50 @@ import (
 	"github.com/imzyb/MiGate/internal/db"
 )
 
+func TestStoreCreatesAndListsOutboundsWithDefaults(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	outbounds, err := store.ListOutbounds(context.Background())
+	if err != nil {
+		t.Fatalf("list default outbounds: %v", err)
+	}
+	if len(outbounds) != 2 {
+		t.Fatalf("expected direct and blocked defaults, got %+v", outbounds)
+	}
+	if outbounds[0].Tag != "direct" || outbounds[0].Protocol != "freedom" || outbounds[0].Sort != 0 {
+		t.Fatalf("unexpected first default outbound: %+v", outbounds[0])
+	}
+	if outbounds[1].Tag != "blocked" || outbounds[1].Protocol != "blackhole" || outbounds[1].Sort != 1 {
+		t.Fatalf("unexpected second default outbound: %+v", outbounds[1])
+	}
+
+	created, err := store.CreateOutbound(context.Background(), db.CreateOutboundParams{
+		Tag:      "proxy-socks",
+		Protocol: "socks",
+		Address:  "127.0.0.1",
+		Port:     1080,
+		Username: "sam",
+		Password: "secret",
+	})
+	if err != nil {
+		t.Fatalf("create outbound: %v", err)
+	}
+	if created.ID == 0 || created.Tag != "proxy-socks" || created.Protocol != "socks" || created.Address != "127.0.0.1" || created.Port != 1080 || !created.Enabled {
+		t.Fatalf("unexpected created outbound: %+v", created)
+	}
+
+	outbounds, err = store.ListOutbounds(context.Background())
+	if err != nil {
+		t.Fatalf("list after create: %v", err)
+	}
+	if len(outbounds) != 3 || outbounds[2].Tag != "proxy-socks" || outbounds[2].Sort != 2 {
+		t.Fatalf("created outbound not appended after defaults: %+v", outbounds)
+	}
+}
 func TestStoreMigratesAndCreatesInboundWithClients(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {

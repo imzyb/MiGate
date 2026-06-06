@@ -18,6 +18,47 @@ import (
 	"github.com/imzyb/MiGate/internal/web"
 )
 
+func TestOutboundsAPIListsDefaultsAndCreatesOutbound(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	router := web.NewRouter(web.WithStore(store))
+
+	list := httptest.NewRecorder()
+	router.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/outbounds", nil))
+	if list.Code != http.StatusOK {
+		t.Fatalf("expected 200 listing outbounds, got %d: %s", list.Code, list.Body.String())
+	}
+	for _, want := range []string{`"tag":"direct"`, `"protocol":"freedom"`, `"tag":"blocked"`, `"protocol":"blackhole"`} {
+		if !strings.Contains(list.Body.String(), want) {
+			t.Fatalf("outbounds list missing %q: %s", want, list.Body.String())
+		}
+	}
+
+	payload := []byte(`{"tag":"proxy-socks","remark":"SOCKS代理","protocol":"socks","address":"127.0.0.1","port":1080,"username":"sam","password":"secret"}`)
+	created := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/outbounds", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(created, req)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("expected 201 creating outbound, got %d: %s", created.Code, created.Body.String())
+	}
+	for _, want := range []string{`"tag":"proxy-socks"`, `"protocol":"socks"`, `"address":"127.0.0.1"`, `"port":1080`, `"enabled":true`} {
+		if !strings.Contains(created.Body.String(), want) {
+			t.Fatalf("create outbound response missing %q: %s", want, created.Body.String())
+		}
+	}
+
+	outbounds, err := store.ListOutbounds(context.Background())
+	if err != nil {
+		t.Fatalf("list outbounds: %v", err)
+	}
+	if len(outbounds) != 3 || outbounds[2].Tag != "proxy-socks" {
+		t.Fatalf("outbound was not persisted: %+v", outbounds)
+	}
+}
 func TestInboundsAPIListsStoredInboundsWithClients(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {

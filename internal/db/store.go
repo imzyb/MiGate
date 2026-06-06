@@ -20,6 +20,13 @@ var supportedProtocols = map[string]bool{
 	"hysteria2":   true,
 }
 
+var supportedOutboundProtocols = map[string]bool{
+	"freedom":   true,
+	"blackhole": true,
+	"socks":     true,
+	"http":      true,
+}
+
 type Store struct {
 	db *sql.DB
 }
@@ -51,6 +58,29 @@ type Inbound struct {
 	Hy2Obfs            string   `json:"hy2_obfs"`
 	Hy2ObfsPassword    string   `json:"hy2_obfs_password"`
 	Clients            []Client `json:"clients"`
+}
+
+type Outbound struct {
+	ID       int64  `json:"id"`
+	Tag      string `json:"tag"`
+	Remark   string `json:"remark"`
+	Protocol string `json:"protocol"`
+	Address  string `json:"address"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Enabled  bool   `json:"enabled"`
+	Sort     int    `json:"sort"`
+}
+
+type CreateOutboundParams struct {
+	Tag      string `json:"tag"`
+	Remark   string `json:"remark"`
+	Protocol string `json:"protocol"`
+	Address  string `json:"address"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type Client struct {
@@ -172,8 +202,24 @@ CREATE TABLE IF NOT EXISTS clients (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_clients_inbound_id ON clients(inbound_id);
+CREATE TABLE IF NOT EXISTS outbounds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tag TEXT NOT NULL UNIQUE,
+  remark TEXT NOT NULL,
+  protocol TEXT NOT NULL,
+  address TEXT NOT NULL DEFAULT '',
+  port INTEGER NOT NULL DEFAULT 0,
+  username TEXT NOT NULL DEFAULT '',
+  password TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  sort INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
 `)
 	if err != nil {
+		return err
+	}
+	if err := s.seedDefaultOutbounds(ctx); err != nil {
 		return err
 	}
 	// Migration: add traffic/expiry columns (ignore errors if already exist)
@@ -208,6 +254,75 @@ CREATE INDEX IF NOT EXISTS idx_clients_inbound_id ON clients(inbound_id);
 		_, _ = s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE inbounds ADD COLUMN %s %s %s", col.name, col.typ, col.def))
 	}
 	return nil
+}
+
+func (s *Store) seedDefaultOutbounds(ctx context.Context) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	defaults := []Outbound{
+		{Tag: "direct", Remark: "直接连接", Protocol: "freedom", Enabled: true, Sort: 0},
+		{Tag: "blocked", Remark: "阻断", Protocol: "blackhole", Enabled: true, Sort: 1},
+	}
+	for _, outbound := range defaults {
+		_, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO outbounds (tag, remark, protocol, address, port, username, password, enabled, sort, created_at) VALUES (?, ?, ?, '', 0, '', '', 1, ?, ?)`,
+			outbound.Tag, outbound.Remark, outbound.Protocol, outbound.Sort, now)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) ListOutbounds(ctx context.Context) ([]Outbound, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, tag, remark, protocol, address, port, username, password, enabled, sort FROM outbounds ORDER BY sort ASC, id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	outbounds := []Outbound{}
+	for rows.Next() {
+		var outbound Outbound
+		var enabled int
+		if err := rows.Scan(&outbound.ID, &outbound.Tag, &outbound.Remark, &outbound.Protocol, &outbound.Address, &outbound.Port, &outbound.Username, &outbound.Password, &enabled, &outbound.Sort); err != nil {
+			return nil, err
+		}
+		outbound.Enabled = enabled != 0
+		outbounds = append(outbounds, outbound)
+	}
+	return outbounds, rows.Err()
+}
+
+func (s *Store) CreateOutbound(ctx context.Context, params CreateOutboundParams) (Outbound, error) {
+	protocol := strings.ToLower(strings.TrimSpace(params.Protocol))
+	if !supportedOutboundProtocols[protocol] {
+		return Outbound{}, fmt.Errorf("unsupported outbound protocol: %s", params.Protocol)
+	}
+	tag := strings.TrimSpace(params.Tag)
+	if tag == "" {
+		return Outbound{}, fmt.Errorf("tag cannot be empty")
+	}
+	remark := strings.TrimSpace(params.Remark)
+	if remark == "" {
+		remark = tag
+	}
+	address := strings.TrimSpace(params.Address)
+	if (protocol == "socks" || protocol == "http") && address == "" {
+		return Outbound{}, fmt.Errorf("address cannot be empty")
+	}
+	if (protocol == "socks" || protocol == "http") && (params.Port <= 0 || params.Port > 65535) {
+		return Outbound{}, fmt.Errorf("invalid port: %d", params.Port)
+	}
+	var sort int
+	_ = s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort)+1, 0) FROM outbounds`).Scan(&sort)
+	result, err := s.db.ExecContext(ctx, `INSERT INTO outbounds (tag, remark, protocol, address, port, username, password, enabled, sort, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		tag, remark, protocol, address, params.Port, strings.TrimSpace(params.Username), params.Password, sort, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return Outbound{}, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return Outbound{}, err
+	}
+	return Outbound{ID: id, Tag: tag, Remark: remark, Protocol: protocol, Address: address, Port: params.Port, Username: strings.TrimSpace(params.Username), Password: params.Password, Enabled: true, Sort: sort}, nil
 }
 
 func (s *Store) CreateInbound(ctx context.Context, params CreateInboundParams) (Inbound, error) {

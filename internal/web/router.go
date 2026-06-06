@@ -20,6 +20,8 @@ import (
 type Store interface {
 	ListInbounds(ctx context.Context) ([]db.Inbound, error)
 	CreateInbound(ctx context.Context, params db.CreateInboundParams) (db.Inbound, error)
+	ListOutbounds(ctx context.Context) ([]db.Outbound, error)
+	CreateOutbound(ctx context.Context, params db.CreateOutboundParams) (db.Outbound, error)
 	CreateClient(ctx context.Context, params db.CreateClientParams) (db.Client, error)
 	DeleteInbound(ctx context.Context, id int64) error
 	DeleteClient(ctx context.Context, id int64) error
@@ -129,6 +131,7 @@ func NewRouter(options ...Option) http.Handler {
 	mux.HandleFunc("/api/health", healthHandler)
 	mux.HandleFunc("/api/inbounds", inboundsHandler(cfg.store, cfg.xrayController))
 	mux.HandleFunc("/api/inbounds/", inboundChildrenHandler(cfg.store, cfg.xrayController))
+	mux.HandleFunc("/api/outbounds", outboundsHandler(cfg.store, cfg.xrayController))
 	mux.HandleFunc("/api/xray/config", xrayConfigHandler(cfg.store))
 	mux.HandleFunc("/api/xray/status", xrayStatusHandler(cfg.xrayController))
 	mux.HandleFunc("/api/xray/apply", xrayApplyHandler(cfg.xrayController))
@@ -183,7 +186,6 @@ func panelHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(panelHTML))
 }
 
-
 func sessionHandler(cfg *routerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -191,9 +193,9 @@ func sessionHandler(cfg *routerConfig) http.HandlerFunc {
 			return
 		}
 		resp := map[string]interface{}{
-			"auth_enabled":   cfg.authEnabled,
-			"authenticated":  false,
-			"username":       "",
+			"auth_enabled":  cfg.authEnabled,
+			"authenticated": false,
+			"username":      "",
 		}
 		if !cfg.authEnabled {
 			resp["username"] = "未启用认证"
@@ -213,6 +215,38 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"status":"ok","mode":"single-binary"}`))
+}
+
+func outboundsHandler(store Store, ctrl XrayController) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			outbounds, err := store.ListOutbounds(r.Context())
+			if err != nil {
+				http.Error(w, `{"error":"list_outbounds_failed"}`, http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(outbounds)
+		case http.MethodPost:
+			var params db.CreateOutboundParams
+			if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+				http.Error(w, `{"error":"invalid_json"}`, http.StatusBadRequest)
+				return
+			}
+			outbound, err := store.CreateOutbound(r.Context(), params)
+			if err != nil {
+				http.Error(w, `{"error":"create_outbound_failed"}`, http.StatusBadRequest)
+				return
+			}
+			applyResult := ctrl.Apply(r.Context())
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"outbound": outbound, "xray": applyResult})
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
 }
 
 func inboundsHandler(store Store, ctrl XrayController) http.HandlerFunc {
@@ -546,15 +580,16 @@ func xrayConfigHandler(store Store) http.HandlerFunc {
 			return
 		}
 		inbounds := []db.Inbound{}
+		outbounds := []db.Outbound{}
 		if store != nil {
-			loaded, err := store.ListInbounds(r.Context())
-			if err != nil {
-				http.Error(w, `{"error":"list_inbounds_failed"}`, http.StatusInternalServerError)
-				return
+			if loaded, err := store.ListInbounds(r.Context()); err == nil {
+				inbounds = loaded
 			}
-			inbounds = loaded
+			if loaded, err := store.ListOutbounds(r.Context()); err == nil {
+				outbounds = loaded
+			}
 		}
-		config, err := xray.BuildConfig(inbounds)
+		config, err := xray.BuildConfigWithOutbounds(inbounds, outbounds)
 		if err != nil {
 			http.Error(w, `{"error":"build_xray_config_failed"}`, http.StatusBadRequest)
 			return

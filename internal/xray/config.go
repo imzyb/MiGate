@@ -43,7 +43,38 @@ func BuildConfig(inbounds []db.Inbound) (Config, error) {
 			Settings: map[string]interface{}{},
 		}},
 	}
+	return appendInbounds(config, inbounds)
+}
 
+func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound) (Config, error) {
+	config := Config{
+		Log:       LogConfig{LogLevel: "warning"},
+		Inbounds:  []InboundConfig{},
+		Outbounds: []OutboundConfig{},
+	}
+	config, err := appendInbounds(config, inbounds)
+	if err != nil {
+		return Config{}, err
+	}
+	for _, ob := range outbounds {
+		if !ob.Enabled {
+			continue
+		}
+		built, err := buildOutbound(ob)
+		if err != nil {
+			return Config{}, err
+		}
+		config.Outbounds = append(config.Outbounds, built)
+	}
+	if len(config.Outbounds) == 0 {
+		config.Outbounds = append(config.Outbounds, OutboundConfig{
+			Tag: "direct", Protocol: "freedom", Settings: map[string]interface{}{},
+		})
+	}
+	return config, nil
+}
+
+func appendInbounds(config Config, inbounds []db.Inbound) (Config, error) {
 	for _, inbound := range inbounds {
 		if !inbound.Enabled {
 			continue
@@ -296,4 +327,64 @@ func buildHy2StreamSettings(inbound db.Inbound) map[string]interface{} {
 		}
 	}
 	return settings
+}
+
+func buildOutbound(ob db.Outbound) (OutboundConfig, error) {
+	protocol := strings.ToLower(strings.TrimSpace(ob.Protocol))
+	switch protocol {
+	case "freedom", "blackhole":
+		return OutboundConfig{
+			Tag:      ob.Tag,
+			Protocol: protocol,
+			Settings: map[string]interface{}{},
+		}, nil
+	case "socks":
+		users := []map[string]interface{}{}
+		user := strings.TrimSpace(ob.Username)
+		pass := ob.Password
+		if user != "" {
+			entry := map[string]interface{}{"user": user}
+			if pass != "" {
+				entry["pass"] = pass
+			}
+			users = append(users, entry)
+		}
+		servers := []map[string]interface{}{{
+			"address": ob.Address,
+			"port":    ob.Port,
+		}}
+		if len(users) > 0 {
+			servers[0]["users"] = users
+		}
+		return OutboundConfig{
+			Tag:      ob.Tag,
+			Protocol: protocol,
+			Settings: map[string]interface{}{"servers": servers},
+		}, nil
+	case "http":
+		users := []map[string]interface{}{}
+		user := strings.TrimSpace(ob.Username)
+		pass := ob.Password
+		if user != "" {
+			entry := map[string]interface{}{"user": user}
+			if pass != "" {
+				entry["pass"] = pass
+			}
+			users = append(users, entry)
+		}
+		servers := []map[string]interface{}{{
+			"address": ob.Address,
+			"port":    ob.Port,
+		}}
+		if len(users) > 0 {
+			servers[0]["users"] = users
+		}
+		return OutboundConfig{
+			Tag:      ob.Tag,
+			Protocol: protocol,
+			Settings: map[string]interface{}{"servers": servers},
+		}, nil
+	default:
+		return OutboundConfig{}, fmt.Errorf("unsupported outbound protocol: %s", ob.Protocol)
+	}
 }
