@@ -2204,6 +2204,48 @@ const panelHTML = `<!doctype html>
         </div>
       </div>
     </div>
+    <!-- Edit routing rule dialog -->
+    <div id="edit-routing-rule-dialog" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()">
+      <div class="modal-content" style="max-width:480px">
+        <div class="modal-header">
+          <h3 class="modal-title">编辑路由规则</h3>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <form id="edit-routing-rule-form" class="form-grid modal-form" onsubmit="return false">
+          <div class="field-group span-2">
+            <label class="field-label" for="err-outbound">目标出站 *</label>
+            <select id="err-outbound" required>
+              <option value="">-- 选择出站 --</option>
+            </select>
+            <p class="field-help">匹配此条件时转发到哪个出站。</p>
+          </div>
+          <div class="field-group span-2">
+            <label class="field-label" for="err-domain">域名匹配</label>
+            <input id="err-domain" placeholder="例如 geosite:netflix 或 google.com">
+            <p class="field-help">留空表示匹配所有域名。</p>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="err-inbound">来源入站</label>
+            <input id="err-inbound" placeholder="留空 = 所有入站">
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="err-protocol">协议匹配</label>
+            <input id="err-protocol" placeholder="例如 dns, bittorrent">
+          </div>
+          <div class="field-group span-2">
+            <label>
+              <input type="checkbox" id="err-enabled" checked>
+              已启用
+            </label>
+          </div>
+          <input type="hidden" id="err-id">
+        </form>
+        <div class="modal-footer">
+          <button class="secondary" onclick="closeModal()">取消</button>
+          <button onclick="submitEditRoutingRule()" class="btn-modal-primary">保存</button>
+        </div>
+      </div>
+    </div>
     </main>
   </div>
   <script>
@@ -2643,12 +2685,14 @@ const panelHTML = `<!doctype html>
       if (!parts.length) parts.push('所有流量');
       var detail = parts.join(' & ');
       var enabledColor = r.enabled ? 'var(--green)' : 'var(--muted)';
+      var json = JSON.stringify(r).replace(/'/g, '&#39;');
       return '<div class=\"card\" style=\"padding:12px 16px;display:flex;align-items:center;gap:12px\">' +
         '<span style=\"color:' + enabledColor + ';font-size:18px\">' + (r.enabled ? '&#9679;' : '&#9678;') + '</span>' +
         '<div style=\"flex:1;min-width:0\">' +
         '<div style=\"font-weight:600;font-size:var(--text-sm)\">' + detail + '</div>' +
         '<div class=\"muted\" style=\"font-size:var(--text-xs)\">→ ' + escHtml(r.outbound_tag) + '</div>' +
         '</div>' +
+        '<button class=\"cell-action\" onclick=\"openEditRoutingRule(' + r.id + ',"' + r.outbound_tag + '","' +(r.domain||'') + '","' +(r.inbound_tag||'') + '","' +(r.protocol||'') + '",' + (r.enabled||false) + ')\" title=\"编辑\">&#9998;</button>' +
         '<button class=\"cell-action\" onclick=\"deleteRoutingRule(' + r.id + ')\" title=\"删除\">&#10005;</button>' +
         '</div>';
     }
@@ -2704,9 +2748,50 @@ const panelHTML = `<!doctype html>
           await Promise.all([loadRoutingRules(), loadXrayStatus()]);
         } catch(e) { showToast('删除失败: ' + e.message, 'error'); }
       });
+
+    function openEditRoutingRule(id, outboundTag, domain, inboundTag, protocol, enabled) {
+      document.getElementById('err-id').value = id;
+      document.getElementById('err-domain').value = domain || '';
+      document.getElementById('err-inbound').value = inboundTag || '';
+      document.getElementById('err-protocol').value = protocol || '';
+      document.getElementById('err-enabled').checked = enabled !== false;
+      var sel = document.getElementById('err-outbound');
+      sel.innerHTML = '<option value="">-- 选择出站 --</option>';
+      fetch(apiPath('/api/outbounds')).then(function(r) { return r.json(); }).then(function(data) {
+        var obs = Array.isArray(data) ? data : (data.outbounds || []);
+        obs.forEach(function(ob) {
+          var opt = document.createElement('option');
+          opt.value = ob.tag;
+          opt.textContent = (ob.remark || ob.tag) + ' (' + ob.protocol + ')';
+          sel.appendChild(opt);
+          if (ob.tag === outboundTag) opt.selected = true;
+        });
+      }).catch(function() {});
+      showModal('edit-routing-rule-dialog');
     }
 
-    function preferredTheme() {
+    async function submitEditRoutingRule() {
+      var id = parseInt(document.getElementById('err-id').value);
+      var outboundTag = document.getElementById('err-outbound').value;
+      if (!outboundTag) { showToast('请选择目标出站', 'error'); return; }
+      var body = {
+        outbound_tag: outboundTag,
+        domain: document.getElementById('err-domain').value.trim(),
+        inbound_tag: document.getElementById('err-inbound').value.trim(),
+        protocol: document.getElementById('err-protocol').value.trim(),
+        enabled: document.getElementById('err-enabled').checked,
+      };
+      try {
+        var resp = await fetch(apiPath('/api/routing-rules/' + id), {
+          method: 'PUT', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(body)
+        });
+        if (!resp.ok) { showToast('保存失败', 'error'); return; }
+        showToast('路由规则已更新', 'success');
+        closeModal();
+        await Promise.all([loadRoutingRules(), loadXrayStatus()]);
+      } catch(e) { showToast('保存失败: ' + e.message, 'error'); }
+    }
       const saved = localStorage.getItem('migate-theme');
       if (saved === 'dark' || saved === 'light') return saved;
       return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
