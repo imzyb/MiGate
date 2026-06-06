@@ -14,6 +14,19 @@ type Config struct {
 	Inbounds  []InboundConfig  `json:"inbounds"`
 	Outbounds []OutboundConfig `json:"outbounds"`
 	Routing   *RoutingConfig   `json:"routing,omitempty"`
+	Stats     *StatsConfig     `json:"stats,omitempty"`
+	Policy    *PolicyConfig    `json:"policy,omitempty"`
+}
+
+type StatsConfig struct{}
+
+type PolicyConfig struct {
+	Levels map[string]PolicyLevel `json:"levels"`
+}
+
+type PolicyLevel struct {
+	StatsUserUplink   bool `json:"statsUserUplink"`
+	StatsUserDownlink bool `json:"statsUserDownlink"`
 }
 
 type RoutingConfig struct {
@@ -56,6 +69,8 @@ func BuildConfig(inbounds []db.Inbound) (Config, error) {
 			Protocol: "freedom",
 			Settings: map[string]interface{}{},
 		}},
+		Stats:  &StatsConfig{},
+		Policy: enableUserStats(),
 	}
 	return appendInbounds(config, inbounds)
 }
@@ -65,6 +80,8 @@ func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, ro
 		Log:       LogConfig{LogLevel: "warning"},
 		Inbounds:  []InboundConfig{},
 		Outbounds: []OutboundConfig{},
+		Stats:     &StatsConfig{},
+		Policy:    enableUserStats(),
 	}
 	config, err := appendInbounds(config, inbounds)
 	if err != nil {
@@ -108,6 +125,19 @@ func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, ro
 		}
 	}
 	return config, nil
+}
+
+// enableUserStats returns a PolicyConfig that enables per-client traffic stats
+// in Xray. The stats are identified by client email addresses.
+func enableUserStats() *PolicyConfig {
+	return &PolicyConfig{
+		Levels: map[string]PolicyLevel{
+			"0": {
+				StatsUserUplink:   true,
+				StatsUserDownlink: true,
+			},
+		},
+	}
 }
 
 func appendInbounds(config Config, inbounds []db.Inbound) (Config, error) {

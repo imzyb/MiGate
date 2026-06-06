@@ -336,3 +336,30 @@ func TestBuildConfigHysteria2WithObfsIncludesObfuscationSettings(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildConfigIncludesStatsAndPolicy verifies that the generated Xray config
+// includes empty "stats":{} and policy with per-client stats enabled.
+func TestBuildConfigIncludesStatsAndPolicy(t *testing.T) {
+	config, err := xray.BuildConfig([]db.Inbound{{
+		ID: 1, UUID: "test-uuid", Remark: "test", Protocol: "vless",
+		Port: 10000, Network: "tcp", Security: "none", Enabled: true,
+		Clients: []db.Client{{UUID: "c1-uuid", Email: "client1@test.com", Enabled: true}},
+	}})
+	if err != nil {
+		t.Fatalf("build config: %v", err)
+	}
+	encoded, _ := json.Marshal(config)
+	text := string(encoded)
+
+	// Must have "stats":{} (empty object enables stats API)
+	if !strings.Contains(text, `"stats":{}`) {
+		t.Fatalf("config missing stats: %s", text)
+	}
+	// Must have policy with statsUserUplink and statsUserDownlink
+	if !strings.Contains(text, `"statsUserUplink":true`) {
+		t.Fatalf("config missing statsUserUplink: %s", text)
+	}
+	if !strings.Contains(text, `"statsUserDownlink":true`) {
+		t.Fatalf("config missing statsUserDownlink: %s", text)
+	}
+}
