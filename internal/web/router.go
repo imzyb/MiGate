@@ -1683,17 +1683,43 @@ func vpngateImportHandler(cfg *routerConfig) http.HandlerFunc {
 			http.Error(w, `{"error":"no_servers"}`, http.StatusBadRequest)
 			return
 		}
+		existing, err := cfg.store.ListOutbounds(r.Context())
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "list_outbounds_failed")
+			return
+		}
+		seenTags := make(map[string]bool, len(existing)+len(req.Servers))
+		seenAddr := make(map[string]bool, len(existing)+len(req.Servers))
+		for _, ob := range existing {
+			seenTags[ob.Tag] = true
+			if ob.Protocol == "socks" && ob.Address != "" {
+				seenAddr[ob.Address+":"+strconv.Itoa(ob.Port)] = true
+			}
+		}
+
 		created := make([]db.Outbound, 0, len(req.Servers))
 		for _, s := range req.Servers {
+			if s.IP == "" {
+				continue
+			}
 			remark := s.CountryLong
 			if remark == "" {
 				remark = s.IP
 			}
 			remark = "VPN Gate - " + remark
 			tag := "vpngate-" + s.HostName
+			if tag == "vpngate-" {
+				tag = "vpngate-" + strings.ReplaceAll(s.IP, ".", "-")
+			}
 			if len(tag) > 40 {
 				tag = tag[:40]
 			}
+			addrKey := s.IP + ":1080"
+			if seenTags[tag] || seenAddr[addrKey] {
+				continue
+			}
+			seenTags[tag] = true
+			seenAddr[addrKey] = true
 			ob, err := cfg.store.CreateOutbound(r.Context(), db.CreateOutboundParams{
 				Tag:      tag,
 				Remark:   remark,
@@ -2708,9 +2734,22 @@ const panelHTML = `<!doctype html>
             <button class="secondary" onclick="showVPNGateDialog()">重试</button>
           </div>
           <div id="vpngate-list" style="display:none">
-            <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+            <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <span id="vpngate-count" class="muted"></span>
-              <input id="vpngate-filter" type="text" placeholder="搜索国家/IP..." style="flex:1;max-width:300px" oninput="renderVPNGateList()">
+              <input id="vpngate-filter" type="text" placeholder="搜索国家/IP/运营商..." style="flex:1;min-width:180px;max-width:260px" oninput="renderVPNGateList()">
+              <select id="vpngate-type-filter" style="width:110px" onchange="renderVPNGateList()">
+                <option value="all">全部类型</option>
+                <option value="家宽">家宽</option>
+                <option value="商宽">商宽</option>
+              </select>
+              <input id="vpngate-country-filter" type="text" placeholder="国家 JP/US" style="width:110px" oninput="renderVPNGateList()">
+              <input id="vpngate-max-ping" type="number" min="1" placeholder="延迟≤ms" style="width:110px" oninput="renderVPNGateList()">
+              <select id="vpngate-topn" style="width:90px">
+                <option value="5">Top 5</option>
+                <option value="10" selected>Top 10</option>
+                <option value="20">Top 20</option>
+              </select>
+              <button class="secondary" onclick="smartSelectVPNGate()">智能选择</button>
               <button onclick="importSelectedVPNGate()" id="vpngate-import-btn" disabled>导入选中</button>
             </div>
             <table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -3443,30 +3482,59 @@ function openCreateRoutingRule() {
       }
     }
 
+    function filteredVPNGateServers() {
+      const filterText = (document.getElementById('vpngate-filter').value || '').toLowerCase();
+      const typeFilter = document.getElementById('vpngate-type-filter').value || 'all';
+      const countryFilter = (document.getElementById('vpngate-country-filter').value || '').toLowerCase();
+      const maxPing = parseInt(document.getElementById('vpngate-max-ping').value || '0', 10);
+      return vpngateServers.filter(function(s) {
+        const type = s.server_type || '家宽';
+        if (typeFilter !== 'all' && type !== typeFilter) return false;
+        if (maxPing > 0 && Number(s.ping || 0) > maxPing) return false;
+        if (countryFilter && !String(s.country_short || '').toLowerCase().includes(countryFilter) && !String(s.country_long || '').toLowerCase().includes(countryFilter)) return false;
+        if (!filterText) return true;
+        return (s.hostname && s.hostname.toLowerCase().indexOf(filterText) >= 0) ||
+               (s.country_long && s.country_long.toLowerCase().indexOf(filterText) >= 0) ||
+               (s.country_short && s.country_short.toLowerCase().indexOf(filterText) >= 0) ||
+               (s.operator && s.operator.toLowerCase().indexOf(filterText) >= 0) ||
+               (s.ip && s.ip.indexOf(filterText) >= 0);
+      });
+    }
+
+    function vpnGateQualityScore(s) {
+      const ping = Math.max(1, Number(s.ping || 9999));
+      const speed = Math.max(0, Number(s.speed || 0));
+      const typeBonus = (s.server_type || '家宽') === '家宽' ? 50000 : 0;
+      return speed / ping + typeBonus;
+    }
+
     function toggleAllVPNGate() {
       const checked = document.getElementById('vpngate-select-all').checked;
-      const filterText = (document.getElementById('vpngate-filter').value || '').toLowerCase();
-      vpngateServers.forEach(function(s, i) {
-        if (!filterText || (s.hostname && s.hostname.toLowerCase().indexOf(filterText) >= 0) ||
-            (s.country_long && s.country_long.toLowerCase().indexOf(filterText) >= 0) ||
-            (s.ip && s.ip.indexOf(filterText) >= 0)) {
-          if (checked) vpngateSelected[i] = true;
-          else delete vpngateSelected[i];
-        }
+      filteredVPNGateServers().forEach(function(s) {
+        var i = vpngateServers.indexOf(s);
+        if (checked) vpngateSelected[i] = true;
+        else delete vpngateSelected[i];
       });
       updateVPNGateImportBtn();
       renderVPNGateList();
     }
 
+    function smartSelectVPNGate() {
+      vpngateSelected = {};
+      const topN = parseInt(document.getElementById('vpngate-topn').value || '10', 10);
+      filteredVPNGateServers()
+        .slice()
+        .sort(function(a, b) { return vpnGateQualityScore(b) - vpnGateQualityScore(a); })
+        .slice(0, topN)
+        .forEach(function(s) { vpngateSelected[vpngateServers.indexOf(s)] = true; });
+      updateVPNGateImportBtn();
+      renderVPNGateList();
+      showToast('已智能选择 ' + Object.keys(vpngateSelected).length + ' 个候选节点', 'success');
+    }
+
     function renderVPNGateList() {
-      const filterText = (document.getElementById('vpngate-filter').value || '').toLowerCase();
       const tbody = document.getElementById('vpngate-tbody');
-      const filtered = vpngateServers.filter(function(s) {
-        if (!filterText) return true;
-        return (s.hostname && s.hostname.toLowerCase().indexOf(filterText) >= 0) ||
-               (s.country_long && s.country_long.toLowerCase().indexOf(filterText) >= 0) ||
-               (s.ip && s.ip.indexOf(filterText) >= 0);
-      });
+      const filtered = filteredVPNGateServers();
       document.getElementById('vpngate-count').textContent = '共 ' + vpngateServers.length + ' 台服务器（显示 ' + filtered.length + ' 台）';
 
       var html = '';
@@ -3525,7 +3593,8 @@ function openCreateRoutingRule() {
           btn.disabled = false;
           return;
         }
-        showToast('已导入 ' + selected.length + ' 台 VPN Gate 服务器', 'success');
+        var created = await resp.json();
+        showToast('已导入 ' + created.length + ' 台 VPN Gate 服务器' + (selected.length > created.length ? '，已跳过重复节点 ' + (selected.length - created.length) + ' 台' : ''), 'success');
         closeModal();
         await Promise.all([loadOutbounds(), loadXrayStatus()]);
       } catch(e) { showToast('导入失败: ' + e.message, 'error'); btn.textContent = '导入选中'; }

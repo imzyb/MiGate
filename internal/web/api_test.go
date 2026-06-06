@@ -1698,6 +1698,34 @@ func TestVPNGateServersRejectsNonGet(t *testing.T) {
 	}
 }
 
+func TestVPNGateImportSkipsDuplicateTags(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	router := web.NewRouter(web.WithStore(store))
+
+	payload := `{"servers":[
+		{"hostname":"dup","ip":"1.2.3.4","country_long":"Japan","ping":10},
+		{"hostname":"dup","ip":"1.2.3.4","country_long":"Japan","ping":10}
+	]}`
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/vpngate/import", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var outbounds []db.Outbound
+	if err := json.Unmarshal(resp.Body.Bytes(), &outbounds); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(outbounds) != 1 {
+		t.Fatalf("expected only one created outbound, got %d: %+v", len(outbounds), outbounds)
+	}
+}
+
 func TestVPNGateImportRejectsNonPost(t *testing.T) {
 	router := web.NewRouter()
 	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {

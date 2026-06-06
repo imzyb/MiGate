@@ -59,6 +59,13 @@ func TestPanelOutboundInteractionsReportFailuresAndConsistentLatencyUnits(t *tes
 		`showToast('排序已保存', 'success');`,
 		`catch(function() { showToast('排序保存失败', 'error'); loadOutbounds(); })`,
 		`var ms = Number(r.latency).toFixed(0);`,
+		`id="vpngate-type-filter"`,
+		`id="vpngate-country-filter"`,
+		`id="vpngate-max-ping"`,
+		`id="vpngate-topn"`,
+		`function smartSelectVPNGate()`,
+		`function vpnGateQualityScore(s)`,
+		`已跳过重复节点`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("panel missing outbound interaction contract %q", want)
