@@ -146,6 +146,37 @@ func TestStoreDeleteOutboundRejectsUnknownID(t *testing.T) {
 	}
 }
 
+func TestStoreReorderOutboundsUpdatesSortOrder(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	// After seeding: direct=1, blocked=2
+	o1, _ := store.CreateOutbound(context.Background(), db.CreateOutboundParams{Tag: "p1", Protocol: "socks", Address: "10.0.0.1", Port: 1080})
+	o2, _ := store.CreateOutbound(context.Background(), db.CreateOutboundParams{Tag: "p2", Protocol: "http", Address: "10.0.0.2", Port: 3128})
+	// Current order: direct(1), blocked(2), p1(3), p2(4)
+	// Swap: p2, p1
+	err = store.ReorderOutbounds(context.Background(), []int64{o2.ID, o1.ID})
+	if err != nil {
+		t.Fatalf("reorder outbounds: %v", err)
+	}
+	list, err := store.ListOutbounds(context.Background())
+	if err != nil {
+		t.Fatalf("list after reorder: %v", err)
+	}
+	if len(list) != 4 {
+		t.Fatalf("expected 4 outbounds, got %d", len(list))
+	}
+	// Defaults stay first (sort 0-1), then reordered custom outbounds (sort 2-3)
+	if list[0].ID != 1 || list[1].ID != 2 || list[2].ID != o2.ID || list[3].ID != o1.ID {
+		t.Fatalf("expected defaults then reordered custom: got %d,%d,%d,%d", list[0].ID, list[1].ID, list[2].ID, list[3].ID)
+	}
+	if list[0].Sort != 0 || list[1].Sort != 1 || list[2].Sort != 2 || list[3].Sort != 3 {
+		t.Fatalf("expected sequential sort values: got %d,%d,%d,%d", list[0].Sort, list[1].Sort, list[2].Sort, list[3].Sort)
+	}
+}
+
 func TestStoreCreatesAndListsRoutingRules(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {

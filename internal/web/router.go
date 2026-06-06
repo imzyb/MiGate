@@ -24,6 +24,7 @@ type Store interface {
 	CreateOutbound(ctx context.Context, params db.CreateOutboundParams) (db.Outbound, error)
 	UpdateOutbound(ctx context.Context, id int64, params db.UpdateOutboundParams) (db.Outbound, error)
 	DeleteOutbound(ctx context.Context, id int64) error
+	ReorderOutbounds(ctx context.Context, ids []int64) error
 	ListRoutingRules(ctx context.Context) ([]db.RoutingRule, error)
 	CreateRoutingRule(ctx context.Context, params db.CreateRoutingRuleParams) (db.RoutingRule, error)
 	UpdateRoutingRule(ctx context.Context, id int64, params db.UpdateRoutingRuleParams) (db.RoutingRule, error)
@@ -277,6 +278,28 @@ func pingOutbound(address string, port int) map[string]interface{} {
 func outboundChildrenHandler(store Store, ctrl XrayController) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/api/outbounds/")
+		// Handle /api/outbounds/reorder
+		if path == "reorder" {
+			if r.Method != http.MethodPost {
+				http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+				return
+			}
+			var req struct {
+				IDs []int64 `json:"ids"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.IDs) == 0 {
+				http.Error(w, `{"error":"invalid_payload"}`, http.StatusBadRequest)
+				return
+			}
+			if err := store.ReorderOutbounds(r.Context(), req.IDs); err != nil {
+				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"reordered"}`))
+			return
+		}
 		idStr := strings.TrimSuffix(path, "/")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
@@ -2388,9 +2411,10 @@ const panelHTML = `<!doctype html>
           el.innerHTML = renderEmptyState('暂无出站', '出站用于链式代理转发。点击上方"新建出站"添加 SOCKS5 / HTTP 代理。');
           return;
         }
-        el.innerHTML = '<div style=\"display:grid;grid-template-columns:1fr;gap:8px\">' +
+        el.innerHTML = '<div style=\"display:grid;grid-template-columns:1fr;gap:8px\" id=\"outbound-drag-container\">' +
           outbounds.map(ob => renderOutboundCard(ob)).join('') +
           '</div>';
+        setTimeout(attachOutboundDragHandlers, 0);
       } catch(e) {
         el.innerHTML = '<div class=\"muted\" style=\"padding:12px\">加载失败</div>';
       }
@@ -2403,7 +2427,9 @@ const panelHTML = `<!doctype html>
       const editable = ob.protocol !== 'freedom' && ob.protocol !== 'blackhole';
       const enabledColor = ob.enabled ? 'var(--green)' : 'var(--muted)';
       const pinned = ob.sort === 0 || ob.sort === 1;
-      return '<div class=\"card\" style=\"padding:12px 16px;display:flex;align-items:center;gap:12px\">' +
+      const isDraggable = editable && !pinned;
+      return '<div class=\"card\" style=\"padding:12px 16px;display:flex;align-items:center;gap:12px\"' +
+        (isDraggable ? ' draggable=\"true\" data-ob-id=\"' + ob.id + '\"' : '') + '>' +
         '<span style=\"color:' + enabledColor + ';font-size:18px\">' + (ob.enabled ? '&#9679;' : '&#9678;') + '</span>' +
         '<div style=\"flex:1;min-width:0\">' +
         '<div style=\"font-weight:600;font-size:var(--text-sm)\">' + escHtml(ob.remark||ob.tag) + '</div>' +
@@ -2431,6 +2457,48 @@ const panelHTML = `<!doctype html>
       }).catch(function() {
         el.textContent = ' 失败';
         el.style.color = 'var(--danger)';
+      });
+    }
+
+    function attachOutboundDragHandlers() {
+      var container = document.getElementById('outbound-drag-container');
+      if (!container) return;
+      var draggedEl = null;
+      container.addEventListener('dragstart', function(e) {
+        var card = e.target.closest('[draggable]');
+        if (!card) return;
+        draggedEl = card;
+        e.dataTransfer.effectAllowed = 'move';
+        card.style.opacity = '0.4';
+      });
+      container.addEventListener('dragend', function(e) {
+        var card = e.target.closest('[draggable]');
+        if (card) card.style.opacity = '';
+      });
+      container.addEventListener('dragover', function(e) {
+        var card = e.target.closest('[draggable]');
+        if (!card || card === draggedEl || !draggedEl) return;
+        e.preventDefault();
+        var rect = card.getBoundingClientRect();
+        var mid = rect.top + rect.height / 2;
+        if (e.clientY < mid) {
+          container.insertBefore(draggedEl, card);
+        } else {
+          container.insertBefore(draggedEl, card.nextSibling);
+        }
+      });
+      container.addEventListener('drop', function(e) {
+        e.preventDefault();
+        if (!draggedEl) return;
+        var ids = [];
+        container.querySelectorAll('[data-ob-id]').forEach(function(el) {
+          ids.push(parseInt(el.getAttribute('data-ob-id')));
+        });
+        if (!ids.length) return;
+        fetch(apiPath('/api/outbounds/reorder'), {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ids: ids})
+        }).catch(function() {});
       });
     }
 

@@ -432,6 +432,47 @@ func (s *Store) DeleteOutbound(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (s *Store) ReorderOutbounds(ctx context.Context, ids []int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Collect IDs of editable (non-default) outbounds already in DB
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM outbounds WHERE protocol NOT IN ('freedom','blackhole') ORDER BY sort ASC`)
+	if err != nil {
+		return err
+	}
+	var existing []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		existing = append(existing, id)
+	}
+	rows.Close()
+
+	if len(ids) != len(existing) {
+		return fmt.Errorf("expected %d IDs for reordering, got %d", len(existing), len(ids))
+	}
+
+	// Find defaults count
+	var defaultCount int64
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM outbounds WHERE protocol IN ('freedom','blackhole')`).Scan(&defaultCount); err != nil {
+		return err
+	}
+
+	for i, id := range ids {
+		_, err := tx.ExecContext(ctx, `UPDATE outbounds SET sort = ? WHERE id = ?`, int(defaultCount)+i, id)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) ListRoutingRules(ctx context.Context) ([]RoutingRule, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, inbound_tag, outbound_tag, domain, protocol, enabled, sort FROM routing_rules ORDER BY sort ASC`)
 	if err != nil {
