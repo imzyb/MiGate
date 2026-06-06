@@ -1658,6 +1658,12 @@ const panelHTML = `<!doctype html>
     #confirm-dialog p { margin:0 0 20px; font-size:15px; line-height:1.6; color:var(--fg); }
     #confirm-dialog .actions { display:flex; gap:10px; justify-content:flex-end; }
     .modal-title { margin:0 0 var(--space-4); font-size:var(--text-lg); line-height:1.3; font-weight:600; letter-spacing:-0.2px; color:var(--fg); }
+    .modal-overlay { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.12); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; animation:fadeIn .2s; }
+    .modal-content { background:var(--surface); box-shadow:var(--shadow-md); border-radius:var(--radius-xl); padding:var(--space-6); min-width:360px; max-width:520px; max-height:80vh; overflow-y:auto; }
+    .modal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-4); }
+    .modal-header .modal-title { margin:0; }
+    .modal-close { width:32px; height:32px; min-height:32px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:var(--radius-sm); background:var(--surface); color:var(--fg); box-shadow:var(--shadow-sm); font-size:16px; line-height:1; }
+    .modal-footer { display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-top:var(--space-5); }
     .modal-form { margin:0; grid-template-columns:repeat(2,minmax(0,1fr)); }
     #create-inbound-form.modal-form, #create-client-form.modal-form, #edit-inbound-form.modal-form, #edit-client-form.modal-form { gap:var(--space-4); }
     .modal-actions { margin-top:0; }
@@ -2658,9 +2664,9 @@ const panelHTML = `<!doctype html>
         '<div style=\"font-weight:600;font-size:var(--text-sm)\">' + escHtml(ob.remark||ob.tag) + '</div>' +
         '<div class=\"muted\" style=\"font-size:var(--text-xs)\">' + escHtml(ob.tag) + ' &middot; ' + protoLabel + (detail ? ' &middot; ' + escHtml(detail) : '') + ' <span id=\"ping-' + ob.id + '\"></span></div>' +
         '</div><div style=\"display:flex;gap:6px\">' +
-        (editable ? '<button class=\"cell-action\" onclick=\"speedTestOutbound(' + ob.id + ')\" title=\"测速\">&#9889;</button>' +
-          '<button class=\"cell-action\" onclick=\"openEditOutbound(' + ob.id + ')\" title=\"编辑\">&#9998;</button>' +
-          '<button class=\"cell-action\" onclick=\"deleteOutbound(' + ob.id + ')\" title=\"删除\">&#10005;</button>' :
+        (editable ? '<button class=\"icon-btn\" onclick=\"speedTestOutbound(' + ob.id + ')\" title=\"测速\">&#9889;</button>' +
+          '<button class=\"icon-btn\" onclick=\"openEditOutbound(' + ob.id + ')\" title=\"编辑\">&#9998;</button>' +
+          '<button class=\"danger-icon-btn\" onclick=\"deleteOutbound(' + ob.id + ')\" title=\"删除\">&#10005;</button>' :
         '<span class=\"muted\" style=\"font-size:var(--text-xs);padding:4px 8px\">内置</span>') +
         '</div></div>';
     }
@@ -2757,6 +2763,15 @@ const panelHTML = `<!doctype html>
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify({ids: ids})
         }).catch(function() {});
+      });
+    }
+
+    function showModal(id) {
+      document.getElementById(id).style.display = 'flex';
+    }
+    function closeModal() {
+      document.querySelectorAll('.modal-overlay').forEach(function(el) {
+        el.style.display = 'none';
       });
     }
 
@@ -2908,8 +2923,8 @@ const panelHTML = `<!doctype html>
         '<div style=\"font-weight:600;font-size:var(--text-sm)\">' + detail + '</div>' +
         '<div class=\"muted\" style=\"font-size:var(--text-xs)\">→ ' + escHtml(r.outbound_tag) + '</div>' +
         '</div>' +
-        '<button class=\"cell-action\" onclick=\"openEditRoutingRule(' + r.id + ',"' + r.outbound_tag + '","' +(r.domain||'') + '","' +(r.inbound_tag||'') + '","' +(r.protocol||'') + '",' + (r.enabled||false) + ')\" title=\"编辑\">&#9998;</button>' +
-        '<button class=\"cell-action\" onclick=\"deleteRoutingRule(' + r.id + ')\" title=\"删除\">&#10005;</button>' +
+        '<button class=\"icon-btn\" onclick=\"openEditRoutingRule(' + r.id + ',"' + r.outbound_tag + '","' +(r.domain||'') + '","' +(r.inbound_tag||'') + '","' +(r.protocol||'') + '",' + (r.enabled||false) + ')\" title=\"编辑\">&#9998;</button>' +
+        '<button class=\"danger-icon-btn\" onclick=\"deleteRoutingRule(' + r.id + ')\" title=\"删除\">&#10005;</button>' +
         '</div>';
     }
 
