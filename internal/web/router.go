@@ -1821,6 +1821,7 @@ const panelHTML = `<!doctype html>
         <a class="active" href="#">概览</a>
         <a href="#inbounds">入站</a>
         <a href="#outbound">出站</a>
+        <a href="#routing">路由</a>
         <a href="#xray">核心</a>
         <a href="#settings">设置</a>
       </nav>
@@ -1890,6 +1891,18 @@ const panelHTML = `<!doctype html>
           <button onclick="openCreateOutbound()">新建出站</button>
         </div>
         <div id="outbound-list" class="list muted">正在加载出站...</div>
+      </section>
+      <section id="routing" class="card panel">
+        <h2 class="section-title">路由规则</h2>
+        <p class="muted" style="margin-bottom:16px">按域名、入站、协议将流量分配到指定出站。规则按顺序匹配，命中的规则立即生效。</p>
+        <div class="actions">
+          <button onclick="openCreateRoutingRule()">新建规则</button>
+        </div>
+        <div id="routing-rule-list" class="list muted">正在加载路由规则...</div>
+        <div class="notice" style="margin-top:16px">
+          <div class="notice-title">提示</div>
+          <div class="notice-copy">启用规则后系统会自动重写 Xray 配置文件并重启服务。可用的域名格式包括 <code>google.com</code>（精确域名）、<code>geosite:netflix</code>（地理位置组）、<code>regex:.*\.youtube\.com$</code>（正则）。</div>
+        </div>
       </section>
       <section id="xray" class="card panel">
         <h2 class="section-title">Xray 管理</h2>
@@ -2076,6 +2089,47 @@ const panelHTML = `<!doctype html>
         <div class="modal-footer">
           <button class="secondary" onclick="closeModal()">取消</button>
           <button onclick="submitEditOutbound()" class="btn-modal-primary">保存</button>
+        </div>
+      </div>
+    </div>
+    <!-- Create routing rule dialog -->
+    <div id="create-routing-rule-dialog" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()">
+      <div class="modal-content" style="max-width:480px">
+        <div class="modal-header">
+          <h3 class="modal-title">新建路由规则</h3>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <form id="create-routing-rule-form" class="form-grid modal-form" onsubmit="return false">
+          <div class="field-group span-2">
+            <label class="field-label" for="crr-outbound">目标出站 *</label>
+            <select id="crr-outbound" required>
+              <option value="">-- 选择出站 --</option>
+            </select>
+            <p class="field-help">匹配此条件时转发到哪个出站。</p>
+          </div>
+          <div class="field-group span-2">
+            <label class="field-label" for="crr-domain">域名匹配</label>
+            <input id="crr-domain" placeholder="例如 geosite:netflix 或 google.com">
+            <p class="field-help">留空表示匹配所有域名。支持 geosite: 和 regex: 前缀。</p>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="crr-inbound">来源入站</label>
+            <input id="crr-inbound" placeholder="留空 = 所有入站">
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="crr-protocol">协议匹配</label>
+            <input id="crr-protocol" placeholder="例如 dns, bittorrent">
+          </div>
+          <div class="field-group span-2">
+            <label>
+              <input type="checkbox" id="crr-enabled" checked>
+              已启用
+            </label>
+          </div>
+        </form>
+        <div class="modal-footer">
+          <button class="secondary" onclick="closeModal()">取消</button>
+          <button onclick="submitCreateRoutingRule()" class="btn-modal-primary">创建</button>
         </div>
       </div>
     </div>
@@ -2426,6 +2480,96 @@ const panelHTML = `<!doctype html>
       });
     }
 
+    async function loadRoutingRules() {
+      const el = document.getElementById('routing-rule-list');
+      if (!el) return;
+      try {
+        const resp = await fetch(apiPath('/api/routing-rules'));
+        if (!resp.ok) { el.innerHTML = '<div class=\"muted\" style=\"padding:12px\">加载失败</div>'; return; }
+        const rules = await resp.json();
+        if (!rules || !rules.length) {
+          el.innerHTML = '<div class=\"empty-state\"><div class=\"empty-state-title\">暂无路由规则</div><div class=\"empty-state-copy\">添加规则可将特定域名、入站或协议的流量转发到指定出站。点击上方"新建规则"开始。</div></div>';
+          return;
+        }
+        el.innerHTML = '<div style=\"display:grid;grid-template-columns:1fr;gap:8px\">' +
+          rules.map(function(r) { return renderRoutingRuleCard(r); }).join('') +
+          '</div>';
+      } catch(e) {
+        el.innerHTML = '<div class=\"muted\" style=\"padding:12px\">加载失败</div>';
+      }
+    }
+
+    function renderRoutingRuleCard(r) {
+      var parts = [];
+      if (r.inbound_tag) parts.push('入站: ' + escHtml(r.inbound_tag));
+      if (r.domain) parts.push('域名: ' + escHtml(r.domain));
+      if (r.protocol) parts.push('协议: ' + escHtml(r.protocol));
+      if (!parts.length) parts.push('所有流量');
+      var detail = parts.join(' & ');
+      var enabledColor = r.enabled ? 'var(--green)' : 'var(--muted)';
+      return '<div class=\"card\" style=\"padding:12px 16px;display:flex;align-items:center;gap:12px\">' +
+        '<span style=\"color:' + enabledColor + ';font-size:18px\">' + (r.enabled ? '&#9679;' : '&#9678;') + '</span>' +
+        '<div style=\"flex:1;min-width:0\">' +
+        '<div style=\"font-weight:600;font-size:var(--text-sm)\">' + detail + '</div>' +
+        '<div class=\"muted\" style=\"font-size:var(--text-xs)\">→ ' + escHtml(r.outbound_tag) + '</div>' +
+        '</div>' +
+        '<button class=\"cell-action\" onclick=\"deleteRoutingRule(' + r.id + ')\" title=\"删除\">&#10005;</button>' +
+        '</div>';
+    }
+
+    function openCreateRoutingRule() {
+      document.getElementById('crr-domain').value = '';
+      document.getElementById('crr-inbound').value = '';
+      document.getElementById('crr-protocol').value = '';
+      document.getElementById('crr-enabled').checked = true;
+      var sel = document.getElementById('crr-outbound');
+      sel.innerHTML = '<option value=\"\">-- 选择出站 --</option>';
+      // Load outbounds for the dropdown
+      fetch(apiPath('/api/outbounds')).then(function(r) { return r.json(); }).then(function(data) {
+        var obs = Array.isArray(data) ? data : (data.outbounds || []);
+        obs.forEach(function(ob) {
+          var opt = document.createElement('option');
+          opt.value = ob.tag;
+          opt.textContent = (ob.remark || ob.tag) + ' (' + ob.protocol + ')';
+          sel.appendChild(opt);
+        });
+        sel.value = '';
+      }).catch(function() {});
+      showModal('create-routing-rule-dialog');
+    }
+
+    async function submitCreateRoutingRule() {
+      var outboundTag = document.getElementById('crr-outbound').value;
+      if (!outboundTag) { showToast('请选择目标出站', 'error'); return; }
+      var body = {
+        outbound_tag: outboundTag,
+        domain: document.getElementById('crr-domain').value.trim(),
+        inbound_tag: document.getElementById('crr-inbound').value.trim(),
+        protocol: document.getElementById('crr-protocol').value.trim(),
+        enabled: document.getElementById('crr-enabled').checked,
+      };
+      try {
+        var resp = await fetch(apiPath('/api/routing-rules'), {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(body)
+        });
+        if (!resp.ok) { showToast('创建失败', 'error'); return; }
+        showToast('路由规则已创建', 'success');
+        closeModal();
+        await Promise.all([loadRoutingRules(), loadXrayStatus()]);
+      } catch(e) { showToast('创建失败: ' + e.message, 'error'); }
+    }
+
+    function deleteRoutingRule(id) {
+      showConfirm('确认删除此路由规则？', async function() {
+        try {
+          await fetch(apiPath('/api/routing-rules/' + id), {method:'DELETE'});
+          showToast('路由规则已删除', 'success');
+          await Promise.all([loadRoutingRules(), loadXrayStatus()]);
+        } catch(e) { showToast('删除失败: ' + e.message, 'error'); }
+      });
+    }
+
     function preferredTheme() {
       const saved = localStorage.getItem('migate-theme');
       if (saved === 'dark' || saved === 'light') return saved;
@@ -2502,6 +2646,7 @@ const panelHTML = `<!doctype html>
 
     loadInbounds();
     loadOutbounds();
+    loadRoutingRules();
 
     // === Navigation section switching ===
     function currentSectionFromLocation() {
@@ -2510,7 +2655,7 @@ const panelHTML = `<!doctype html>
     }
 
     function navigateTo(sectionId) {
-      const validSections = ['overview', 'inbounds', 'outbound', 'xray', 'settings'];
+      const validSections = ['overview', 'inbounds', 'clients', 'outbound', 'routing', 'xray', 'settings'];
       if (!validSections.includes(sectionId)) sectionId = 'overview';
       document.querySelectorAll('main > section').forEach((el) => {
         const display = el.classList.contains('overview-grid') ? 'grid' : 'block';
