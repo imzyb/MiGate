@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/imzyb/MiGate/internal/db"
+	"github.com/imzyb/MiGate/internal/vpngate"
 	"github.com/imzyb/MiGate/internal/xray"
 )
 
@@ -83,6 +84,29 @@ type routerConfig struct {
 	restartCmd     string
 	version        string
 	basePath       string
+	vpnGateFetcher VPNGateFetcher
+}
+
+type VPNGateFetcher interface {
+	FetchServers() ([]VPNGateServer, error)
+}
+
+// VPNGateServer is the public type exposed to the web package.
+type VPNGateServer struct {
+	HostName     string `json:"hostname"`
+	IP           string `json:"ip"`
+	Score        int    `json:"score"`
+	Ping         int    `json:"ping"`
+	Speed        int64  `json:"speed"`
+	CountryLong  string `json:"country_long"`
+	CountryShort string `json:"country_short"`
+	NumSessions  int    `json:"num_sessions"`
+	Uptime       int64  `json:"uptime"`
+	TotalUsers   int64  `json:"total_users"`
+	TotalTraffic int64  `json:"total_traffic"`
+	LogType      string `json:"log_type"`
+	Operator     string `json:"operator"`
+	Message      string `json:"message"`
 }
 
 type Option func(*routerConfig)
@@ -123,6 +147,12 @@ func WithBasePath(basePath string) Option {
 	}
 }
 
+func WithVPNGateFetcher(fetcher VPNGateFetcher) Option {
+	return func(cfg *routerConfig) {
+		cfg.vpnGateFetcher = fetcher
+	}
+}
+
 func NewRouter(options ...Option) http.Handler {
 	cfg := routerConfig{
 		xrayController: defaultXrayController{},
@@ -156,6 +186,8 @@ func NewRouter(options ...Option) http.Handler {
 	mux.HandleFunc("/api/restart", restartHandler(cfg.restartCmd))
 	mux.HandleFunc("/api/service/status", serviceStatusHandler())
 	mux.HandleFunc("/api/version", versionHandler(cfg.version))
+	mux.HandleFunc("/api/vpngate/servers", vpngateServersHandler(&cfg))
+	mux.HandleFunc("/api/vpngate/import", vpngateImportHandler(&cfg))
 	mux.HandleFunc("/sub/", subscriptionHandler(cfg.store))
 	handler := authMiddleware(mux, &cfg)
 	if cfg.basePath != "" {
@@ -1470,6 +1502,112 @@ func subscriptionHost(host string) string {
 	return strings.Trim(host, "[]")
 }
 
+type vpngateFetcherImpl struct{}
+
+func (vpngateFetcherImpl) FetchServers() ([]VPNGateServer, error) {
+	f := &vpngate.Fetcher{}
+	servers, err := f.FetchServers()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]VPNGateServer, len(servers))
+	for i, s := range servers {
+		result[i] = VPNGateServer{
+			HostName:     s.HostName,
+			IP:           s.IP,
+			Score:        s.Score,
+			Ping:         s.Ping,
+			Speed:        s.Speed,
+			CountryLong:  s.CountryLong,
+			CountryShort: s.CountryShort,
+			NumSessions:  s.NumSessions,
+			Uptime:       s.Uptime,
+			TotalUsers:   s.TotalUsers,
+			TotalTraffic: s.TotalTraffic,
+			LogType:      s.LogType,
+			Operator:     s.Operator,
+			Message:      s.Message,
+		}
+	}
+	return result, nil
+}
+
+func vpngateServersHandler(cfg *routerConfig) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		fetcher := cfg.vpnGateFetcher
+		if fetcher == nil {
+			fetcher = vpngateFetcherImpl{}
+		}
+		servers, err := fetcher.FetchServers()
+		if err != nil {
+			http.Error(w, `{"error":"fetch_failed","detail":"`+err.Error()+`"}`, http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(servers)
+	}
+}
+
+type importServerRequest struct {
+	Servers []importServerItem `json:"servers"`
+}
+
+type importServerItem struct {
+	HostName    string `json:"hostname"`
+	IP          string `json:"ip"`
+	CountryLong string `json:"country_long"`
+	Ping        int    `json:"ping"`
+}
+
+func vpngateImportHandler(cfg *routerConfig) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		var req importServerRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid_payload"}`, http.StatusBadRequest)
+			return
+		}
+		if len(req.Servers) == 0 {
+			http.Error(w, `{"error":"no_servers"}`, http.StatusBadRequest)
+			return
+		}
+		created := make([]db.Outbound, 0, len(req.Servers))
+		for _, s := range req.Servers {
+			remark := s.CountryLong
+			if remark == "" {
+				remark = s.IP
+			}
+			remark = "VPN Gate - " + remark
+			tag := "vpngate-" + s.HostName
+			if len(tag) > 40 {
+				tag = tag[:40]
+			}
+			ob, err := cfg.store.CreateOutbound(r.Context(), db.CreateOutboundParams{
+				Tag:      tag,
+				Remark:   remark,
+				Protocol: "socks",
+				Address:  s.IP,
+				Port:     1080,
+			})
+			if err != nil {
+				http.Error(w, `{"error":"create_failed","detail":"`+err.Error()+`"}`, http.StatusInternalServerError)
+				return
+			}
+			created = append(created, ob)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(created)
+	}
+}
+
 const panelHTML = `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -2137,6 +2275,7 @@ const panelHTML = `<!doctype html>
         <div class="actions">
           <button onclick="openCreateOutbound()">新建出站</button>
           <button class="secondary" onclick="batchSpeedTest()">一键测速</button>
+          <button class="secondary" onclick="showVPNGateDialog()">VPN Gate</button>
         </div>
         <div id="outbound-list" class="list muted">正在加载出站...</div>
       </section>
@@ -2430,6 +2569,52 @@ const panelHTML = `<!doctype html>
         <div class="modal-footer">
           <button class="secondary" onclick="closeModal()">取消</button>
           <button onclick="submitEditRoutingRule()" class="btn-modal-primary">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- VPN Gate dialog -->
+    <div id="vpngate-dialog" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()">
+      <div class="modal-content" style="max-width:800px;max-height:80vh;overflow:hidden;display:flex;flex-direction:column">
+        <div class="modal-header">
+          <h3 class="modal-title">VPN Gate 公共服务器</h3>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <div style="flex:1;overflow-y:auto;padding:12px 16px">
+          <div id="vpngate-loading" style="text-align:center;padding:40px;color:var(--muted)">
+            <p style="font-size:18px;margin-bottom:8px">正在获取服务器列表...</p>
+            <p>从 VPN Gate API 获取全球公共代理服务器</p>
+          </div>
+          <div id="vpngate-error" style="display:none;text-align:center;padding:40px">
+            <p style="color:var(--danger);font-size:16px;margin-bottom:8px">获取失败</p>
+            <p id="vpngate-error-msg" class="muted" style="margin-bottom:16px"></p>
+            <button class="secondary" onclick="showVPNGateDialog()">重试</button>
+          </div>
+          <div id="vpngate-list" style="display:none">
+            <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+              <span id="vpngate-count" class="muted"></span>
+              <input id="vpngate-filter" type="text" placeholder="搜索国家/IP..." style="flex:1;max-width:300px" oninput="renderVPNGateList()">
+              <button onclick="importSelectedVPNGate()" id="vpngate-import-btn" disabled>导入选中</button>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead>
+                <tr style="background:var(--surface-subtle)">
+                  <th style="padding:6px 8px;text-align:left"><input type="checkbox" id="vpngate-select-all" onchange="toggleAllVPNGate()"></th>
+                  <th style="padding:6px 8px;text-align:left">国家</th>
+                  <th style="padding:6px 8px;text-align:left">IP</th>
+                  <th style="padding:6px 8px;text-align:right">延迟</th>
+                  <th style="padding:6px 8px;text-align:right">速度</th>
+                  <th style="padding:6px 8px;text-align:right">分数</th>
+                  <th style="padding:6px 8px;text-align:left">运营商</th>
+                </tr>
+              </thead>
+              <tbody id="vpngate-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <span class="muted" style="font-size:12px">导入为 SOCKS5 出站（端口 1080），来自 vpngate.net</span>
+          <button class="secondary" onclick="closeModal()">关闭</button>
         </div>
       </div>
     </div>
@@ -3023,6 +3208,112 @@ const panelHTML = `<!doctype html>
         closeModal();
         await Promise.all([loadRoutingRules(), loadXrayStatus()]);
       } catch(e) { showToast('保存失败: ' + e.message, 'error'); }
+    }
+
+    /* --- VPN Gate --- */
+    var vpngateServers = [];
+    var vpngateSelected = {};
+
+    async function showVPNGateDialog() {
+      document.getElementById('vpngate-loading').style.display = '';
+      document.getElementById('vpngate-error').style.display = 'none';
+      document.getElementById('vpngate-list').style.display = 'none';
+      vpngateServers = [];
+      vpngateSelected = {};
+      showModal('vpngate-dialog');
+      try {
+        const resp = await fetch(apiPath('/api/vpngate/servers'));
+        if (!resp.ok) throw new Error(await resp.text());
+        vpngateServers = await resp.json();
+        document.getElementById('vpngate-loading').style.display = 'none';
+        document.getElementById('vpngate-list').style.display = '';
+        renderVPNGateList();
+      } catch (e) {
+        document.getElementById('vpngate-loading').style.display = 'none';
+        document.getElementById('vpngate-error').style.display = '';
+        document.getElementById('vpngate-error-msg').textContent = e.message;
+      }
+    }
+
+    function toggleAllVPNGate() {
+      const checked = document.getElementById('vpngate-select-all').checked;
+      const filterText = (document.getElementById('vpngate-filter').value || '').toLowerCase();
+      vpngateServers.forEach(function(s, i) {
+        if (!filterText || (s.hostname && s.hostname.toLowerCase().indexOf(filterText) >= 0) ||
+            (s.country_long && s.country_long.toLowerCase().indexOf(filterText) >= 0) ||
+            (s.ip && s.ip.indexOf(filterText) >= 0)) {
+          if (checked) vpngateSelected[i] = true;
+          else delete vpngateSelected[i];
+        }
+      });
+      updateVPNGateImportBtn();
+      renderVPNGateList();
+    }
+
+    function renderVPNGateList() {
+      const filterText = (document.getElementById('vpngate-filter').value || '').toLowerCase();
+      const tbody = document.getElementById('vpngate-tbody');
+      const filtered = vpngateServers.filter(function(s) {
+        if (!filterText) return true;
+        return (s.hostname && s.hostname.toLowerCase().indexOf(filterText) >= 0) ||
+               (s.country_long && s.country_long.toLowerCase().indexOf(filterText) >= 0) ||
+               (s.ip && s.ip.indexOf(filterText) >= 0);
+      });
+      document.getElementById('vpngate-count').textContent = '共 ' + vpngateServers.length + ' 台服务器（显示 ' + filtered.length + ' 台）';
+
+      var html = '';
+      filtered.forEach(function(s, idx) {
+        var realIndex = vpngateServers.indexOf(s);
+        var checked = vpngateSelected[realIndex] ? 'checked' : '';
+        var speedStr = s.speed > 1000000 ? (s.speed / 1000000).toFixed(1) + 'M' : s.speed > 1000 ? (s.speed / 1000).toFixed(0) + 'K' : s.speed;
+        html += '<tr>' +
+          '<td style="padding:4px 8px"><input type="checkbox" ' + checked + ' onchange="toggleVPNGateServer(' + realIndex + ')"></td>' +
+          '<td style="padding:4px 8px"><span style="font-weight:600">' + s.country_short + '</span> ' + (s.country_long || '') + '</td>' +
+          '<td style="padding:4px 8px;font-family:monospace">' + s.ip + '</td>' +
+          '<td style="padding:4px 8px;text-align:right">' + s.ping + 'ms</td>' +
+          '<td style="padding:4px 8px;text-align:right">' + speedStr + '</td>' +
+          '<td style="padding:4px 8px;text-align:right">' + (s.score || '-') + '</td>' +
+          '<td style="padding:4px 8px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (s.operator || '') + '">' + (s.operator || '-') + '</td>' +
+          '</tr>';
+      });
+      tbody.innerHTML = html;
+      updateVPNGateImportBtn();
+    }
+
+    function toggleVPNGateServer(index) {
+      if (vpngateSelected[index]) delete vpngateSelected[index];
+      else vpngateSelected[index] = true;
+      updateVPNGateImportBtn();
+    }
+
+    function updateVPNGateImportBtn() {
+      var count = Object.keys(vpngateSelected).length;
+      var btn = document.getElementById('vpngate-import-btn');
+      btn.disabled = count === 0;
+      btn.textContent = count > 0 ? '导入选中（' + count + '）' : '导入选中';
+    }
+
+    async function importSelectedVPNGate() {
+      var selected = [];
+      Object.keys(vpngateSelected).forEach(function(idx) {
+        var s = vpngateServers[parseInt(idx)];
+        if (s) selected.push({hostname: s.hostname, ip: s.ip, country_long: s.country_long, ping: s.ping});
+      });
+      if (selected.length === 0) return;
+      var btn = document.getElementById('vpngate-import-btn');
+      btn.disabled = true;
+      btn.textContent = '导入中...';
+      try {
+        var resp = await fetch(apiPath('/api/vpngate/import'), {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({servers: selected})
+        });
+        if (!resp.ok) { showToast('导入失败', 'error'); btn.textContent = '导入选中'; return; }
+        showToast('已导入 ' + selected.length + ' 台 VPN Gate 服务器', 'success');
+        closeModal();
+        await Promise.all([loadOutbounds(), loadXrayStatus()]);
+      } catch(e) { showToast('导入失败: ' + e.message, 'error'); btn.textContent = '导入选中'; }
     }
 
     function preferredTheme() {

@@ -1581,3 +1581,130 @@ func TestRestartRejectsNonPost(t *testing.T) {
 		}
 	}
 }
+
+type mockVPNGateFetcher struct {
+	servers []web.VPNGateServer
+}
+
+func (m *mockVPNGateFetcher) FetchServers() ([]web.VPNGateServer, error) {
+	return m.servers, nil
+}
+
+func TestVPNGateServersAPI(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	mockFetcher := &mockVPNGateFetcher{
+		servers: []web.VPNGateServer{
+			{HostName: "server1", IP: "1.2.3.4", Score: 1000, Ping: 10, CountryLong: "Japan", CountryShort: "JP"},
+			{HostName: "server2", IP: "5.6.7.8", Score: 2000, Ping: 20, CountryLong: "USA", CountryShort: "US"},
+		},
+	}
+	router := web.NewRouter(web.WithStore(store), web.WithVPNGateFetcher(mockFetcher))
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/vpngate/servers", nil)
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var servers []web.VPNGateServer
+	if err := json.Unmarshal(resp.Body.Bytes(), &servers); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(servers) != 2 {
+		t.Fatalf("expected 2 servers, got %d", len(servers))
+	}
+	if servers[0].HostName != "server1" || servers[0].IP != "1.2.3.4" {
+		t.Errorf("unexpected server0: %+v", servers[0])
+	}
+}
+
+func TestVPNGateImportAPI(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	router := web.NewRouter(web.WithStore(store))
+
+	payload := `{"servers":[
+		{"hostname":"s1","ip":"1.2.3.4","country_long":"Japan","ping":10},
+		{"hostname":"s2","ip":"5.6.7.8","country_long":"USA","ping":20}
+	]}`
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/vpngate/import", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var outbounds []db.Outbound
+	if err := json.Unmarshal(resp.Body.Bytes(), &outbounds); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(outbounds) != 2 {
+		t.Fatalf("expected 2 outbounds, got %d", len(outbounds))
+	}
+	ob0 := outbounds[0]
+	if ob0.Remark != "VPN Gate - Japan" {
+		t.Errorf("expected remark 'VPN Gate - Japan', got %q", ob0.Remark)
+	}
+	if ob0.Protocol != "socks" {
+		t.Errorf("expected protocol 'socks', got %q", ob0.Protocol)
+	}
+	if ob0.Address != "1.2.3.4" {
+		t.Errorf("expected address '1.2.3.4', got %q", ob0.Address)
+	}
+	if ob0.Port != 1080 {
+		t.Errorf("expected port 1080, got %d", ob0.Port)
+	}
+	if !ob0.Enabled {
+		t.Error("expected enabled=true")
+	}
+	listResp := httptest.NewRecorder()
+	router.ServeHTTP(listResp, httptest.NewRequest(http.MethodGet, "/api/outbounds", nil))
+	if !strings.Contains(listResp.Body.String(), `"VPN Gate - Japan"`) {
+		t.Errorf("outbounds list missing imported server: %s", listResp.Body.String())
+	}
+}
+
+func TestVPNGateImportEmpty(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	router := web.NewRouter(web.WithStore(store))
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/vpngate/import", strings.NewReader(`{"servers":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestVPNGateServersRejectsNonGet(t *testing.T) {
+	router := web.NewRouter()
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, httptest.NewRequest(method, "/api/vpngate/servers", nil))
+		if resp.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405 for %s, got %d", method, resp.Code)
+		}
+	}
+}
+
+func TestVPNGateImportRejectsNonPost(t *testing.T) {
+	router := web.NewRouter()
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, httptest.NewRequest(method, "/api/vpngate/import", nil))
+		if resp.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405 for %s, got %d", method, resp.Code)
+		}
+	}
+}
