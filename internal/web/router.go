@@ -1887,7 +1887,9 @@ const panelHTML = `<!doctype html>
     .modal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-4); }
     .modal-header .modal-title { margin:0; }
     .modal-close { width:32px; height:32px; min-height:32px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:var(--radius-sm); background:var(--surface); color:var(--fg); box-shadow:var(--shadow-sm); font-size:16px; line-height:1; }
-    .modal-footer { display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-top:var(--space-5); }
+    .modal-footer { display:flex; gap:10px; justify-content:flex-end; margin-top:var(--space-4); }
+    .modal-checkbox { display:flex; align-items:center; gap:8px; font-size:var(--text-sm); color:var(--fg); cursor:pointer; }
+    .modal-checkbox input[type=checkbox] { width:16px; height:16px; accent-color:var(--accent); cursor:pointer; margin:0; }
     .modal-form { margin:0; grid-template-columns:repeat(2,minmax(0,1fr)); }
     #create-inbound-form.modal-form, #create-client-form.modal-form, #edit-inbound-form.modal-form, #edit-client-form.modal-form { gap:var(--space-4); }
     .modal-actions { margin-top:0; }
@@ -2575,7 +2577,7 @@ const panelHTML = `<!doctype html>
             </div>
           </div>
           <div class="field-group span-2">
-            <label>
+            <label class="modal-checkbox">
               <input type="checkbox" id="eo-enabled" checked>
               已启用
             </label>
@@ -2616,7 +2618,7 @@ const panelHTML = `<!doctype html>
             <input id="crr-protocol" placeholder="例如 dns, bittorrent">
           </div>
           <div class="field-group span-2">
-            <label>
+            <label class="modal-checkbox">
               <input type="checkbox" id="crr-enabled" checked>
               已启用
             </label>
@@ -2657,7 +2659,7 @@ const panelHTML = `<!doctype html>
             <input id="err-protocol" placeholder="例如 dns, bittorrent">
           </div>
           <div class="field-group span-2">
-            <label>
+            <label class="modal-checkbox">
               <input type="checkbox" id="err-enabled" checked>
               已启用
             </label>
