@@ -2069,7 +2069,6 @@ const panelHTML = `<!doctype html>
         <div class="account-label">当前用户</div>
         <div id="current-username" class="account-name">加载中...</div>
         <div class="account-actions">
-          <button id="login-button" class="secondary" onclick="window.location.href=panelPath('/login')">登录</button>
           <button id="logout-button" class="secondary" onclick="logoutPanel()">登出</button>
           <button id="theme-toggle" class="secondary" onclick="toggleTheme()">深色模式</button>
         </div>
@@ -2965,6 +2964,7 @@ const panelHTML = `<!doctype html>
           await Promise.all([loadRoutingRules(), loadXrayStatus()]);
         } catch(e) { showToast('删除失败: ' + e.message, 'error'); }
       });
+    }
 
     function openEditRoutingRule(id, outboundTag, domain, inboundTag, protocol, enabled) {
       document.getElementById('err-id').value = id;

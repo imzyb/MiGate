@@ -377,7 +377,6 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		`background:transparent; box-shadow:inset 0 1px 0 var(--line);`,
 		`.account-actions button { min-height:32px;`,
 		`id="current-username"`,
-		`id="login-button"`,
 		`id="logout-button"`,
 		`id="theme-toggle"`,
 		`function loadSession()`,
