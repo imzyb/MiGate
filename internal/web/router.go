@@ -2466,8 +2466,7 @@ const panelHTML = `<!doctype html>
           </div>
           <div class="field-group">
             <label class="field-label" for="set-cert-email">邮箱</label>
-            <input id="set-cert-email" type="email" placeholder="admin@example.com">
-            <p class="field-help">用于 Let's Encrypt 注册和证书到期提醒。</p>
+            <input id="set-cert-email" placeholder="admin@example.com">
           </div>
           <div class="field-group span-2" id="cert-status-area" style="display:none">
             <div class="cert-status-box" style="padding:var(--space-3) var(--space-4);border-radius:var(--radius-md);background:var(--surface-subtle);margin-bottom:var(--space-3)">
