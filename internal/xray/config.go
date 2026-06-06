@@ -32,13 +32,20 @@ type PolicyLevel struct {
 type RoutingConfig struct {
 	DomainStrategy string        `json:"domainStrategy"`
 	Rules          []RoutingRule `json:"rules"`
+	Balancers      []Balancer    `json:"balancers,omitempty"`
+}
+
+type Balancer struct {
+	Tag      string   `json:"tag"`
+	Selector []string `json:"selector"`
 }
 
 type RoutingRule struct {
 	InboundTag  []string `json:"inboundTag,omitempty"`
 	Domain      []string `json:"domain,omitempty"`
 	Protocol    []string `json:"protocol,omitempty"`
-	OutboundTag string   `json:"outboundTag"`
+	OutboundTag string   `json:"outboundTag,omitempty"`
+	BalancerTag string   `json:"balancerTag,omitempty"`
 }
 
 type LogConfig struct {
@@ -104,11 +111,18 @@ func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, ro
 	}
 	if len(routingRules) > 0 {
 		r := &RoutingConfig{DomainStrategy: "AsIs", Rules: []RoutingRule{}}
+		needsVPNGatePool := false
 		for _, rule := range routingRules {
 			if !rule.Enabled {
 				continue
 			}
-			xr := RoutingRule{OutboundTag: rule.OutboundTag}
+			xr := RoutingRule{}
+			if rule.OutboundTag == "vpngate-pool" {
+				xr.BalancerTag = "vpngate-pool"
+				needsVPNGatePool = true
+			} else {
+				xr.OutboundTag = rule.OutboundTag
+			}
 			if rule.InboundTag != "" {
 				xr.InboundTag = []string{rule.InboundTag}
 			}
@@ -119,6 +133,9 @@ func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, ro
 				xr.Protocol = []string{rule.Protocol}
 			}
 			r.Rules = append(r.Rules, xr)
+		}
+		if needsVPNGatePool {
+			r.Balancers = append(r.Balancers, Balancer{Tag: "vpngate-pool", Selector: []string{"vpngate-"}})
 		}
 		if len(r.Rules) > 0 {
 			config.Routing = r

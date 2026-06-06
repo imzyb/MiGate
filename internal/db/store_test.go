@@ -860,6 +860,29 @@ func TestStoreCreateInboundWithoutInitialClient(t *testing.T) {
 	}
 }
 
+func TestStoreRoutingRuleAllowsVPNGatePoolVirtualOutbound(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	rule, err := store.CreateRoutingRule(context.Background(), db.CreateRoutingRuleParams{OutboundTag: "vpngate-pool", Domain: "geosite:google", Enabled: true})
+	if err != nil {
+		t.Fatalf("create routing rule with vpngate-pool: %v", err)
+	}
+	if rule.OutboundTag != "vpngate-pool" {
+		t.Fatalf("unexpected outbound tag: %+v", rule)
+	}
+	updated, err := store.UpdateRoutingRule(context.Background(), rule.ID, db.UpdateRoutingRuleParams{OutboundTag: "vpngate-pool", Domain: "geosite:youtube", Enabled: true})
+	if err != nil {
+		t.Fatalf("update routing rule with vpngate-pool: %v", err)
+	}
+	if updated.OutboundTag != "vpngate-pool" || updated.Domain != "geosite:youtube" {
+		t.Fatalf("unexpected updated rule: %+v", updated)
+	}
+}
+
 func TestStoreCreateRoutingRuleRejectsNonexistentOutboundTag(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {

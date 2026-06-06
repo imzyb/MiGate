@@ -211,6 +211,7 @@ func NewRouter(options ...Option) http.Handler {
 	mux.HandleFunc("/api/version", versionHandler(cfg.version))
 	mux.HandleFunc("/api/vpngate/servers", vpngateServersHandler(&cfg))
 	mux.HandleFunc("/api/vpngate/import", vpngateImportHandler(&cfg))
+	mux.HandleFunc("/api/vpngate/probe", vpngateProbeHandler())
 	mux.HandleFunc("/sub/", subscriptionHandler(cfg.store))
 	handler := authMiddleware(mux, &cfg)
 	if cfg.basePath != "" {
@@ -1666,6 +1667,61 @@ type importServerItem struct {
 	IP          string `json:"ip"`
 	CountryLong string `json:"country_long"`
 	Ping        int    `json:"ping"`
+	Port        int    `json:"port"`
+}
+
+type vpngateProbeRequest struct {
+	Servers []importServerItem `json:"servers"`
+}
+
+type vpngateProbeResult struct {
+	HostName  string `json:"hostname"`
+	IP        string `json:"ip"`
+	Port      int    `json:"port"`
+	OK        bool   `json:"ok"`
+	LatencyMS int64  `json:"latency_ms"`
+	Error     string `json:"error,omitempty"`
+}
+
+func vpngateProbeHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		var req vpngateProbeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid_payload"}`, http.StatusBadRequest)
+			return
+		}
+		if len(req.Servers) == 0 {
+			http.Error(w, `{"error":"no_servers"}`, http.StatusBadRequest)
+			return
+		}
+		if len(req.Servers) > 20 {
+			req.Servers = req.Servers[:20]
+		}
+		results := make([]vpngateProbeResult, 0, len(req.Servers))
+		for _, s := range req.Servers {
+			port := s.Port
+			if port == 0 {
+				port = 1080
+			}
+			res := vpngateProbeResult{HostName: s.HostName, IP: s.IP, Port: port}
+			start := time.Now()
+			conn, err := net.DialTimeout("tcp", net.JoinHostPort(s.IP, strconv.Itoa(port)), 1200*time.Millisecond)
+			res.LatencyMS = time.Since(start).Milliseconds()
+			if err != nil {
+				res.Error = err.Error()
+			} else {
+				res.OK = true
+				_ = conn.Close()
+			}
+			results = append(results, res)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(results)
+	}
 }
 
 func vpngateImportHandler(cfg *routerConfig) http.HandlerFunc {
@@ -3338,7 +3394,7 @@ function openCreateRoutingRule() {
       document.getElementById('crr-protocol').value = '';
       document.getElementById('crr-enabled').checked = true;
       var sel = document.getElementById('crr-outbound');
-      sel.innerHTML = '<option value="">-- 选择出站 --</option>';
+      sel.innerHTML = '<option value="">-- 选择出站 --</option><option value="vpngate-pool">VPN Gate 出口池（自动均衡）</option>';
       // Load outbounds for the dropdown
       fetch(apiPath('/api/outbounds')).then(function(r) { return r.json(); }).then(function(data) {
         var obs = Array.isArray(data) ? data : (data.outbounds || []);
@@ -3408,7 +3464,7 @@ function openCreateRoutingRule() {
       document.getElementById('err-protocol').value = protocol || '';
       document.getElementById('err-enabled').checked = enabled !== false;
       var sel = document.getElementById('err-outbound');
-      sel.innerHTML = '<option value="">-- 选择出站 --</option>';
+      sel.innerHTML = '<option value="">-- 选择出站 --</option><option value="vpngate-pool">VPN Gate 出口池（自动均衡）</option>';
       fetch(apiPath('/api/outbounds')).then(function(r) { return r.json(); }).then(function(data) {
         var obs = Array.isArray(data) ? data : (data.outbounds || []);
         obs.forEach(function(ob) {
@@ -3578,6 +3634,31 @@ function openCreateRoutingRule() {
       if (selected.length === 0) return;
       var btn = document.getElementById('vpngate-import-btn');
       btn.disabled = true;
+      btn.textContent = '导入中...';
+      btn.textContent = '检测连通性...';
+      try {
+        var probeResp = await fetch(apiPath('/api/vpngate/probe'), {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({servers: selected})
+        });
+        if (probeResp.ok) {
+          var probeResults = await probeResp.json();
+          var reachable = {};
+          probeResults.forEach(function(r) { if (r.ok) reachable[r.ip + ':' + (r.port || 1080)] = true; });
+          var beforeProbe = selected.length;
+          selected = selected.filter(function(s) { return reachable[s.ip + ':1080']; });
+          if (selected.length === 0) {
+            showToast('选中节点连通性检测全部失败，未导入', 'error');
+            btn.textContent = '导入选中';
+            btn.disabled = false;
+            return;
+          }
+          if (selected.length < beforeProbe) showToast('已过滤不通节点 ' + (beforeProbe - selected.length) + ' 台', 'error');
+        }
+      } catch(e) {
+        showToast('连通性检测失败，继续按原选择导入', 'error');
+      }
       btn.textContent = '导入中...';
       try {
         var resp = await fetch(apiPath('/api/vpngate/import'), {

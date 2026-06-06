@@ -137,6 +137,40 @@ func TestBuildConfigWithRoutingRules(t *testing.T) {
 		t.Fatal("expected no routing section when no rules")
 	}
 }
+func TestBuildConfigWithVPNGatePoolBalancer(t *testing.T) {
+	config, err := xray.BuildConfigWithOutbounds(nil, []db.Outbound{
+		{Tag: "direct", Protocol: "freedom", Enabled: true, Sort: 0},
+		{Tag: "vpngate-jp-1", Protocol: "socks", Address: "1.2.3.4", Port: 1080, Enabled: true, Sort: 1},
+		{Tag: "vpngate-us-1", Protocol: "socks", Address: "5.6.7.8", Port: 1080, Enabled: true, Sort: 2},
+		{Tag: "other-socks", Protocol: "socks", Address: "9.9.9.9", Port: 1080, Enabled: true, Sort: 3},
+	}, []db.RoutingRule{
+		{OutboundTag: "vpngate-pool", Domain: "geosite:google", Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("build config: %v", err)
+	}
+	if config.Routing == nil {
+		t.Fatal("expected routing config")
+	}
+	if len(config.Routing.Balancers) != 1 {
+		t.Fatalf("expected one balancer, got %+v", config.Routing.Balancers)
+	}
+	bal := config.Routing.Balancers[0]
+	if bal.Tag != "vpngate-pool" || len(bal.Selector) != 1 || bal.Selector[0] != "vpngate-" {
+		t.Fatalf("unexpected balancer: %+v", bal)
+	}
+	if len(config.Routing.Rules) != 1 || config.Routing.Rules[0].BalancerTag != "vpngate-pool" || config.Routing.Rules[0].OutboundTag != "" {
+		t.Fatalf("expected routing rule to use balancerTag, got %+v", config.Routing.Rules)
+	}
+	encoded, _ := json.Marshal(config)
+	text := string(encoded)
+	for _, want := range []string{`"balancers"`, `"tag":"vpngate-pool"`, `"selector":["vpngate-"]`, `"balancerTag":"vpngate-pool"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("config missing %q: %s", want, text)
+		}
+	}
+}
+
 func TestBuildConfigRejectsUnsupportedProtocol(t *testing.T) {
 	_, err := xray.BuildConfig([]db.Inbound{{Protocol: "openvpn", Port: 1194, Enabled: true}})
 	if err == nil {

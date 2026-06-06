@@ -65,6 +65,9 @@ func TestPanelOutboundInteractionsReportFailuresAndConsistentLatencyUnits(t *tes
 		`id="vpngate-topn"`,
 		`function smartSelectVPNGate()`,
 		`function vpnGateQualityScore(s)`,
+		`/api/vpngate/probe`,
+		`检测连通性...`,
+		`VPN Gate 出口池（自动均衡）`,
 		`已跳过重复节点`,
 	} {
 		if !strings.Contains(body, want) {
