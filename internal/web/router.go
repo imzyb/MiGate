@@ -1796,11 +1796,11 @@ const panelHTML = `<!doctype html>
       </section>
       <section id="outbound" class="card panel">
         <h2 class="section-title">出站管理</h2>
-        <p class="muted" style="margin-bottom:16px">配置链式代理转发（SOCKS5 / HTTP），实现流量经外部代理链路中转。功能开发中，敬请期待。</p>
-        <div class="empty-state">
-          <div class="empty-state-title">功能开发中</div>
-          <div class="empty-state-copy">出站转发（链式代理）即将上线，届时可在此配置 SOCKS5 / HTTP 出站代理链，将流量通过上游代理中转。</div>
+        <p class="muted" style="margin-bottom:16px">配置链式代理转发（SOCKS5 / HTTP），实现流量经外部代理链路中转。</p>
+        <div class="actions">
+          <button onclick="openCreateOutbound()">新建出站</button>
         </div>
+        <div id="outbound-list" class="list muted">正在加载出站...</div>
       </section>
       <section id="xray" class="card panel">
         <h2 class="section-title">Xray 管理</h2>
@@ -1891,6 +1891,105 @@ const panelHTML = `<!doctype html>
         </form>
         <div id="settings-status" class="notice-slot"></div>
       </section>
+    <!-- Create outbound dialog -->
+    <div id="create-outbound-dialog" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()">
+      <div class="modal-content" style="max-width:480px">
+        <div class="modal-header">
+          <h3 class="modal-title">新建出站</h3>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <form id="create-outbound-form" class="form-grid modal-form" onsubmit="return false">
+          <div class="field-group span-2">
+            <label class="field-label" for="co-tag">出站标识</label>
+            <input id="co-tag" placeholder="例如 my-socks-proxy" required>
+            <p class="field-help">唯一标识，用于 Xray 路由规则中的 tag 引用。</p>
+          </div>
+          <div class="field-group span-2">
+            <label class="field-label" for="co-remark">备注</label>
+            <input id="co-remark" placeholder="可选，留空使用标识">
+          </div>
+          <div class="field-group span-2">
+            <label class="field-label" for="co-protocol">协议</label>
+            <select id="co-protocol">
+              <option value="socks">SOCKS5</option>
+              <option value="http">HTTP</option>
+            </select>
+          </div>
+          <div class="field-group" id="co-address-row">
+            <label class="field-label" for="co-address">地址</label>
+            <input id="co-address" placeholder="IP 或域名">
+          </div>
+          <div class="field-group" id="co-port-row">
+            <label class="field-label" for="co-port">端口</label>
+            <input id="co-port" type="number" min="1" max="65535" placeholder="1080">
+          </div>
+          <div class="field-group span-2" id="co-cred-row">
+            <label class="field-label">认证</label>
+            <div style="display:flex;gap:8px">
+              <input id="co-username" placeholder="用户名（可选）" style="flex:1">
+              <input id="co-password" type="password" placeholder="密码（可选）" style="flex:1">
+            </div>
+          </div>
+        </form>
+        <div class="modal-footer">
+          <button class="secondary" onclick="closeModal()">取消</button>
+          <button onclick="submitCreateOutbound()" class="btn-modal-primary">创建</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit outbound dialog -->
+    <div id="edit-outbound-dialog" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()">
+      <div class="modal-content" style="max-width:480px">
+        <div class="modal-header">
+          <h3 class="modal-title">编辑出站</h3>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <form id="edit-outbound-form" class="form-grid modal-form" onsubmit="return false">
+          <input type="hidden" id="eo-id">
+          <div class="field-group span-2">
+            <label class="field-label" for="eo-tag">出站标识</label>
+            <input id="eo-tag" placeholder="例如 my-socks-proxy" required>
+          </div>
+          <div class="field-group span-2">
+            <label class="field-label" for="eo-remark">备注</label>
+            <input id="eo-remark" placeholder="可选，留空使用标识">
+          </div>
+          <div class="field-group span-2">
+            <label class="field-label" for="eo-protocol">协议</label>
+            <select id="eo-protocol">
+              <option value="socks">SOCKS5</option>
+              <option value="http">HTTP</option>
+            </select>
+          </div>
+          <div class="field-group" id="eo-address-row">
+            <label class="field-label" for="eo-address">地址</label>
+            <input id="eo-address" placeholder="IP 或域名">
+          </div>
+          <div class="field-group" id="eo-port-row">
+            <label class="field-label" for="eo-port">端口</label>
+            <input id="eo-port" type="number" min="1" max="65535" placeholder="1080">
+          </div>
+          <div class="field-group span-2" id="eo-cred-row">
+            <label class="field-label">认证</label>
+            <div style="display:flex;gap:8px">
+              <input id="eo-username" placeholder="用户名（可选）" style="flex:1">
+              <input id="eo-password" type="password" placeholder="密码（可选）" style="flex:1">
+            </div>
+          </div>
+          <div class="field-group span-2">
+            <label>
+              <input type="checkbox" id="eo-enabled" checked>
+              已启用
+            </label>
+          </div>
+        </form>
+        <div class="modal-footer">
+          <button class="secondary" onclick="closeModal()">取消</button>
+          <button onclick="submitEditOutbound()" class="btn-modal-primary">保存</button>
+        </div>
+      </div>
+    </div>
     </main>
   </div>
   <script>
@@ -2086,6 +2185,157 @@ const panelHTML = `<!doctype html>
       }
     }
 
+    async function loadOutbounds() {
+      const el = document.getElementById('outbound-list');
+      if (!el) return;
+      try {
+        const resp = await fetch(apiPath('/api/outbounds'));
+        if (!resp.ok) { el.innerHTML = '<div class=\"muted\" style=\"padding:12px\">加载失败</div>'; return; }
+        const data = await resp.json();
+        const outbounds = Array.isArray(data) ? data : (data.outbounds || []);
+        if (!outbounds.length) {
+          el.innerHTML = renderEmptyState('暂无出站', '出站用于链式代理转发。点击上方"新建出站"添加 SOCKS5 / HTTP 代理。');
+          return;
+        }
+        el.innerHTML = '<div style=\"display:grid;grid-template-columns:1fr;gap:8px\">' +
+          outbounds.map(ob => renderOutboundCard(ob)).join('') +
+          '</div>';
+      } catch(e) {
+        el.innerHTML = '<div class=\"muted\" style=\"padding:12px\">加载失败</div>';
+      }
+    }
+
+    function renderOutboundCard(ob) {
+      const protoLabel = ob.protocol === 'freedom' ? '直接连接' :
+        ob.protocol === 'blackhole' ? '阻断' : ob.protocol.toUpperCase();
+      const detail = ob.address ? ob.address + ':' + ob.port : '';
+      const editable = ob.protocol !== 'freedom' && ob.protocol !== 'blackhole';
+      const enabledColor = ob.enabled ? 'var(--green)' : 'var(--muted)';
+      return '<div class=\"card\" style=\"padding:12px 16px;display:flex;align-items:center;gap:12px\">' +
+        '<span style=\"color:' + enabledColor + ';font-size:18px\">' + (ob.enabled ? '&#9679;' : '&#9678;') + '</span>' +
+        '<div style=\"flex:1;min-width:0\">' +
+        '<div style=\"font-weight:600;font-size:var(--text-sm)\">' + escHtml(ob.remark||ob.tag) + '</div>' +
+        '<div class=\"muted\" style=\"font-size:var(--text-xs)\">' + escHtml(ob.tag) + ' &middot; ' + protoLabel + (detail ? ' &middot; ' + escHtml(detail) : '') + '</div>' +
+        '</div><div style=\"display:flex;gap:6px\">' +
+        (editable ? '<button class=\"cell-action\" onclick=\"openEditOutbound(' + ob.id + ')\" title=\"编辑\">&#9998;</button>' +
+          '<button class=\"cell-action\" onclick=\"deleteOutbound(' + ob.id + ')\" title=\"删除\">&#10005;</button>' :
+        '<span class=\"muted\" style=\"font-size:var(--text-xs);padding:4px 8px\">内置</span>') +
+        '</div></div>';
+    }
+
+    function openCreateOutbound() {
+      ['co-tag','co-remark','co-address'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('co-protocol').value = 'socks';
+      document.getElementById('co-port').value = '1080';
+      document.getElementById('co-username').value = '';
+      document.getElementById('co-password').value = '';
+      document.getElementById('co-address-row').style.display = '';
+      document.getElementById('co-port-row').style.display = '';
+      document.getElementById('co-cred-row').style.display = '';
+      showModal('create-outbound-dialog');
+    }
+
+    document.addEventListener('change', function(e) {
+      if (e.target.id === 'co-protocol') {
+        const isRemote = e.target.value === 'socks' || e.target.value === 'http';
+        ['address','port','cred'].forEach(pt => {
+          const el = document.getElementById('co-' + pt + '-row');
+          if (el) el.style.display = isRemote ? '' : 'none';
+        });
+      }
+      if (e.target.id === 'eo-protocol') {
+        const isRemote = e.target.value === 'socks' || e.target.value === 'http';
+        ['address','port','cred'].forEach(pt => {
+          const el = document.getElementById('eo-' + pt + '-row');
+          if (el) el.style.display = isRemote ? '' : 'none';
+        });
+      }
+    });
+
+    async function submitCreateOutbound() {
+      const tag = document.getElementById('co-tag').value.trim();
+      if (!tag) { showToast('请输入出站标识', 'error'); return; }
+      const remark = document.getElementById('co-remark').value.trim() || tag;
+      const protocol = document.getElementById('co-protocol').value;
+      const body = {tag: tag, remark: remark, protocol: protocol};
+      if (protocol === 'socks' || protocol === 'http') {
+        body.address = document.getElementById('co-address').value.trim();
+        if (!body.address) { showToast('请输入代理地址', 'error'); return; }
+        body.port = parseInt(document.getElementById('co-port').value) || 0;
+        if (body.port <= 0 || body.port > 65535) { showToast('请输入有效端口(1-65535)', 'error'); return; }
+        const user = document.getElementById('co-username').value.trim();
+        if (user) { body.username = user; body.password = document.getElementById('co-password').value; }
+      }
+      try {
+        const resp = await fetch(apiPath('/api/outbounds'), {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(body)
+        });
+        if (!resp.ok) { showToast('创建失败', 'error'); return; }
+        showToast('出站已创建', 'success');
+        closeModal();
+        await loadOutbounds();
+      } catch(e) { showToast('创建失败: ' + e.message, 'error'); }
+    }
+
+    function openEditOutbound(id) {
+      fetch(apiPath('/api/outbounds')).then(function(r) { return r.json(); }).then(function(data) {
+        var obs = Array.isArray(data) ? data : (data.outbounds || []);
+        var ob = obs.find(function(o) { return o.id === id; });
+        if (!ob) { showToast('未找到出站', 'error'); return; }
+        document.getElementById('eo-id').value = ob.id;
+        document.getElementById('eo-tag').value = ob.tag;
+        document.getElementById('eo-remark').value = ob.remark;
+        document.getElementById('eo-protocol').value = ob.protocol;
+        document.getElementById('eo-address').value = ob.address || '';
+        document.getElementById('eo-port').value = ob.port || '';
+        document.getElementById('eo-username').value = ob.username || '';
+        document.getElementById('eo-password').value = ob.password || '';
+        document.getElementById('eo-enabled').checked = ob.enabled !== false;
+        var isRemote = ob.protocol === 'socks' || ob.protocol === 'http';
+        ['address','port','cred'].forEach(function(pt) {
+          document.getElementById('eo-' + pt + '-row').style.display = isRemote ? '' : 'none';
+        });
+        showModal('edit-outbound-dialog');
+      }).catch(function() { showToast('加载失败','error'); });
+    }
+
+    async function submitEditOutbound() {
+      var id = parseInt(document.getElementById('eo-id').value);
+      var tag = document.getElementById('eo-tag').value.trim();
+      if (!tag) { showToast('请输入出站标识', 'error'); return; }
+      var body = {
+        tag: tag, remark: document.getElementById('eo-remark').value.trim() || tag,
+        protocol: document.getElementById('eo-protocol').value,
+        enabled: document.getElementById('eo-enabled').checked,
+      };
+      if (body.protocol === 'socks' || body.protocol === 'http') {
+        body.address = document.getElementById('eo-address').value.trim();
+        body.port = parseInt(document.getElementById('eo-port').value) || 0;
+        var user = document.getElementById('eo-username').value.trim();
+        if (user) { body.username = user; body.password = document.getElementById('eo-password').value; }
+      }
+      try {
+        var resp = await fetch(apiPath('/api/outbounds/' + id), {
+          method: 'PUT', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(body)
+        });
+        if (!resp.ok) { showToast('更新失败', 'error'); return; }
+        showToast('出站已更新', 'success');
+        closeModal();
+        await loadOutbounds();
+      } catch(e) { showToast('更新失败: ' + e.message, 'error'); }
+    }
+
+    function deleteOutbound(id) {
+      showConfirm('确认删除此出站？', async function() {
+        try {
+          await fetch(apiPath('/api/outbounds/' + id), {method:'DELETE'});
+          showToast('出站已删除', 'success');
+          await loadOutbounds();
+        } catch(e) { showToast('删除失败: ' + e.message, 'error'); }
+      });
+    }
 
     function preferredTheme() {
       const saved = localStorage.getItem('migate-theme');
@@ -2162,6 +2412,7 @@ const panelHTML = `<!doctype html>
     loadSession();
 
     loadInbounds();
+    loadOutbounds();
 
     // === Navigation section switching ===
     function currentSectionFromLocation() {
