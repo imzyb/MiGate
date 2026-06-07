@@ -1,10 +1,12 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -26,6 +28,8 @@ import (
 
 var validDomain = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
 var validEmail = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+
+const maxXrayLogLines = 200
 
 type Store interface {
 	ListInbounds(ctx context.Context) ([]db.Inbound, error)
@@ -105,17 +109,17 @@ func NewXrayApplyer(ctrl XrayController) scheduler.XrayApplyer {
 func (defaultXrayController) Version(ctx context.Context) string { return "" }
 
 type routerConfig struct {
-	store          Store
-	xrayController XrayController
-	authEnabled    bool
-	authUsername   string
-	authPassword   string
-	sessionSecret  []byte
-	configDir      string
-	version        string
-	basePath       string
-	vpnGateFetcher VPNGateFetcher
-	statsClient    xray.StatsClient
+	store           Store
+	xrayController  XrayController
+	authEnabled     bool
+	authUsername    string
+	authPassword    string
+	sessionSecret   []byte
+	configDir       string
+	version         string
+	basePath        string
+	vpnGateFetcher  VPNGateFetcher
+	statsClient     xray.StatsClient
 	healthScheduler *scheduler.VPNGateHealthScheduler
 }
 
@@ -699,10 +703,16 @@ func applyXrayAsync(ctrl XrayController) {
 	}()
 }
 
-func writeJSONError(w http.ResponseWriter, status int, code string) {
+func writeJSONError(w http.ResponseWriter, status int, code string, fields ...map[string]interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": code})
+	payload := map[string]interface{}{"error": code}
+	for _, extra := range fields {
+		for k, v := range extra {
+			payload[k] = v
+		}
+	}
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 func deriveRealityPublicKeys(inbounds []db.Inbound) {
@@ -752,7 +762,9 @@ func createInbound(w http.ResponseWriter, r *http.Request, store Store) {
 		existing, _ := store.ListInbounds(r.Context())
 		for _, ib := range existing {
 			if ib.Port == payload.Port {
-				http.Error(w, `{"error":"port_conflict","message":"端口 `+strconv.FormatInt(int64(ib.Port), 10)+` 已被入站 `+strconv.FormatInt(ib.ID, 10)+` 使用"}`, http.StatusConflict)
+				writeJSONError(w, http.StatusConflict, "port_conflict", map[string]interface{}{
+					"message": "端口 " + strconv.FormatInt(int64(ib.Port), 10) + " 已被入站 " + strconv.FormatInt(ib.ID, 10) + " 使用",
+				})
 				return
 			}
 		}
@@ -991,12 +1003,14 @@ func updateInbound(w http.ResponseWriter, r *http.Request, store Store, inboundI
 			payload.RealityPrivateKey = key
 		}
 	}
-	// Port conflict check (exclude current inbound)
+	// Port conflict check (excluding current inbound)
 	if payload.Port > 0 {
 		existing, _ := store.ListInbounds(r.Context())
 		for _, ib := range existing {
 			if ib.ID != inboundID && ib.Port == payload.Port {
-				http.Error(w, `{"error":"port_conflict","message":"端口 `+strconv.FormatInt(int64(ib.Port), 10)+` 已被入站 `+strconv.FormatInt(ib.ID, 10)+` 使用"}`, http.StatusConflict)
+				writeJSONError(w, http.StatusConflict, "port_conflict", map[string]interface{}{
+					"message": "端口 " + strconv.FormatInt(int64(ib.Port), 10) + " 已被入站 " + strconv.FormatInt(ib.ID, 10) + " 使用",
+				})
 				return
 			}
 		}
@@ -1181,6 +1195,8 @@ func xrayLogsHandler() http.HandlerFunc {
 		}
 		if n, err := strconv.Atoi(lines); err != nil || n < 1 {
 			lines = "50"
+		} else if n > maxXrayLogLines {
+			lines = strconv.Itoa(maxXrayLogLines)
 		}
 		out, err := exec.Command("journalctl", "-u", "xray", "-n", lines, "--no-pager", "-o", "short-iso").CombinedOutput()
 		if err != nil {
@@ -1258,6 +1274,25 @@ func certStatusHandler(cfg *routerConfig) http.HandlerFunc {
 	}
 }
 
+func installACMESh(email string) (string, error) {
+	resp, err := http.Get("https://get.acme.sh")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("download acme.sh installer failed: status %d", resp.StatusCode)
+	}
+	script, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.Command("sh", "-s", "email="+email)
+	cmd.Stdin = bytes.NewReader(script)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
 func certIssueHandler(cfg *routerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -1302,16 +1337,15 @@ func certIssueHandler(cfg *routerConfig) http.HandlerFunc {
 			return
 		}
 
-		// Check if acme.sh is installed; if not, install it
+		// Check if acme.sh is installed; if not, install it without interpolating
+		// request data into a shell command string.
 		if _, err := exec.LookPath("acme.sh"); err != nil {
-			// Email already validated by validEmail regex above
-			installOut, err := exec.Command("bash", "-c",
-				"curl -fsSL https://get.acme.sh | sh -s email="+req.Email).CombinedOutput()
+			installOut, err := installACMESh(req.Email)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				_ = json.NewEncoder(w).Encode(map[string]string{
 					"error":  "install_acme_failed",
-					"detail": string(installOut),
+					"detail": installOut,
 				})
 				return
 			}
@@ -1745,7 +1779,7 @@ func vpngateServersHandler(cfg *routerConfig) http.HandlerFunc {
 		servers, err := fetcher.FetchServers()
 		if err != nil {
 			log.Printf("VPN Gate fetch failed: %v", err)
-			http.Error(w, `{"error":"fetch_failed","detail":"`+err.Error()+`"}`, http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "fetch_failed", map[string]interface{}{"detail": err.Error()})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -2045,7 +2079,7 @@ func singboxApplyHandler(store Store) http.HandlerFunc {
 		// Read sing-box inbounds
 		inbounds, err := store.ListInbounds(r.Context())
 		if err != nil {
-			http.Error(w, `{"error":"list_failed","detail":"`+err.Error()+`"}`, http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "list_failed", map[string]interface{}{"detail": err.Error()})
 			return
 		}
 
@@ -2055,7 +2089,7 @@ func singboxApplyHandler(store Store) http.HandlerFunc {
 		// Ensure self-signed cert exists
 		if _, err := os.Stat(singbox.CertFile); os.IsNotExist(err) {
 			if err := singbox.GenerateSelfSignedCert(); err != nil {
-				http.Error(w, `{"error":"cert_failed","detail":"`+err.Error()+`"}`, http.StatusInternalServerError)
+				writeJSONError(w, http.StatusInternalServerError, "cert_failed", map[string]interface{}{"detail": err.Error()})
 				return
 			}
 		}
@@ -2063,11 +2097,11 @@ func singboxApplyHandler(store Store) http.HandlerFunc {
 		// Encode and write config
 		raw, err := json.MarshalIndent(cfg, "", "  ")
 		if err != nil {
-			http.Error(w, `{"error":"marshal_failed","detail":"`+err.Error()+`"}`, http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "marshal_failed", map[string]interface{}{"detail": err.Error()})
 			return
 		}
 		if err := os.WriteFile(singbox.DefaultConfigPath, raw, 0644); err != nil {
-			http.Error(w, `{"error":"write_failed","detail":"`+err.Error()+`"}`, http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "write_failed", map[string]interface{}{"detail": err.Error()})
 			return
 		}
 
@@ -2098,7 +2132,7 @@ func singboxConfigHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		data, err := os.ReadFile(singbox.DefaultConfigPath)
 		if err != nil {
-			http.Error(w, `{"error":"read_failed","detail":"`+err.Error()+`"}`, http.StatusNotFound)
+			writeJSONError(w, http.StatusNotFound, "read_failed", map[string]interface{}{"detail": err.Error()})
 			return
 		}
 		// Parse and re-marshal so the client gets pretty-printed JSON
@@ -3899,7 +3933,7 @@ function openCreateRoutingRule() {
           sel.appendChild(opt);
         });
         sel.value = '';
-      }).catch(function() {});
+      }).catch(function(e) { showToast('加载下拉选项失败: ' + e.message, 'error'); });
       // Load inbounds for the inbound dropdown
       fetch(apiPath('/api/inbounds')).then(function(r) { return r.json(); }).then(function(data) {
         var ibs = Array.isArray(data) ? data : (data.inbounds || []);
@@ -3910,7 +3944,7 @@ function openCreateRoutingRule() {
           opt.textContent = (ib.remark || '未命名') + ' (端口 ' + ib.port + ')';
           ibSel.appendChild(opt);
         });
-      }).catch(function() {});
+      }).catch(function(e) { showToast('加载下拉选项失败: ' + e.message, 'error'); });
       showModal('create-routing-rule-dialog');
     }
 
@@ -3969,7 +4003,7 @@ function openCreateRoutingRule() {
           sel.appendChild(opt);
           if (ob.tag === outboundTag) opt.selected = true;
         });
-      }).catch(function() {});
+      }).catch(function(e) { showToast('加载下拉选项失败: ' + e.message, 'error'); });
       // Load inbounds for the inbound dropdown
       fetch(apiPath('/api/inbounds')).then(function(r) { return r.json(); }).then(function(data) {
         var ibs = Array.isArray(data) ? data : (data.inbounds || []);
@@ -3981,7 +4015,7 @@ function openCreateRoutingRule() {
           ibSel.appendChild(opt);
           if ((ib.remark || '') === (inboundTag || '')) opt.selected = true;
         });
-      }).catch(function() {});
+      }).catch(function(e) { showToast('加载下拉选项失败: ' + e.message, 'error'); });
       showModal('edit-routing-rule-dialog');
     }
 

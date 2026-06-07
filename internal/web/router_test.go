@@ -5,11 +5,26 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/imzyb/MiGate/internal/web"
 )
+
+func TestRouterBackendSecurityContracts(t *testing.T) {
+	source, err := os.ReadFile("router.go")
+	if err != nil {
+		t.Fatalf("read router.go: %v", err)
+	}
+	body := string(source)
+	if strings.Contains(body, `exec.Command("bash", "-c"`) || strings.Contains(body, `exec.Command("sh", "-c"`) {
+		t.Fatalf("router must not execute shell strings via bash/sh -c")
+	}
+	if regexp.MustCompile(`tail",\s*"-n",\s*lines`).FindString(body) != "" && !strings.Contains(body, "maxXrayLogLines") {
+		t.Fatalf("xray log line count must be clamped before passing to journalctl/tail")
+	}
+}
 
 func TestRouterServesStaticPanelAndHealthAPI(t *testing.T) {
 	router := web.NewRouter()
@@ -1106,6 +1121,7 @@ func TestRouterDoesNotServeLegacyHeavyRoutes(t *testing.T) {
 		}
 	}
 }
+
 // TestEditClientResetTrafficCardDarkMode verifies the reset traffic card
 // in the edit client dialog uses correct dark-mode CSS variables.
 func TestEditClientResetTrafficCardDarkMode(t *testing.T) {
