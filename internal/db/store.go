@@ -24,10 +24,11 @@ var supportedProtocols = map[string]bool{
 }
 
 var supportedOutboundProtocols = map[string]bool{
-	"freedom":   true,
-	"blackhole": true,
-	"socks":     true,
-	"http":      true,
+	"freedom":           true,
+	"blackhole":         true,
+	"socks":             true,
+	"http":              true,
+	"vpngate_softether": true,
 }
 
 type RoutingRule struct {
@@ -61,34 +62,34 @@ type Store struct {
 }
 
 type Inbound struct {
-	ID                   int64    `json:"id"`
-	UUID                 string   `json:"uuid"`
-	Remark               string   `json:"remark"`
-	Protocol             string   `json:"protocol"`
-	Port                 int      `json:"port"`
-	Network              string   `json:"network"`
-	Security             string   `json:"security"`
-	Enabled              bool     `json:"enabled"`
-	WsPath               string   `json:"ws_path"`
-	WsHost               string   `json:"ws_host"`
-	GrpcServiceName      string   `json:"grpc_service_name"`
-	RealityDest          string   `json:"reality_dest"`
-	RealityServerNames   string   `json:"reality_server_names"`
-	RealityShortID       string   `json:"reality_short_id"`
-	RealityPrivateKey    string   `json:"reality_private_key"`
-	RealityPublicKey     string   `json:"reality_public_key"`
-	SSMethod             string   `json:"ss_method"`
-	TLSCertFile          string   `json:"tls_cert_file"`
-	TLSKeyFile           string   `json:"tls_key_file"`
-	TLSSNI               string   `json:"tls_sni"`
-	TLSFingerprint       string   `json:"tls_fingerprint"`
-	TLSALPN              string   `json:"tls_alpn"`
-	XHTTPPath            string   `json:"xhttp_path"`
-	XHTTPMode            string   `json:"xhttp_mode"`
-	Hy2UpMbps            int      `json:"hy2_up_mbps"`
-	Hy2DownMbps          int      `json:"hy2_down_mbps"`
-	Hy2Obfs              string   `json:"hy2_obfs"`
-	Hy2ObfsPassword      string   `json:"hy2_obfs_password"`
+	ID                    int64    `json:"id"`
+	UUID                  string   `json:"uuid"`
+	Remark                string   `json:"remark"`
+	Protocol              string   `json:"protocol"`
+	Port                  int      `json:"port"`
+	Network               string   `json:"network"`
+	Security              string   `json:"security"`
+	Enabled               bool     `json:"enabled"`
+	WsPath                string   `json:"ws_path"`
+	WsHost                string   `json:"ws_host"`
+	GrpcServiceName       string   `json:"grpc_service_name"`
+	RealityDest           string   `json:"reality_dest"`
+	RealityServerNames    string   `json:"reality_server_names"`
+	RealityShortID        string   `json:"reality_short_id"`
+	RealityPrivateKey     string   `json:"reality_private_key"`
+	RealityPublicKey      string   `json:"reality_public_key"`
+	SSMethod              string   `json:"ss_method"`
+	TLSCertFile           string   `json:"tls_cert_file"`
+	TLSKeyFile            string   `json:"tls_key_file"`
+	TLSSNI                string   `json:"tls_sni"`
+	TLSFingerprint        string   `json:"tls_fingerprint"`
+	TLSALPN               string   `json:"tls_alpn"`
+	XHTTPPath             string   `json:"xhttp_path"`
+	XHTTPMode             string   `json:"xhttp_mode"`
+	Hy2UpMbps             int      `json:"hy2_up_mbps"`
+	Hy2DownMbps           int      `json:"hy2_down_mbps"`
+	Hy2Obfs               string   `json:"hy2_obfs"`
+	Hy2ObfsPassword       string   `json:"hy2_obfs_password"`
 	TuicCongestionControl string   `json:"tuic_congestion_control"`
 	TuicZeroRTT           bool     `json:"tuic_zero_rtt"`
 	WgPrivateKey          string   `json:"wg_private_key"`
@@ -100,7 +101,7 @@ type Inbound struct {
 	WgMTU                 int      `json:"wg_mtu"`
 	ShadowTLSVersion      int      `json:"shadowtls_version"`
 	ShadowTLSPassword     string   `json:"shadowtls_password"`
-	Clients              []Client `json:"clients"`
+	Clients               []Client `json:"clients"`
 }
 
 type Outbound struct {
@@ -150,32 +151,32 @@ type Client struct {
 }
 
 type CreateInboundParams struct {
-	UUID                string              `json:"uuid,omitempty"`
-	Remark              string              `json:"remark"`
-	Protocol            string              `json:"protocol"`
-	Port                int                 `json:"port"`
-	Network             string              `json:"network"`
-	Security            string              `json:"security"`
-	WsPath              string              `json:"ws_path"`
-	WsHost              string              `json:"ws_host"`
-	GrpcServiceName     string              `json:"grpc_service_name"`
-	RealityDest         string              `json:"reality_dest"`
-	RealityServerNames  string              `json:"reality_server_names"`
-	RealityShortID      string              `json:"reality_short_id"`
-	RealityPrivateKey   string              `json:"reality_private_key"`
-	RealityPublicKey    string              `json:"reality_public_key"`
-	SSMethod            string              `json:"ss_method"`
-	TLSCertFile         string              `json:"tls_cert_file"`
-	TLSKeyFile          string              `json:"tls_key_file"`
-	TLSSNI              string              `json:"tls_sni"`
-	TLSFingerprint      string              `json:"tls_fingerprint"`
-	TLSALPN             string              `json:"tls_alpn"`
-	XHTTPPath           string              `json:"xhttp_path"`
-	XHTTPMode           string              `json:"xhttp_mode"`
-	Hy2UpMbps           int                 `json:"hy2_up_mbps"`
-	Hy2DownMbps         int                 `json:"hy2_down_mbps"`
-	Hy2Obfs             string              `json:"hy2_obfs"`
-	Hy2ObfsPassword     string              `json:"hy2_obfs_password"`
+	UUID                  string              `json:"uuid,omitempty"`
+	Remark                string              `json:"remark"`
+	Protocol              string              `json:"protocol"`
+	Port                  int                 `json:"port"`
+	Network               string              `json:"network"`
+	Security              string              `json:"security"`
+	WsPath                string              `json:"ws_path"`
+	WsHost                string              `json:"ws_host"`
+	GrpcServiceName       string              `json:"grpc_service_name"`
+	RealityDest           string              `json:"reality_dest"`
+	RealityServerNames    string              `json:"reality_server_names"`
+	RealityShortID        string              `json:"reality_short_id"`
+	RealityPrivateKey     string              `json:"reality_private_key"`
+	RealityPublicKey      string              `json:"reality_public_key"`
+	SSMethod              string              `json:"ss_method"`
+	TLSCertFile           string              `json:"tls_cert_file"`
+	TLSKeyFile            string              `json:"tls_key_file"`
+	TLSSNI                string              `json:"tls_sni"`
+	TLSFingerprint        string              `json:"tls_fingerprint"`
+	TLSALPN               string              `json:"tls_alpn"`
+	XHTTPPath             string              `json:"xhttp_path"`
+	XHTTPMode             string              `json:"xhttp_mode"`
+	Hy2UpMbps             int                 `json:"hy2_up_mbps"`
+	Hy2DownMbps           int                 `json:"hy2_down_mbps"`
+	Hy2Obfs               string              `json:"hy2_obfs"`
+	Hy2ObfsPassword       string              `json:"hy2_obfs_password"`
 	TuicCongestionControl string              `json:"tuic_congestion_control"`
 	TuicZeroRTT           bool                `json:"tuic_zero_rtt"`
 	WgPrivateKey          string              `json:"wg_private_key"`
@@ -187,7 +188,7 @@ type CreateInboundParams struct {
 	WgMTU                 int                 `json:"wg_mtu"`
 	ShadowTLSVersion      int                 `json:"shadowtls_version"`
 	ShadowTLSPassword     string              `json:"shadowtls_password"`
-	InitialClient       *CreateClientParams `json:"initial_client,omitempty"`
+	InitialClient         *CreateClientParams `json:"initial_client,omitempty"`
 }
 
 type CreateClientParams struct {
@@ -431,10 +432,10 @@ func (s *Store) CreateOutbound(ctx context.Context, params CreateOutboundParams)
 		remark = tag
 	}
 	address := strings.TrimSpace(params.Address)
-	if (protocol == "socks" || protocol == "http") && address == "" {
+	if outboundProtocolNeedsAddress(protocol) && address == "" {
 		return Outbound{}, fmt.Errorf("address cannot be empty")
 	}
-	if (protocol == "socks" || protocol == "http") && (params.Port <= 0 || params.Port > 65535) {
+	if outboundProtocolNeedsAddress(protocol) && (params.Port <= 0 || params.Port > 65535) {
 		return Outbound{}, fmt.Errorf("invalid port: %d", params.Port)
 	}
 	var sort int
@@ -465,10 +466,10 @@ func (s *Store) UpdateOutbound(ctx context.Context, id int64, params UpdateOutbo
 		remark = tag
 	}
 	address := strings.TrimSpace(params.Address)
-	if (protocol == "socks" || protocol == "http") && address == "" {
+	if outboundProtocolNeedsAddress(protocol) && address == "" {
 		return Outbound{}, fmt.Errorf("address cannot be empty")
 	}
-	if (protocol == "socks" || protocol == "http") && (params.Port <= 0 || params.Port > 65535) {
+	if outboundProtocolNeedsAddress(protocol) && (params.Port <= 0 || params.Port > 65535) {
 		return Outbound{}, fmt.Errorf("invalid port: %d", params.Port)
 	}
 	enabled := 0
@@ -574,6 +575,15 @@ func (s *Store) ListRoutingRules(ctx context.Context) ([]RoutingRule, error) {
 
 func isVirtualOutboundTag(tag string) bool {
 	return tag == "vpngate-pool"
+}
+
+func outboundProtocolNeedsAddress(protocol string) bool {
+	switch protocol {
+	case "socks", "http", "vpngate_softether":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Store) CreateRoutingRule(ctx context.Context, params CreateRoutingRuleParams) (RoutingRule, error) {
@@ -737,7 +747,7 @@ func (s *Store) CreateInbound(ctx context.Context, params CreateInboundParams) (
 		WgMTU:                 params.WgMTU,
 		ShadowTLSVersion:      params.ShadowTLSVersion,
 		ShadowTLSPassword:     params.ShadowTLSPassword,
-		Clients: clients}, nil
+		Clients:               clients}, nil
 }
 
 func (s *Store) insertInbound(ctx context.Context, inboundUUID, remark, protocol string, port int, network, security string,

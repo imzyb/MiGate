@@ -861,6 +861,36 @@ func TestStoreCreateInboundWithoutInitialClient(t *testing.T) {
 	}
 }
 
+func TestStoreCreatesVPNGateSoftEtherOutbound(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	outbound, err := store.CreateOutbound(context.Background(), db.CreateOutboundParams{
+		Tag:      "vpngate-jp-softether",
+		Remark:   "VPN Gate SoftEther - Japan",
+		Protocol: "vpngate_softether",
+		Address:  "10.77.1.2",
+		Port:     21080,
+	})
+	if err != nil {
+		t.Fatalf("create vpngate_softether outbound: %v", err)
+	}
+	if outbound.Protocol != "vpngate_softether" || outbound.Address != "10.77.1.2" || outbound.Port != 21080 || !outbound.Enabled {
+		t.Fatalf("unexpected SoftEther outbound: %+v", outbound)
+	}
+
+	listed, err := store.ListOutbounds(context.Background())
+	if err != nil {
+		t.Fatalf("list outbounds: %v", err)
+	}
+	if len(listed) != 3 || listed[2].Protocol != "vpngate_softether" {
+		t.Fatalf("expected SoftEther outbound to persist after default outbounds, got %+v", listed)
+	}
+}
+
 func TestStoreRoutingRuleAllowsVPNGatePoolVirtualOutbound(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {

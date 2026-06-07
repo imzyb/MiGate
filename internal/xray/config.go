@@ -492,7 +492,11 @@ func buildOutbound(ob db.Outbound) (OutboundConfig, error) {
 			Protocol: protocol,
 			Settings: map[string]interface{}{},
 		}, nil
-	case "socks":
+	case "socks", "vpngate_softether":
+		xrayProtocol := protocol
+		if protocol == "vpngate_softether" {
+			xrayProtocol = "socks"
+		}
 		users := []map[string]interface{}{}
 		user := strings.TrimSpace(ob.Username)
 		pass := ob.Password
@@ -512,7 +516,7 @@ func buildOutbound(ob db.Outbound) (OutboundConfig, error) {
 		}
 		return OutboundConfig{
 			Tag:      ob.Tag,
-			Protocol: protocol,
+			Protocol: xrayProtocol,
 			Settings: map[string]interface{}{"servers": servers},
 		}, nil
 	case "http":
