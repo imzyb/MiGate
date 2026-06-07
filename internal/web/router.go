@@ -354,6 +354,7 @@ func outboundsHandler(store Store, ctrl XrayController) http.HandlerFunc {
 				return
 			}
 			applyResult := ctrl.Apply(r.Context())
+			_ = tryApplySingbox(r.Context(), store)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"outbound": outbound, "xray": applyResult})
@@ -460,6 +461,7 @@ func outboundChildrenHandler(store Store, ctrl XrayController) http.HandlerFunc 
 				return
 			}
 			applyResult := ctrl.Apply(r.Context())
+			_ = tryApplySingbox(r.Context(), store)
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"outbound": outbound, "xray": applyResult})
 		case http.MethodDelete:
@@ -503,6 +505,7 @@ func routingRulesHandler(store Store, ctrl XrayController) http.HandlerFunc {
 				return
 			}
 			applyResult := ctrl.Apply(r.Context())
+			_ = tryApplySingbox(r.Context(), store)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"rule": rule, "xray": applyResult})
@@ -559,6 +562,7 @@ func routingRuleChildrenHandler(store Store, ctrl XrayController) http.HandlerFu
 				return
 			}
 			applyResult := ctrl.Apply(r.Context())
+			_ = tryApplySingbox(r.Context(), store)
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"rule": rule, "xray": applyResult})
 		case http.MethodDelete:
@@ -572,6 +576,7 @@ func routingRuleChildrenHandler(store Store, ctrl XrayController) http.HandlerFu
 				return
 			}
 			applyResult := ctrl.Apply(r.Context())
+			_ = tryApplySingbox(r.Context(), store)
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "deleted", "xray": applyResult})
 		case http.MethodGet:
@@ -688,6 +693,7 @@ func inboundsHandler(store Store, ctrl XrayController) http.HandlerFunc {
 		case http.MethodPost:
 			createInbound(w, r, store)
 			applyXrayAsync(ctrl)
+			applySingboxAsync(store)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
@@ -699,6 +705,14 @@ func applyXrayAsync(ctrl XrayController) {
 		result := ctrl.Apply(context.Background())
 		if strings.HasPrefix(result.Status, "failed") {
 			log.Printf("xray apply failed: status=%s service=%s commands=%v error=%s", result.Status, result.Service, result.CommandsExecuted, result.ErrorOutput)
+		}
+	}()
+}
+
+func applySingboxAsync(store Store) {
+	go func() {
+		if err := tryApplySingbox(context.Background(), store); err != nil {
+			log.Printf("sing-box auto apply: %v", err)
 		}
 	}()
 }
@@ -799,6 +813,7 @@ func inboundChildrenHandler(store Store, ctrl XrayController) http.HandlerFunc {
 				}
 				resetClientTraffic(w, r, store, inboundID, clientID)
 				applyXrayAsync(ctrl)
+				applySingboxAsync(store)
 			} else if len(parts) != 2 || parts[1] != "clients" {
 				http.NotFound(w, r)
 				return
@@ -810,6 +825,7 @@ func inboundChildrenHandler(store Store, ctrl XrayController) http.HandlerFunc {
 				}
 				createClient(w, r, store, inboundID)
 				applyXrayAsync(ctrl)
+				applySingboxAsync(store)
 			}
 		case http.MethodPatch:
 			if len(parts) == 2 && parts[1] == "enabled" {
@@ -820,6 +836,7 @@ func inboundChildrenHandler(store Store, ctrl XrayController) http.HandlerFunc {
 				}
 				patchInboundEnabled(w, r, store, inboundID)
 				applyXrayAsync(ctrl)
+				applySingboxAsync(store)
 			} else if len(parts) == 4 && parts[1] == "clients" && parts[3] == "enabled" {
 				clientID, err := strconv.ParseInt(parts[2], 10, 64)
 				if err != nil || clientID <= 0 {
@@ -833,6 +850,7 @@ func inboundChildrenHandler(store Store, ctrl XrayController) http.HandlerFunc {
 				}
 				patchClientEnabled(w, r, store, inboundID, clientID)
 				applyXrayAsync(ctrl)
+				applySingboxAsync(store)
 			} else {
 				http.NotFound(w, r)
 			}
@@ -846,6 +864,7 @@ func inboundChildrenHandler(store Store, ctrl XrayController) http.HandlerFunc {
 				}
 				updateInbound(w, r, store, inboundID)
 				applyXrayAsync(ctrl)
+				applySingboxAsync(store)
 			} else if len(parts) == 3 && parts[1] == "clients" {
 				// PUT /api/inbounds/{id}/clients/{clientId}
 				clientID, err := strconv.ParseInt(parts[2], 10, 64)
@@ -855,6 +874,7 @@ func inboundChildrenHandler(store Store, ctrl XrayController) http.HandlerFunc {
 				}
 				updateClient(w, r, store, clientID)
 				applyXrayAsync(ctrl)
+				applySingboxAsync(store)
 			} else {
 				http.NotFound(w, r)
 			}
@@ -877,6 +897,7 @@ func inboundChildrenHandler(store Store, ctrl XrayController) http.HandlerFunc {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 				applyXrayAsync(ctrl)
+				applySingboxAsync(store)
 			} else if len(parts) == 3 && parts[1] == "clients" {
 				// DELETE /api/inbounds/{id}/clients/{clientId}
 				clientID, err := strconv.ParseInt(parts[2], 10, 64)
@@ -895,6 +916,7 @@ func inboundChildrenHandler(store Store, ctrl XrayController) http.HandlerFunc {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 				applyXrayAsync(ctrl)
+				applySingboxAsync(store)
 			} else {
 				http.NotFound(w, r)
 			}
@@ -2120,6 +2142,33 @@ func singboxApplyHandler(store Store) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(result)
 	}
+}
+
+// tryApplySingbox reads sing-box supported inbounds from the store, builds
+// a sing-box config, writes it to disk and restarts sing-box. Errors are
+// silently returned (not panicked) to avoid blocking the caller.
+func tryApplySingbox(ctx context.Context, store Store) error {
+	if !singbox.IsInstalled() {
+		return nil // sing-box not available, skip silently
+	}
+	inbounds, err := store.ListInbounds(ctx)
+	if err != nil {
+		return fmt.Errorf("list inbounds: %w", err)
+	}
+	cfg := singbox.BuildConfig(inbounds)
+	if _, err := os.Stat(singbox.CertFile); os.IsNotExist(err) {
+		if err := singbox.GenerateSelfSignedCert(); err != nil {
+			return fmt.Errorf("generate cert: %w", err)
+		}
+	}
+	raw, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	if err := os.WriteFile(singbox.DefaultConfigPath, raw, 0644); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	return singbox.Apply()
 }
 
 // singboxConfigHandler returns the current sing-box config JSON.
