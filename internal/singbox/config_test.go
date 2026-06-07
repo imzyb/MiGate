@@ -251,8 +251,8 @@ func TestBuildConfig_ShadowTLSInbound(t *testing.T) {
 	if ib.Version != 2 {
 		t.Errorf("expected version 2, got %d", ib.Version)
 	}
-	if ib.HandshakeServerName != "cloudflare.com" {
-		t.Errorf("expected handshake_server_name cloudflare.com, got %s", ib.HandshakeServerName)
+	if ib.Handshake == nil || ib.Handshake.Server != "cloudflare.com" || ib.Handshake.ServerPort != 443 {
+		t.Errorf("expected handshake server cloudflare.com:443, got %+v", ib.Handshake)
 	}
 	if ib.TLS != nil {
 		t.Error("expected nil TLS for shadowtls (inbound has no TLS config)")

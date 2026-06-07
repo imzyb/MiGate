@@ -48,7 +48,13 @@ type InboundConfig struct {
 	MTU               int             `json:"mtu,omitempty"`
 	Version           int             `json:"version,omitempty"`
 	Password          string          `json:"password,omitempty"`
-	HandshakeServerName string        `json:"handshake_server_name,omitempty"`
+	Handshake         *HandshakeConfig `json:"handshake,omitempty"`
+}
+
+// HandshakeConfig represents the handshake server for ShadowTLS.
+type HandshakeConfig struct {
+	Server     string `json:"server"`
+	ServerPort int    `json:"server_port"`
 }
 
 // UserConfig represents a sing-box user.
@@ -193,13 +199,19 @@ func BuildConfig(inbounds []db.Inbound) Config {
 
 		case "shadowtls":
 			ib := InboundConfig{
-				Type:               "shadowtls",
-				Tag:                fmt.Sprintf("shadowtls-inbound-%d", inbound.ID),
-				Listen:             "0.0.0.0",
-				ListenPort:         port,
-				Version:            inbound.ShadowTLSVersion,
-				Password:           inbound.ShadowTLSPassword,
-				HandshakeServerName: inbound.TLSSNI,
+				Type:       "shadowtls",
+				Tag:        fmt.Sprintf("shadowtls-inbound-%d", inbound.ID),
+				Listen:     "0.0.0.0",
+				ListenPort: port,
+				Version:    inbound.ShadowTLSVersion,
+				Password:   inbound.ShadowTLSPassword,
+			}
+
+			if inbound.TLSSNI != "" {
+				ib.Handshake = &HandshakeConfig{
+					Server:     inbound.TLSSNI,
+					ServerPort: 443,
+				}
 			}
 
 			// Build users from clients
