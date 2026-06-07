@@ -261,6 +261,7 @@ func NewRouter(options ...Option) http.Handler {
 	mux.HandleFunc("/api/vpngate/servers", vpngateServersHandler(&cfg))
 	mux.HandleFunc("/api/vpngate/import", vpngateImportHandler(&cfg))
 	mux.HandleFunc("/api/vpngate/probe", vpngateProbeHandler())
+	mux.HandleFunc("/api/vpngate/egress", vpngateCreateEgressHandler(&cfg))
 	mux.HandleFunc("/api/vpngate/egress/capabilities", vpngateEgressCapabilitiesHandler())
 	mux.HandleFunc("/api/vpngate/outbounds/health", vpngateOutboundHealthHandler(cfg.store))
 	mux.HandleFunc("/api/vpngate/auto-health/status", vpngateAutoHealthStatusHandler(&cfg))
@@ -2216,6 +2217,155 @@ func vpngateImportHandler(cfg *routerConfig) http.HandlerFunc {
 	}
 }
 
+type vpngateCreateEgressRequest struct {
+	Server        VPNGateServer `json:"server"`
+	BridgeAddress string        `json:"bridge_address"`
+	BridgePort    int           `json:"bridge_port"`
+}
+
+type vpngateCreateEgressResponse struct {
+	Status   string      `json:"status"`
+	Runtime  string      `json:"runtime"`
+	Outbound db.Outbound `json:"outbound"`
+	Bridge   struct {
+		Protocol string `json:"protocol"`
+		Address  string `json:"address"`
+		Port     int    `json:"port"`
+	} `json:"bridge"`
+	Server VPNGateServer `json:"server"`
+	Notes  []string      `json:"notes"`
+}
+
+func vpngateCreateEgressHandler(cfg *routerConfig) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if cfg.store == nil {
+			writeJSONError(w, http.StatusServiceUnavailable, "store_unavailable")
+			return
+		}
+		var req vpngateCreateEgressRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid_payload", map[string]interface{}{"detail": err.Error()})
+			return
+		}
+		address := strings.TrimSpace(req.BridgeAddress)
+		if address == "" {
+			address = "127.0.0.1"
+		}
+		if address != "127.0.0.1" && address != "::1" && !strings.HasPrefix(address, "127.") {
+			writeJSONError(w, http.StatusBadRequest, "invalid_bridge_address", map[string]interface{}{"detail": "bridge_address must be a loopback address for this placeholder slice"})
+			return
+		}
+		port := req.BridgePort
+		if port == 0 {
+			port = 21080
+		}
+		if port <= 0 || port > 65535 {
+			writeJSONError(w, http.StatusBadRequest, "invalid_bridge_port", map[string]interface{}{"detail": "bridge_port must be between 1 and 65535"})
+			return
+		}
+		serverID := firstNonEmpty(req.Server.HostName, req.Server.IP, "server")
+		tag := uniqueVPNGateEgressTag(r.Context(), cfg.store, serverID, port)
+		remark := "VPN Gate SoftEther placeholder - " + serverID
+		if req.Server.CountryLong != "" {
+			remark += " (" + strings.TrimSpace(req.Server.CountryLong) + ")"
+		}
+		outbound, err := cfg.store.CreateOutbound(r.Context(), db.CreateOutboundParams{
+			Tag:      tag,
+			Remark:   remark,
+			Protocol: "vpngate_softether",
+			Address:  address,
+			Port:     port,
+		})
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "create_outbound_failed", map[string]interface{}{"detail": err.Error()})
+			return
+		}
+		resp := vpngateCreateEgressResponse{
+			Status:   "pending_runtime",
+			Runtime:  "bridge_not_started",
+			Outbound: outbound,
+			Server:   req.Server,
+			Notes: []string{
+				"仅创建受管 vpngate_softether 出口配置，暂未启动 VPN runtime。",
+				"后续 SoftEther/netns/SOCKS bridge runtime 实现后，会由本地 bridge 地址提供流量出口；本次请求不访问外网、不启动进程。",
+			},
+		}
+		resp.Bridge.Protocol = "socks5"
+		resp.Bridge.Address = address
+		resp.Bridge.Port = port
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func uniqueVPNGateEgressTag(ctx context.Context, store Store, serverID string, port int) string {
+	base := "vpngate-" + slugForTag(serverID)
+	if base == "vpngate-" {
+		base = "vpngate-softether"
+	}
+	base = trimTag(base, 48)
+	existing := map[string]bool{}
+	if outbounds, err := store.ListOutbounds(ctx); err == nil {
+		for _, ob := range outbounds {
+			existing[ob.Tag] = true
+		}
+	}
+	candidate := base
+	if !existing[candidate] {
+		return candidate
+	}
+	candidate = trimTag(fmt.Sprintf("%s-%d", base, port), 58)
+	if !existing[candidate] {
+		return candidate
+	}
+	for i := 2; ; i++ {
+		candidate = trimTag(fmt.Sprintf("%s-%d-%d", base, port, i), 64)
+		if !existing[candidate] {
+			return candidate
+		}
+	}
+}
+
+func slugForTag(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		isAllowed := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if isAllowed {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+func trimTag(tag string, maxLen int) string {
+	if len(tag) <= maxLen {
+		return strings.Trim(tag, "-")
+	}
+	return strings.Trim(tag[:maxLen], "-")
+}
+
 type vpngateFallbackProtocol struct {
 	Protocol string `json:"protocol"`
 	Status   string `json:"status"`
@@ -3586,15 +3736,15 @@ const panelHTML = `<!doctype html>
               </select>
               <button class="secondary" onclick="refreshVPNGateServers()">重新拉取</button>
               <button class="secondary" onclick="smartSelectVPNGate()">智能选择参考</button>
-              <button class="secondary" id="vpngate-import-btn" disabled title="VPN Gate 官方列表不是 SOCKS5 代理源，暂不支持导入">暂不支持导入</button>
+              <button class="secondary" id="vpngate-import-btn" onclick="importSelectedVPNGate()" title="仅创建受管出口配置，暂未启动 VPN runtime">创建 SoftEther 出口占位</button>
             </div>
             <div class="notice" style="margin-bottom:12px;background:var(--surface-warning);color:var(--fg)">
               <div class="notice-title">VPN Gate 官方列表不是 SOCKS5 代理源</div>
-              <div class="notice-copy">官方节点通常开放 HTTPS/SoftEther/OpenVPN 等 VPN 端口；MiGate 仅将它们作为参考列表/候选信息展示，暂不支持导入为 SOCKS5 出站。当前连通性检测仍会验证 SOCKS5 握手，因此全部失败属于项目接入方式不正确，不是这些节点全部宕机。</div>
+              <div class="notice-copy">官方节点通常开放 HTTPS/SoftEther/OpenVPN 等 VPN 端口；MiGate 将它们作为 SoftEther 出口候选信息展示；当前创建按钮只生成受管出口占位配置，不会把官方列表当作 SOCKS5 代理源。</div>
             </div>
             <div class="notice" style="margin-bottom:12px;background:var(--surface-subtle);color:var(--fg)">
               <div class="notice-title">下一步路线：SoftEther + 隔离网络命名空间 + SOCKS 桥接</div>
-              <div class="notice-copy">能力预览 API 已规划为只读：后续会将 VPN Gate SoftEther 会话放入隔离网络命名空间，并通过本地 SOCKS 桥接接入 Xray outbound；在真实 netns/SoftEther 启动实现前，导入按钮继续保持“暂不支持导入”禁用。</div>
+              <div class="notice-copy">当前按钮仅创建受管 vpngate_softether 出口配置，暂未启动 VPN runtime；后续会将 VPN Gate SoftEther 会话放入隔离网络命名空间，并通过本地 SOCKS 桥接接入 Xray outbound。</div>
             </div>
             <table style="width:100%;border-collapse:collapse;font-size:13px">
               <thead>
@@ -3613,7 +3763,7 @@ const panelHTML = `<!doctype html>
           </div>
         </div>
         <div class="modal-footer">
-          <span class="muted" style="font-size:12px">参考列表/候选信息，来自 vpngate.net；暂不支持导入为 SOCKS5 出站</span>
+          <span class="muted" style="font-size:12px">参考列表/候选信息，来自 vpngate.net；创建出口只生成本地 SoftEther bridge 占位配置</span>
           <button class="secondary" onclick="closeModal()">关闭</button>
         </div>
       </div>

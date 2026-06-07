@@ -871,14 +871,39 @@ function openCreateRoutingRule() {
     function updateVPNGateImportBtn() {
       var btn = document.getElementById('vpngate-import-btn');
       if (!btn) return;
-      btn.disabled = true;
-      btn.textContent = '暂不支持导入';
-      btn.title = 'VPN Gate 官方列表不是 SOCKS5 代理源，当前仅作为参考列表/候选信息展示';
+      var selected = Object.keys(vpngateSelected).length;
+      btn.disabled = selected !== 1;
+      btn.textContent = selected === 0 ? '选择 1 个节点后创建出口' : selected === 1 ? '创建 SoftEther 出口占位' : '一次仅能创建 1 个出口';
+      btn.title = '仅创建受管出口配置，暂未启动 VPN runtime';
     }
 
     async function importSelectedVPNGate() {
-      updateVPNGateImportBtn();
-      showToast('VPN Gate 官方列表不是 SOCKS5 代理源，暂不支持导入为 SOCKS5 出站', 'error');
+      var selectedIndexes = Object.keys(vpngateSelected);
+      if (selectedIndexes.length !== 1) {
+        updateVPNGateImportBtn();
+        showToast('请选择 1 个 VPN Gate 候选节点创建 SoftEther 出口占位', 'error');
+        return;
+      }
+      var server = vpngateServers[parseInt(selectedIndexes[0], 10)];
+      var btn = document.getElementById('vpngate-import-btn');
+      if (btn) { btn.disabled = true; btn.textContent = '创建中...'; }
+      try {
+        var resp = await fetch(apiPath('/api/vpngate/egress'), {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({server: server})
+        });
+        var data = await resp.json().catch(function() { return {}; });
+        if (!resp.ok) throw new Error(data.error || 'create_failed');
+        showToast('已创建 SoftEther 出口占位：' + (data.outbound && data.outbound.tag ? data.outbound.tag : 'vpngate'), 'success');
+        vpngateSelected = {};
+        renderVPNGateList();
+        loadOutbounds();
+      } catch (err) {
+        showToast('创建 SoftEther 出口占位失败：' + err.message, 'error');
+      } finally {
+        updateVPNGateImportBtn();
+      }
     }
 
     function preferredTheme() {

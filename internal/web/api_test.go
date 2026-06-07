@@ -84,6 +84,105 @@ func TestVPNGateEgressCapabilitiesAPIIsReadOnlyPlan(t *testing.T) {
 	}
 }
 
+func TestCreateVPNGateSoftEtherEgressCreatesPendingBridgeOutbound(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	router := web.NewRouter(web.WithStore(store))
+	payload := `{"server":{"hostname":"vpn123.opengw.net","ip":"203.0.113.10","country_long":"Japan","country_short":"JP"},"bridge_address":"127.0.0.1","bridge_port":21088}`
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/vpngate/egress", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var got struct {
+		Status   string      `json:"status"`
+		Runtime  string      `json:"runtime"`
+		Bridge   interface{} `json:"bridge"`
+		Notes    []string    `json:"notes"`
+		Outbound db.Outbound `json:"outbound"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("parse response: %v", err)
+	}
+	if got.Status != "pending_runtime" || got.Runtime != "bridge_not_started" {
+		t.Fatalf("expected pending runtime status, got %+v body=%s", got, resp.Body.String())
+	}
+	if got.Outbound.ID == 0 || got.Outbound.Protocol != "vpngate_softether" || !strings.HasPrefix(got.Outbound.Tag, "vpngate-") {
+		t.Fatalf("unexpected created outbound: %+v", got.Outbound)
+	}
+	if got.Outbound.Address != "127.0.0.1" || got.Outbound.Port != 21088 || !got.Outbound.Enabled {
+		t.Fatalf("expected local bridge address to be persisted, got %+v", got.Outbound)
+	}
+	if !strings.Contains(got.Outbound.Remark, "vpn123.opengw.net") || !strings.Contains(got.Outbound.Remark, "Japan") {
+		t.Fatalf("expected server identity in remark, got %q", got.Outbound.Remark)
+	}
+	joinedNotes := strings.Join(got.Notes, " ")
+	for _, forbidden := range []string{"connected", "已连接", "started"} {
+		if strings.Contains(strings.ToLower(joinedNotes), forbidden) {
+			t.Fatalf("response must not claim runtime is started/connected: %+v", got.Notes)
+		}
+	}
+
+	outbounds, err := store.ListOutbounds(context.Background())
+	if err != nil {
+		t.Fatalf("list outbounds: %v", err)
+	}
+	found := false
+	for _, ob := range outbounds {
+		if ob.ID == got.Outbound.ID {
+			found = true
+			if ob.Protocol != "vpngate_softether" || ob.Address != "127.0.0.1" || ob.Port != 21088 {
+				t.Fatalf("stored outbound mismatch: %+v", ob)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("created outbound not persisted: %+v", outbounds)
+	}
+}
+
+func TestCreateVPNGateSoftEtherEgressDefaultsLocalBridgeWithoutRuntimeSideEffects(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	router := web.NewRouter(web.WithStore(store))
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/vpngate/egress", strings.NewReader(`{"server":{"hostname":"default-port","ip":"198.51.100.2"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var got struct {
+		Status   string `json:"status"`
+		Runtime  string `json:"runtime"`
+		Outbound struct {
+			Protocol string `json:"protocol"`
+			Address  string `json:"address"`
+			Port     int    `json:"port"`
+		} `json:"outbound"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("parse response: %v", err)
+	}
+	if got.Status != "pending_runtime" || got.Runtime != "bridge_not_started" {
+		t.Fatalf("unexpected runtime status: %+v", got)
+	}
+	if got.Outbound.Protocol != "vpngate_softether" || got.Outbound.Address != "127.0.0.1" || got.Outbound.Port != 21080 {
+		t.Fatalf("expected safe default local bridge, got %+v", got.Outbound)
+	}
+}
+
 func TestOutboundsAPIListsDefaultsAndCreatesOutbound(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {

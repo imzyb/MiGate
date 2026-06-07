@@ -134,11 +134,20 @@ func TestPanelShowsVPNGateSoftEtherCapabilityPreview(t *testing.T) {
 		"SoftEther",
 		"隔离网络命名空间",
 		"SOCKS 桥接",
-		`id="vpngate-import-btn" disabled`,
-		"暂不支持导入",
+		`id="vpngate-import-btn" onclick="importSelectedVPNGate()" title="仅创建受管出口配置，暂未启动 VPN runtime"`,
+		"创建 SoftEther 出口占位",
+		"仅创建受管出口配置，暂未启动 VPN runtime",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("panel missing VPN Gate capability preview %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`id="vpngate-import-btn" disabled`,
+		"导入为 SOCKS5 出站",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("panel should advertise SoftEther placeholder creation, not disabled SOCKS import: found %q", forbidden)
 		}
 	}
 }
@@ -1480,10 +1489,10 @@ func TestPanelWiresVPNGateDialogCacheRefresh(t *testing.T) {
 		`onclick="refreshVPNGateServers()"`,
 		`重新拉取`,
 		`VPN Gate 官方列表不是 SOCKS5 代理源`,
-		`官方节点通常开放 HTTPS/SoftEther/OpenVPN 等 VPN 端口；MiGate 仅将它们作为参考列表/候选信息展示，暂不支持导入为 SOCKS5 出站。`,
-		`id="vpngate-import-btn" disabled title="VPN Gate 官方列表不是 SOCKS5 代理源，暂不支持导入"`,
-		`暂不支持导入`,
-		`参考列表/候选信息，来自 vpngate.net；暂不支持导入为 SOCKS5 出站`,
+		`官方节点通常开放 HTTPS/SoftEther/OpenVPN 等 VPN 端口；MiGate 将它们作为 SoftEther 出口候选信息展示；当前创建按钮只生成受管出口占位配置，不会把官方列表当作 SOCKS5 代理源。`,
+		`id="vpngate-import-btn" onclick="importSelectedVPNGate()" title="仅创建受管出口配置，暂未启动 VPN runtime"`,
+		`创建 SoftEther 出口占位`,
+		`参考列表/候选信息，来自 vpngate.net；创建出口只生成本地 SoftEther bridge 占位配置`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("panel missing VPN Gate dialog contract %q", want)
@@ -1497,7 +1506,8 @@ func TestPanelWiresVPNGateDialogCacheRefresh(t *testing.T) {
 		`?refresh=1`,
 		`localStorage.setItem(cacheKey`,
 		`function updateVPNGateImportBtn()`,
-		`btn.textContent = '暂不支持导入';`,
+		`btn.textContent = selected === 0 ? '选择 1 个节点后创建出口'`,
+		`fetch(apiPath('/api/vpngate/egress')`,
 	} {
 		if !strings.Contains(jsBody, want) {
 			t.Fatalf("app.js missing VPN Gate cache/refresh contract %q", want)
