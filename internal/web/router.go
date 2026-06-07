@@ -3708,11 +3708,16 @@ const panelHTML = `<!doctype html>
     }
 
     function showModal(id) {
-      document.getElementById(id).style.display = 'flex';
+      var el = document.getElementById(id);
+      if (el) {
+        el.classList.remove('hidden');
+        el.style.display = 'flex';
+      }
     }
     function closeModal() {
       document.querySelectorAll('.modal-overlay').forEach(function(el) {
         el.style.display = 'none';
+        el.classList.add('hidden');
       });
     }
 
@@ -3974,7 +3979,8 @@ function openCreateRoutingRule() {
       showConfirm('确认删除此路由规则？').then(async function(confirmed) {
         if (!confirmed) return;
         try {
-          await fetch(apiPath('/api/routing-rules/' + id), {method:'DELETE'});
+          var resp = await fetch(apiPath('/api/routing-rules/' + id), {method:'DELETE'});
+          if (!resp.ok) { showToast('删除失败', 'error'); return; }
           showToast('路由规则已删除', 'success');
           await Promise.all([loadRoutingRules(), loadXrayStatus()]);
         } catch(e) { showToast('删除失败: ' + e.message, 'error'); }
@@ -4807,7 +4813,9 @@ function openCreateRoutingRule() {
       return new Promise((resolve) => {
         _confirmResolve = resolve;
         document.getElementById('confirm-msg').textContent = msg;
-        document.getElementById('confirm-overlay').classList.remove('hidden');
+        var overlay = document.getElementById('confirm-overlay');
+        overlay.classList.remove('hidden');
+        overlay.style.display = '';
       });
     }
     function resolveConfirm() {
