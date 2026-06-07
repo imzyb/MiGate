@@ -1776,11 +1776,12 @@ func shareLink(host string, inbound db.Inbound, client db.Client) string {
 		}
 		addParam("obfs", inbound.Hy2Obfs)
 		addParam("obfs-password", inbound.Hy2ObfsPassword)
-		if inbound.Security == "tls" {
-			params = append(params, "security=tls")
-			addParam("sni", inbound.RealityServerNames)
-			params = append(params, "allowInsecure=1")
-		}
+		// sing-box v1.13 requires TLS for Hysteria2 server inbounds.
+		// MiGate uses generated self-signed certs by default, so share links must
+		// include TLS + allowInsecure even when the UI stores security=none.
+		params = append(params, "security=tls")
+		addParam("sni", inbound.RealityServerNames)
+		params = append(params, "allowInsecure=1")
 		query := strings.Join(params, "&")
 		suffix := ""
 		if query != "" {

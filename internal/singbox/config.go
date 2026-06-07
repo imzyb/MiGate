@@ -139,13 +139,15 @@ func BuildConfig(inbounds []db.Inbound) Config {
 				ib.Obfs = obfs
 			}
 
-			// TLS is optional for Hysteria2 in MiGate; enable only when requested.
+			// sing-box v1.13 requires TLS for Hysteria2 server inbounds.
+			// MiGate keeps the UI simple by using generated self-signed certs by default
+			// and only honoring custom cert paths when the user explicitly enables TLS.
+			ib.TLS = &TLSConfig{
+				Enabled:         true,
+				CertificatePath: CertFile,
+				KeyPath:         KeyFile,
+			}
 			if inbound.Security == "tls" {
-				ib.TLS = &TLSConfig{
-					Enabled:         true,
-					CertificatePath: CertFile,
-					KeyPath:         KeyFile,
-				}
 				if inbound.TLSCertFile != "" && inbound.TLSKeyFile != "" && fileExists(inbound.TLSCertFile) && fileExists(inbound.TLSKeyFile) {
 					ib.TLS.CertificatePath = inbound.TLSCertFile
 					ib.TLS.KeyPath = inbound.TLSKeyFile

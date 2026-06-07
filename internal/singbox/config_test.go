@@ -37,8 +37,11 @@ func TestBuildConfig_Hysteria2Inbound(t *testing.T) {
 	if ib.DownMbps != 50 {
 		t.Errorf("expected down_mbps 50, got %d", ib.DownMbps)
 	}
-	if ib.TLS != nil && ib.TLS.Enabled {
-		t.Error("expected Hysteria2 TLS disabled by default")
+	if ib.TLS == nil || !ib.TLS.Enabled {
+		t.Fatal("expected Hysteria2 to include generated TLS config required by sing-box")
+	}
+	if ib.TLS.CertificatePath != CertFile || ib.TLS.KeyPath != KeyFile {
+		t.Fatalf("expected default generated TLS certs, got cert=%q key=%q", ib.TLS.CertificatePath, ib.TLS.KeyPath)
 	}
 	if ib.Obfs == nil || ib.Obfs.Type != "salamander" {
 		t.Errorf("expected obfs salamander, got %v", ib.Obfs)

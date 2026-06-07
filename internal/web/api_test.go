@@ -701,6 +701,44 @@ func TestSubscriptionEndpointStripsPanelPortBeforeAppendingInboundPort(t *testin
 	}
 }
 
+func TestSubscriptionHysteria2DefaultGeneratedTLSLink(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	inbound, err := store.CreateInbound(context.Background(), db.CreateInboundParams{
+		Remark:   "hy2",
+		Protocol: "hysteria2",
+		Port:     21001,
+		Network:  "quic",
+		Security: "none",
+	})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	client, err := store.CreateClient(context.Background(), db.CreateClientParams{InboundID: inbound.ID, Email: "hy2"})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+
+	router := web.NewRouter(web.WithStore(store))
+	response := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/sub/"+client.UUID, nil)
+	req.Host = "panel.example.com"
+	router.ServeHTTP(response, req)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{"hy2://" + client.UUID + "@panel.example.com:21001", "security=tls", "allowInsecure=1"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("hysteria2 default generated TLS link missing %q: %s", want, body)
+		}
+	}
+}
+
 func TestSubscriptionVLESSXHTTPRealityOmitsVisionFlow(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
