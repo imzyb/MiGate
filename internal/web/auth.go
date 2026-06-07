@@ -37,7 +37,7 @@ func authMiddleware(next http.Handler, cfg *routerConfig) http.Handler {
 		}
 		path := r.URL.Path
 		// Public paths that do not need auth
-		if path == "/login" || path == "/api/health" || path == "/api/login" || path == "/api/session" || path == "/api/vpngate/servers" || path == "/api/vpngate/probe" || path == "/api/vpngate/auto-health/status" || path == "/api/singbox/status" || strings.HasPrefix(path, "/sub/") {
+		if path == "/login" || path == "/api/health" || path == "/api/login" || path == "/api/session" || path == "/api/vpngate/servers" || path == "/api/vpngate/probe" || path == "/api/vpngate/auto-health/status" || path == "/api/singbox/status" || path == "/api/singbox/version" || path == "/api/singbox/config" || strings.HasPrefix(path, "/sub/") {
 			next.ServeHTTP(w, r)
 			return
 		}
