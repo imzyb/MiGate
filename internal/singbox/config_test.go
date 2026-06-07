@@ -193,11 +193,15 @@ func TestBuildConfig_TUICInbound(t *testing.T) {
 	if len(ib.Users) != 1 {
 		t.Fatalf("expected 1 user, got %d", len(ib.Users))
 	}
-	if ib.Users[0].UUID != "tuic-pass-1" {
-		t.Errorf("expected uuid tuic-pass-1, got %s", ib.Users[0].UUID)
+	if ib.Users[0].UUID == "" {
+		t.Errorf("expected non-empty uuid, got empty")
 	}
-	if ib.Users[0].Password != "" {
-		t.Errorf("expected no password (TUIC uses uuid), got %s", ib.Users[0].Password)
+	if ib.Users[0].Password != "tuic-pass-1" {
+		t.Errorf("expected password tuic-pass-1, got %s", ib.Users[0].Password)
+	}
+	// UUID should be a valid UUID format
+	if len(ib.Users[0].UUID) != 36 {
+		t.Errorf("expected uuid length 36, got %d: %s", len(ib.Users[0].UUID), ib.Users[0].UUID)
 	}
 }
 

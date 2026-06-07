@@ -169,11 +169,12 @@ func BuildConfig(inbounds []db.Inbound) Config {
 				ib.CongestionControl = inbound.TuicCongestionControl
 			}
 
-			// Build users from clients (TUIC in sing-box v1.13 uses uuid, not password)
+			// Build users from clients (TUIC in sing-box v1.13 requires valid UUID format for uuid)
 			for _, client := range enabledClients(inbound.Clients) {
 				ib.Users = append(ib.Users, UserConfig{
-					Name: client.Email,
-					UUID: client.UUID,
+					Name:     client.Email,
+					UUID:     generateUUID(),
+					Password: client.UUID,
 				})
 			}
 
@@ -308,4 +309,13 @@ func enabledClients(clients []db.Client) []db.Client {
 		}
 	}
 	return result
+}
+
+// generateUUID returns a UUID v4 string.
+func generateUUID() string {
+	uuid := make([]byte, 16)
+	rand.Read(uuid)
+	uuid[6] = (uuid[6] & 0x0f) | 0x40 // version 4
+	uuid[8] = (uuid[8] & 0x3f) | 0x80 // variant 10
+	return fmt.Sprintf("%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:])
 }
