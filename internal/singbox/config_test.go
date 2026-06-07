@@ -76,6 +76,27 @@ func TestBuildConfig_Hysteria2TLSEnabledOnlyWhenRequested(t *testing.T) {
 	}
 }
 
+func TestBuildConfig_Hysteria2TLSCustomFilesFallBackWhenMissing(t *testing.T) {
+	inbounds := []db.Inbound{
+		{
+			ID: 1, Protocol: "hysteria2", Port: 21001, Enabled: true,
+			Security: "tls", TLSCertFile: "/missing/fullchain.pem", TLSKeyFile: "/missing/privkey.pem",
+		},
+	}
+
+	cfg := BuildConfig(inbounds)
+	if len(cfg.Inbounds) != 1 {
+		t.Fatalf("expected 1 inbound, got %d", len(cfg.Inbounds))
+	}
+	ib := cfg.Inbounds[0]
+	if ib.TLS == nil || !ib.TLS.Enabled {
+		t.Fatal("expected TLS enabled")
+	}
+	if ib.TLS.CertificatePath != CertFile || ib.TLS.KeyPath != KeyFile {
+		t.Fatalf("expected missing custom TLS files to fall back to self-signed cert, got cert=%q key=%q", ib.TLS.CertificatePath, ib.TLS.KeyPath)
+	}
+}
+
 func TestBuildConfig_DisabledInboundSkipped(t *testing.T) {
 	inbounds := []db.Inbound{
 		{ID: 1, Protocol: "hysteria2", Port: 21001, Enabled: false},

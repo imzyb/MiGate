@@ -146,7 +146,7 @@ func BuildConfig(inbounds []db.Inbound) Config {
 					CertificatePath: CertFile,
 					KeyPath:         KeyFile,
 				}
-				if inbound.TLSCertFile != "" && inbound.TLSKeyFile != "" {
+				if inbound.TLSCertFile != "" && inbound.TLSKeyFile != "" && fileExists(inbound.TLSCertFile) && fileExists(inbound.TLSKeyFile) {
 					ib.TLS.CertificatePath = inbound.TLSCertFile
 					ib.TLS.KeyPath = inbound.TLSKeyFile
 				}
@@ -301,6 +301,14 @@ func GenerateSelfSignedCert() error {
 // ConfigDir returns the config directory for sing-box.
 func ConfigDir() string {
 	return DefaultConfigDir
+}
+
+func fileExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func enabledClients(clients []db.Client) []db.Client {
