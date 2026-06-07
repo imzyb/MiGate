@@ -2203,7 +2203,10 @@ const panelHTML = `<!doctype html>
     .field-group.span-2 { grid-column:1 / -1; }
     .field-label { color:var(--fg); font-size:var(--text-sm); font-weight:500; line-height:1.3; }
     .field-help { color:var(--muted); font-size:var(--text-xs); line-height:1.45; margin:0; }
-    .form-actions { grid-column:1 / -1; display:flex; justify-content:flex-end; align-items:center; gap:10px; padding-top:var(--space-1); margin-top:2px; }
+    .inline-field-tools { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .btn-mini { background:var(--surface); color:var(--accent); border:1px solid var(--border); border-radius:var(--control-radius); padding:4px 12px; font-size:var(--text-xs); cursor:pointer; white-space:nowrap; transition:all .15s; min-height:32px; }
+    .btn-mini:hover { background:var(--accent-subtle, rgba(99,102,241,0.08)); border-color:var(--accent); }
+    .form-actions { grid-column:1 / -1; display:flex; justify-content:flex-end; align-items:center; gap:10px; padding-top:var(--space-4); margin-top:var(--space-2); }
     .action-toolbar { display:flex; align-items:center; justify-content:space-between; gap:var(--space-4); padding:var(--space-4); border-radius:var(--radius-lg); background:var(--surface-subtle); box-shadow:var(--shadow-sm); margin:var(--space-4) 0; }
     .action-toolbar.span-2 { grid-column:1 / -1; }
     .toolbar-copy { display:grid; gap:var(--space-1); min-width:0; color:var(--muted); font-size:var(--text-sm); line-height:1.5; }
@@ -2285,7 +2288,7 @@ const panelHTML = `<!doctype html>
     .modal-checkbox input[type=checkbox] { width:16px; height:16px; accent-color:var(--accent); cursor:pointer; margin:0; }
     .modal-form { margin:0; grid-template-columns:repeat(2,minmax(0,1fr)); }
     #create-inbound-form.modal-form, #create-client-form.modal-form, #edit-inbound-form.modal-form, #edit-client-form.modal-form { gap:var(--space-4); }
-    .modal-actions { margin-top:0; }
+    .modal-actions { margin-top: var(--space-4); }
     .advanced-fieldset { padding:var(--space-4); border-radius:var(--radius-lg); background:var(--surface-subtle); box-shadow:var(--shadow-sm), inset 0 0 0 1px var(--line); }
     .advanced-fieldset-title { color:var(--fg); font-size:var(--text-sm); font-weight:600; letter-spacing:-0.12px; }
     .advanced-fieldset-copy { color:var(--muted); font-size:var(--text-xs); line-height:1.55; }
