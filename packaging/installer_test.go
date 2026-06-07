@@ -52,6 +52,8 @@ func TestInstallerIsLightweightInteractiveReleaseInstaller(t *testing.T) {
 		"CLI: mg",
 		"WebUI",
 		"xray.json",
+		"/usr/local/etc/xray/xray.json",
+		"ln -sf /usr/local/migate/xray.json /usr/local/etc/xray/xray.json",
 		"install_xray",
 		"Xray-install",
 	} {
@@ -146,6 +148,7 @@ func TestUninstallScriptStopsServicesAndRemovesInstalledArtifacts(t *testing.T) 
 		"rm -rf /usr/local/migate",
 		"rm -rf /etc/sing-box",
 		"rm -f /usr/local/etc/xray/config.json",
+		"rm -f /usr/local/etc/xray/xray.json",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("uninstall script missing %q", want)

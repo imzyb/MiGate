@@ -71,12 +71,14 @@ install_xray() {
     echo "Xray 安装完成"
   fi
 
-  # Symlink MiGate's xray.json to xray's default config path
-  # MiGate Apply() writes to /usr/local/migate/xray.json
-  # Xray reads from /usr/local/etc/xray/config.json
+  # Symlink MiGate's xray.json to Xray's default config path.
+  # MiGate Apply() writes to /usr/local/migate/xray.json.
+  # Xray's official installer starts with /usr/local/etc/xray/xray.json.
+  # Keep config.json too for compatibility with older MiGate installs and docs.
   mkdir -p /usr/local/etc/xray
+  ln -sf /usr/local/migate/xray.json /usr/local/etc/xray/xray.json
   ln -sf /usr/local/migate/xray.json /usr/local/etc/xray/config.json
-  echo "Xray 配置已关联到 MiGate: /usr/local/etc/xray/config.json → /usr/local/migate/xray.json"
+  echo "Xray 配置已关联到 MiGate: /usr/local/etc/xray/xray.json → /usr/local/migate/xray.json"
 
   systemctl enable xray 2>/dev/null || true
   systemctl restart xray 2>/dev/null || true

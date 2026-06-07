@@ -10,6 +10,7 @@ MIGATE_CONFIG_DIR="/etc/migate"
 MIGATE_INSTALL_DIR="/usr/local/migate"
 SINGBOX_CONFIG_DIR="/etc/sing-box"
 XRAY_CONFIG_LINK="/usr/local/etc/xray/config.json"
+XRAY_DEFAULT_CONFIG_LINK="/usr/local/etc/xray/xray.json"
 
 PURGE=0
 ASSUME_YES=0
@@ -77,6 +78,11 @@ remove_migate_xray_link() {
   elif [ "$PURGE" -eq 1 ] && [ -f "$XRAY_CONFIG_LINK" ]; then
     rm -f "$XRAY_CONFIG_LINK"
   fi
+  if [ -L "$XRAY_DEFAULT_CONFIG_LINK" ]; then
+    rm -f "$XRAY_DEFAULT_CONFIG_LINK"
+  elif [ "$PURGE" -eq 1 ] && [ -f "$XRAY_DEFAULT_CONFIG_LINK" ]; then
+    rm -f "$XRAY_DEFAULT_CONFIG_LINK"
+  fi
 }
 
 main() {
@@ -102,6 +108,7 @@ main() {
     rm -rf /usr/local/migate
     rm -rf /etc/sing-box
     rm -f /usr/local/etc/xray/config.json
+    rm -f /usr/local/etc/xray/xray.json
   else
     remove_migate_xray_link
     echo "Keeping MiGate config/data. Use --purge --yes to remove them."
