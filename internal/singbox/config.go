@@ -94,8 +94,6 @@ func BuildConfig(inbounds []db.Inbound) Config {
 			Tag:        fmt.Sprintf("hy2-inbound-%d", inbound.ID),
 			Listen:     "0.0.0.0",
 			ListenPort: port,
-			Sniff:      true,
-			SniffOverrideDest: true,
 			UpMbps:     inbound.Hy2UpMbps,
 			DownMbps:   inbound.Hy2DownMbps,
 		}

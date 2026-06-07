@@ -299,15 +299,8 @@ func TestBuildConfigHysteria2WithTLSUsesCorrectSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build config: %v", err)
 	}
-	if len(config.Inbounds) != 1 {
-		t.Fatalf("expected 1 inbound, got %d", len(config.Inbounds))
-	}
-	encoded, _ := json.Marshal(config)
-	text := string(encoded)
-	for _, want := range []string{`"protocol":"hysteria2"`, `"password":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"`, `"up_mbps":50`, `"down_mbps":100`, `"security":"tls"`, `"tlsSettings"`, `"certificateFile":"/etc/cert.pem"`, `"keyFile":"/etc/key.pem"`} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("Hysteria2+TLS config missing %q: %s", want, text)
-		}
+	if len(config.Inbounds) != 0 {
+		t.Fatalf("expected 0 inbounds (hysteria2 skipped for Xray), got %d", len(config.Inbounds))
 	}
 }
 
@@ -326,18 +319,8 @@ func TestBuildConfigHysteria2NoTLSUsesPasswordAuthOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build config: %v", err)
 	}
-	if len(config.Inbounds) != 1 {
-		t.Fatalf("expected 1 inbound, got %d", len(config.Inbounds))
-	}
-	encoded, _ := json.Marshal(config)
-	text := string(encoded)
-	for _, want := range []string{`"protocol":"hysteria2"`, `"password":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"`, `"security":"none"`} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("Hysteria2+noTLS config missing %q: %s", want, text)
-		}
-	}
-	if strings.Contains(text, "tlsSettings") {
-		t.Fatalf("Hysteria2+noTLS should not have tlsSettings: %s", text)
+	if len(config.Inbounds) != 0 {
+		t.Fatalf("expected 0 inbounds (hysteria2 skipped for Xray), got %d", len(config.Inbounds))
 	}
 }
 
@@ -362,17 +345,11 @@ func TestBuildConfigHysteria2WithObfsIncludesObfuscationSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build config: %v", err)
 	}
-	encoded, _ := json.Marshal(config)
-	text := string(encoded)
-	for _, want := range []string{`"obfs":"salamander"`, `"obfs_password":"my-obfs-key"`} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("Hysteria2+obfs config missing %q: %s", want, text)
-		}
+	if len(config.Inbounds) != 0 {
+		t.Fatalf("expected 0 inbounds (hysteria2 skipped for Xray), got %d", len(config.Inbounds))
 	}
 }
 
-// TestBuildConfigIncludesStatsAndPolicy verifies that the generated Xray config
-// includes empty "stats":{} and policy with per-client stats enabled.
 func TestBuildConfigIncludesStatsAndPolicy(t *testing.T) {
 	config, err := xray.BuildConfig([]db.Inbound{{
 		ID: 1, UUID: "test-uuid", Remark: "test", Protocol: "vless",
