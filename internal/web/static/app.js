@@ -379,7 +379,7 @@
               el.style.color = 'var(--green)';
               okCount++;
             } else {
-              el.textContent = r.status === 'missing_dependencies' ? ' 未就绪' : ' VPN失败';
+              el.textContent = (r.status === 'missing_dependencies' ? ' 未就绪' : (r.status === 'not_started' ? ' 未接入' : ' VPN失败'));
               el.style.color = 'var(--danger)';
               failCount++;
             }

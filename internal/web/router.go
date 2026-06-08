@@ -863,6 +863,19 @@ func pingOutbound(address string, port int) map[string]interface{} {
 	return map[string]interface{}{"latency": latency}
 }
 
+func vpngateRuntimeSpeedTestNotStarted(outbound db.Outbound) map[string]interface{} {
+	return map[string]interface{}{
+		"kind":         "vpngate_runtime",
+		"runtime":      "softether_netns_socks_bridge",
+		"outbound_id":  outbound.ID,
+		"outbound_tag": outbound.Tag,
+		"status":       "not_started",
+		"error":        "runtime_not_started",
+		"latency":      -1,
+		"message":      "VPN Gate runtime 尚未接入，单个测速会自动接入后验证",
+	}
+}
+
 func verifyVPNGateRuntimeForSpeedTest(ctx context.Context, cfg *routerConfig, outbound db.Outbound) map[string]interface{} {
 	base := map[string]interface{}{
 		"kind":         "vpngate_runtime",
@@ -989,15 +1002,17 @@ func outboundChildrenHandler(cfg *routerConfig) http.HandlerFunc {
 				if ob.Protocol == "freedom" || ob.Protocol == "blackhole" || ob.Address == "" {
 					continue
 				}
+				if ob.Protocol == "vpngate_softether" {
+					// VPN Gate starts a real SoftEther/netns/SOCKS runtime. Do not fan out
+					// 20+ privileged runtime starts concurrently on small VPSes; verify them
+					// sequentially so one-key speed test reports real health without overload.
+					results[ob.ID] = vpngateRuntimeSpeedTestNotStarted(ob)
+					continue
+				}
 				wg.Add(1)
 				go func(o db.Outbound) {
 					defer wg.Done()
-					var result map[string]interface{}
-					if o.Protocol == "vpngate_softether" {
-						result = verifyVPNGateRuntimeForSpeedTest(r.Context(), cfg, o)
-					} else {
-						result = pingOutbound(o.Address, o.Port)
-					}
+					result := pingOutbound(o.Address, o.Port)
 					mu.Lock()
 					results[o.ID] = result
 					mu.Unlock()

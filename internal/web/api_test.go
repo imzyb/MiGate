@@ -378,30 +378,23 @@ func TestVPNGateSoftEtherRuntimeDoctorAPIReportsDependenciesReadOnly(t *testing.
 	}
 }
 
-func TestOutboundSpeedTestAllStartsVPNGateRuntimeInsteadOfPlainTCPPing(t *testing.T) {
+func TestOutboundSpeedTestAllMarksVPNGateRuntimeNotStartedInsteadOfPlainFailure(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
 	defer store.Close()
 	outbound := createTestVPNGateSoftEtherOutbound(t, store)
-	probe := &fakeVPNGateRuntimeProbe{paths: map[string]string{
-		"vpncmd": "/usr/local/bin/vpncmd", "vpnclient": "/usr/local/bin/vpnclient", "ip": "/sbin/ip", "iptables": "/sbin/iptables", "microsocks": "/usr/bin/microsocks", "dhclient": "/sbin/dhclient",
-	}}
-	starter := &fakeVPNGateRuntimeStarter{result: web.VPNGateRuntimeStartResult{
-		Status: "started", Runtime: "softether_netns_socks_bridge", OutboundID: outbound.ID, OutboundTag: outbound.Tag, BridgeAddress: outbound.Address, BridgePort: outbound.Port, CommandsExecuted: []string{"vpnclient start"},
-	}}
-	health := &fakeVPNGateRuntimeHealthChecker{result: web.VPNGateRuntimeHealth{VPNConnected: true, SocksBridgeRunning: true, NonNativeEgressOK: true, ExitIP: "198.51.100.44", NativeIP: "203.0.113.9", LatencyMS: 321, KillSwitchOK: true}}
-	xray := &fakeXrayController{}
-	router := web.NewRouter(web.WithStore(store), web.WithXrayController(xray), web.WithVPNGateRuntimeProbe(probe), web.WithVPNGateRuntimeStarter(starter), web.WithVPNGateRuntimeHealthChecker(health))
+	starter := &fakeVPNGateRuntimeStarter{result: web.VPNGateRuntimeStartResult{Status: "started", Runtime: "softether_netns_socks_bridge", OutboundID: outbound.ID, OutboundTag: outbound.Tag}}
+	router := web.NewRouter(web.WithStore(store), web.WithVPNGateRuntimeStarter(starter), web.WithXrayController(&fakeXrayController{}))
 
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/outbounds/speedtest-all", nil))
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
-	if starter.calls != 1 || health.calls != 1 || xray.applyCalls != 1 {
-		t.Fatalf("expected runtime start+health+xray apply once, got starter=%d health=%d apply=%d", starter.calls, health.calls, xray.applyCalls)
+	if starter.calls != 0 {
+		t.Fatalf("batch speed test must not fan out privileged VPN Gate runtime starts, got %d calls", starter.calls)
 	}
 	var got map[string]map[string]interface{}
 	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
@@ -411,11 +404,11 @@ func TestOutboundSpeedTestAllStartsVPNGateRuntimeInsteadOfPlainTCPPing(t *testin
 	if result == nil {
 		t.Fatalf("missing result for outbound %d: %+v", outbound.ID, got)
 	}
-	if result["status"] != "started" || result["runtime"] != "softether_netns_socks_bridge" || result["kind"] != "vpngate_runtime" {
-		t.Fatalf("expected VPN Gate runtime result, got %+v", result)
+	if result["kind"] != "vpngate_runtime" || result["status"] != "not_started" || result["error"] != "runtime_not_started" {
+		t.Fatalf("expected VPN Gate not-started runtime result, got %+v", result)
 	}
-	if result["latency"] != float64(321) || result["exit_ip"] != "198.51.100.44" || result["vpn_connected"] != true || result["socks_bridge_running"] != true || result["non_native_egress_ok"] != true {
-		t.Fatalf("expected runtime health fields, got %+v", result)
+	if result["latency"] != float64(-1) {
+		t.Fatalf("expected no latency for not-started runtime, got %+v", result)
 	}
 }
 
