@@ -116,21 +116,23 @@ func NewXrayApplyer(ctrl XrayController) scheduler.XrayApplyer {
 func (defaultXrayController) Version(ctx context.Context) string { return "" }
 
 type routerConfig struct {
-	store                 Store
-	xrayController        XrayController
-	authEnabled           bool
-	authUsername          string
-	authPassword          string
-	sessionSecret         []byte
-	configDir             string
-	version               string
-	basePath              string
-	vpnGateFetcher        VPNGateFetcher
-	vpnGateRuntimeProbe   VPNGateRuntimeProbe
-	vpnGateRuntimeStarter VPNGateRuntimeStarter
-	vpnGateRuntimeRunner  VPNGateRuntimeCommandRunner
-	statsClient           xray.StatsClient
-	healthScheduler       *scheduler.VPNGateHealthScheduler
+	store                       Store
+	xrayController              XrayController
+	authEnabled                 bool
+	authUsername                string
+	authPassword                string
+	sessionSecret               []byte
+	configDir                   string
+	version                     string
+	basePath                    string
+	vpnGateFetcher              VPNGateFetcher
+	vpnGateRuntimeProbe         VPNGateRuntimeProbe
+	vpnGateRuntimeStarter       VPNGateRuntimeStarter
+	vpnGateRuntimeStopper       VPNGateRuntimeStopper
+	vpnGateRuntimeHealthChecker VPNGateRuntimeHealthChecker
+	vpnGateRuntimeRunner        VPNGateRuntimeCommandRunner
+	statsClient                 xray.StatsClient
+	healthScheduler             *scheduler.VPNGateHealthScheduler
 }
 
 type VPNGateFetcher interface {
@@ -143,6 +145,14 @@ type VPNGateRuntimeProbe interface {
 
 type VPNGateRuntimeStarter interface {
 	Start(ctx context.Context, target VPNGateRuntimeStartTarget) (VPNGateRuntimeStartResult, error)
+}
+
+type VPNGateRuntimeStopper interface {
+	Stop(ctx context.Context, target VPNGateRuntimeStartTarget) (VPNGateRuntimeStopResult, error)
+}
+
+type VPNGateRuntimeHealthChecker interface {
+	Check(ctx context.Context, target VPNGateRuntimeStartTarget) (VPNGateRuntimeHealth, error)
 }
 
 type VPNGateRuntimeCommandRunner interface {
@@ -170,7 +180,32 @@ type VPNGateRuntimeStartResult struct {
 	VPNConnected        bool     `json:"vpn_connected"`
 	SocksBridgeRunning  bool     `json:"socks_bridge_running"`
 	NonNativeEgressOK   bool     `json:"non_native_egress_ok"`
+	ExitIP              string   `json:"exit_ip,omitempty"`
+	NativeIP            string   `json:"native_ip,omitempty"`
+	LatencyMS           int64    `json:"latency_ms,omitempty"`
+	KillSwitchOK        bool     `json:"kill_switch_ok"`
+	XrayApplied         bool     `json:"xray_applied"`
 	LastError           string   `json:"last_error"`
+	PerformsSideEffects bool     `json:"performs_side_effects"`
+	CommandsExecuted    []string `json:"commands_executed"`
+}
+
+type VPNGateRuntimeHealth struct {
+	VPNConnected       bool   `json:"vpn_connected"`
+	SocksBridgeRunning bool   `json:"socks_bridge_running"`
+	NonNativeEgressOK  bool   `json:"non_native_egress_ok"`
+	ExitIP             string `json:"exit_ip,omitempty"`
+	NativeIP           string `json:"native_ip,omitempty"`
+	LatencyMS          int64  `json:"latency_ms,omitempty"`
+	KillSwitchOK       bool   `json:"kill_switch_ok"`
+	LastError          string `json:"last_error"`
+}
+
+type VPNGateRuntimeStopResult struct {
+	Status              string   `json:"status"`
+	Runtime             string   `json:"runtime"`
+	OutboundID          int64    `json:"outbound_id"`
+	OutboundTag         string   `json:"outbound_tag"`
 	PerformsSideEffects bool     `json:"performs_side_effects"`
 	CommandsExecuted    []string `json:"commands_executed"`
 }
@@ -181,7 +216,128 @@ func (execVPNGateRuntimeProbe) LookPath(name string) (string, error) {
 	return exec.LookPath(name)
 }
 
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
 type execVPNGateRuntimeCommandRunner struct{}
+
+type execVPNGateRuntimeHealthChecker struct{}
+
+func (execVPNGateRuntimeHealthChecker) Check(ctx context.Context, target VPNGateRuntimeStartTarget) (VPNGateRuntimeHealth, error) {
+	address := strings.TrimSpace(target.BridgeAddress)
+	if address == "" {
+		address = "127.0.0.1"
+	}
+	endpoint := net.JoinHostPort(address, strconv.Itoa(target.BridgePort))
+	started := time.Now()
+	exitIP, handshakeOK, err := fetchIPViaSocks5(ctx, endpoint, "api.ipify.org")
+	latency := time.Since(started).Milliseconds()
+	if err != nil {
+		return VPNGateRuntimeHealth{VPNConnected: false, SocksBridgeRunning: handshakeOK, NonNativeEgressOK: false, KillSwitchOK: false, LatencyMS: latency, LastError: err.Error()}, nil
+	}
+	nativeIP, nativeErr := fetchNativeIP(ctx)
+	if nativeErr != nil {
+		return VPNGateRuntimeHealth{VPNConnected: true, SocksBridgeRunning: true, NonNativeEgressOK: false, ExitIP: exitIP, LatencyMS: latency, KillSwitchOK: false, LastError: "native_ip_lookup_failed: " + nativeErr.Error()}, nil
+	}
+	nonNative := exitIP != "" && nativeIP != "" && exitIP != nativeIP
+	lastErr := ""
+	if !nonNative {
+		lastErr = "native_ip_leak"
+	}
+	return VPNGateRuntimeHealth{VPNConnected: true, SocksBridgeRunning: true, NonNativeEgressOK: nonNative, ExitIP: exitIP, NativeIP: nativeIP, LatencyMS: latency, KillSwitchOK: nonNative, LastError: lastErr}, nil
+}
+
+func fetchNativeIP(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://api.ipify.org/", nil)
+	if err != nil {
+		return "", err
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 128))
+	if err != nil {
+		return "", err
+	}
+	ip := strings.TrimSpace(string(body))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || net.ParseIP(ip) == nil {
+		return "", fmt.Errorf("unexpected native ip response %d %q", resp.StatusCode, ip)
+	}
+	return ip, nil
+}
+
+func fetchIPViaSocks5(ctx context.Context, endpoint, host string) (ip string, handshakeOK bool, err error) {
+	dialer := net.Dialer{Timeout: 5 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", endpoint)
+	if err != nil {
+		return "", false, fmt.Errorf("socks_bridge_unreachable: %w", err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(8 * time.Second))
+	if _, err := conn.Write([]byte{0x05, 0x01, 0x00}); err != nil {
+		return "", false, fmt.Errorf("socks_handshake_write_failed: %w", err)
+	}
+	buf := make([]byte, 2)
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		return "", false, fmt.Errorf("socks_handshake_read_failed: %w", err)
+	}
+	if buf[0] != 0x05 || buf[1] == 0xff {
+		return "", false, fmt.Errorf("socks_handshake_rejected: %02x %02x", buf[0], buf[1])
+	}
+	addr := []byte(host)
+	req := []byte{0x05, 0x01, 0x00, 0x03, byte(len(addr))}
+	req = append(req, addr...)
+	req = append(req, 0x00, 0x50)
+	if _, err := conn.Write(req); err != nil {
+		return "", true, fmt.Errorf("socks_connect_write_failed: %w", err)
+	}
+	head := make([]byte, 4)
+	if _, err := io.ReadFull(conn, head); err != nil {
+		return "", true, fmt.Errorf("socks_connect_read_failed: %w", err)
+	}
+	if head[0] != 0x05 || head[1] != 0x00 {
+		return "", true, fmt.Errorf("socks_connect_rejected: %02x %02x", head[0], head[1])
+	}
+	switch head[3] {
+	case 0x01:
+		_, err = io.ReadFull(conn, make([]byte, 4+2))
+	case 0x03:
+		l := make([]byte, 1)
+		if _, err = io.ReadFull(conn, l); err == nil {
+			_, err = io.ReadFull(conn, make([]byte, int(l[0])+2))
+		}
+	case 0x04:
+		_, err = io.ReadFull(conn, make([]byte, 16+2))
+	default:
+		err = fmt.Errorf("socks_connect_unknown_addr_type: %02x", head[3])
+	}
+	if err != nil {
+		return "", true, err
+	}
+	if _, err := fmt.Fprintf(conn, "GET / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", host); err != nil {
+		return "", true, fmt.Errorf("exit_ip_request_failed: %w", err)
+	}
+	body, err := io.ReadAll(io.LimitReader(conn, 4096))
+	if err != nil {
+		return "", true, fmt.Errorf("exit_ip_read_failed: %w", err)
+	}
+	parts := strings.SplitN(string(body), "\r\n\r\n", 2)
+	if len(parts) != 2 || !strings.Contains(parts[0], " 200 ") {
+		return "", true, fmt.Errorf("unexpected_exit_ip_response")
+	}
+	ip = strings.TrimSpace(parts[1])
+	if net.ParseIP(ip) == nil {
+		return "", true, fmt.Errorf("invalid_exit_ip_response: %q", ip)
+	}
+	return ip, true, nil
+}
 
 func (execVPNGateRuntimeCommandRunner) Run(ctx context.Context, command string, args ...string) error {
 	cmd := exec.CommandContext(ctx, command, args...)
@@ -201,6 +357,10 @@ type vpngateRuntimeStarter struct {
 }
 
 func NewVPNGateRuntimeStarter(runner VPNGateRuntimeCommandRunner) VPNGateRuntimeStarter {
+	return vpngateRuntimeStarter{runner: runner}
+}
+
+func NewVPNGateRuntimeStopper(runner VPNGateRuntimeCommandRunner) VPNGateRuntimeStopper {
 	return vpngateRuntimeStarter{runner: runner}
 }
 
@@ -261,8 +421,9 @@ func (s vpngateRuntimeStarter) Start(ctx context.Context, target VPNGateRuntimeS
 	if err := s.runner.Run(ctx, vpncmd, "localhost", "/CLIENT", "/CMD", "AccountConnect", nicName); err != nil {
 		return VPNGateRuntimeStartResult{}, err
 	}
-	executed = append(executed, fmt.Sprintf("%s netns exec %s %s -i %s -p %d", ip, netns, microsocks, target.BridgeAddress, target.BridgePort))
-	if err := s.runner.Run(ctx, ip, "netns", "exec", netns, microsocks, "-i", target.BridgeAddress, "-p", strconv.Itoa(target.BridgePort)); err != nil {
+	executed = append(executed, fmt.Sprintf("%s netns exec %s sh -c 'nohup %s -i %s -p %d >/var/log/migate-vpngate-%d-microsocks.log 2>&1 &'", ip, netns, microsocks, target.BridgeAddress, target.BridgePort, target.OutboundID))
+	bridgeCmd := fmt.Sprintf("nohup %s -i %s -p %d >/var/log/migate-vpngate-%d-microsocks.log 2>&1 &", shellQuote(microsocks), shellQuote(target.BridgeAddress), target.BridgePort, target.OutboundID)
+	if err := s.runner.Run(ctx, ip, "netns", "exec", netns, "sh", "-c", bridgeCmd); err != nil {
 		return VPNGateRuntimeStartResult{}, err
 	}
 	return VPNGateRuntimeStartResult{
@@ -275,10 +436,43 @@ func (s vpngateRuntimeStarter) Start(ctx context.Context, target VPNGateRuntimeS
 		VPNConnected:        true,
 		SocksBridgeRunning:  true,
 		NonNativeEgressOK:   false,
+		KillSwitchOK:        false,
 		LastError:           "",
 		PerformsSideEffects: true,
 		CommandsExecuted:    executed,
 	}, nil
+}
+
+func (s vpngateRuntimeStarter) Stop(ctx context.Context, target VPNGateRuntimeStartTarget) (VPNGateRuntimeStopResult, error) {
+	if s.runner == nil {
+		return VPNGateRuntimeStopResult{}, errors.New("runtime command runner is required")
+	}
+	if target.Runtime != "softether_netns_socks_bridge" {
+		return VPNGateRuntimeStopResult{}, fmt.Errorf("unsupported vpngate runtime %q", target.Runtime)
+	}
+	ip := strings.TrimSpace(target.DependencyPaths["ip"])
+	if ip == "" {
+		ip = "ip"
+	}
+	vpncmd := strings.TrimSpace(target.DependencyPaths["vpncmd"])
+	if vpncmd == "" {
+		vpncmd = "vpncmd"
+	}
+	netns := fmt.Sprintf("migate-vpngate-%d", target.OutboundID)
+	nicName := fmt.Sprintf("migate%d", target.OutboundID)
+	executed := []string{fmt.Sprintf("%s localhost /CLIENT /CMD AccountDisconnect %s", vpncmd, nicName)}
+	if err := s.runner.Run(ctx, vpncmd, "localhost", "/CLIENT", "/CMD", "AccountDisconnect", nicName); err != nil {
+		return VPNGateRuntimeStopResult{}, err
+	}
+	executed = append(executed, fmt.Sprintf("%s netns exec %s pkill microsocks", ip, netns))
+	if err := s.runner.Run(ctx, ip, "netns", "exec", netns, "pkill", "microsocks"); err != nil {
+		return VPNGateRuntimeStopResult{}, err
+	}
+	executed = append(executed, fmt.Sprintf("%s netns del %s", ip, netns))
+	if err := s.runner.Run(ctx, ip, "netns", "del", netns); err != nil {
+		return VPNGateRuntimeStopResult{}, err
+	}
+	return VPNGateRuntimeStopResult{Status: "stopped", Runtime: target.Runtime, OutboundID: target.OutboundID, OutboundTag: target.OutboundTag, PerformsSideEffects: true, CommandsExecuted: executed}, nil
 }
 
 // VPNGateServer is the public type exposed to the web package.
@@ -373,6 +567,18 @@ func WithVPNGateRuntimeRunner(runner VPNGateRuntimeCommandRunner) Option {
 	}
 }
 
+func WithVPNGateRuntimeHealthChecker(checker VPNGateRuntimeHealthChecker) Option {
+	return func(cfg *routerConfig) {
+		cfg.vpnGateRuntimeHealthChecker = checker
+	}
+}
+
+func WithVPNGateRuntimeStopper(stopper VPNGateRuntimeStopper) Option {
+	return func(cfg *routerConfig) {
+		cfg.vpnGateRuntimeStopper = stopper
+	}
+}
+
 // WithHealthScheduler sets the VPN Gate auto-health scheduler for status reporting.
 func WithHealthScheduler(scheduler *scheduler.VPNGateHealthScheduler) Option {
 	return func(cfg *routerConfig) {
@@ -397,8 +603,16 @@ func NewRouter(options ...Option) http.Handler {
 	if cfg.vpnGateRuntimeStarter == nil && cfg.vpnGateRuntimeRunner != nil {
 		cfg.vpnGateRuntimeStarter = NewVPNGateRuntimeStarter(cfg.vpnGateRuntimeRunner)
 	}
+	if cfg.vpnGateRuntimeStopper == nil && cfg.vpnGateRuntimeRunner != nil {
+		cfg.vpnGateRuntimeStopper = NewVPNGateRuntimeStopper(cfg.vpnGateRuntimeRunner)
+	}
+	if cfg.vpnGateRuntimeHealthChecker == nil && cfg.vpnGateRuntimeRunner != nil {
+		cfg.vpnGateRuntimeHealthChecker = execVPNGateRuntimeHealthChecker{}
+	}
 	if cfg.vpnGateRuntimeStarter == nil && cfg.vpnGateRuntimeProbe == nil {
 		cfg.vpnGateRuntimeStarter = NewVPNGateRuntimeStarter(execVPNGateRuntimeCommandRunner{})
+		cfg.vpnGateRuntimeStopper = NewVPNGateRuntimeStopper(execVPNGateRuntimeCommandRunner{})
+		cfg.vpnGateRuntimeHealthChecker = execVPNGateRuntimeHealthChecker{}
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", panelHandler)
@@ -439,6 +653,7 @@ func NewRouter(options ...Option) http.Handler {
 	mux.HandleFunc("/api/vpngate/egress/status", vpngateEgressRuntimeStatusHandler(&cfg))
 	mux.HandleFunc("/api/vpngate/egress/doctor", vpngateEgressRuntimeDoctorHandler(&cfg))
 	mux.HandleFunc("/api/vpngate/egress/start", vpngateEgressRuntimeStartHandler(&cfg))
+	mux.HandleFunc("/api/vpngate/egress/stop", vpngateEgressRuntimeStopHandler(&cfg))
 	mux.HandleFunc("/api/vpngate/outbounds/health", vpngateOutboundHealthHandler(cfg.store))
 	mux.HandleFunc("/api/vpngate/auto-health/status", vpngateAutoHealthStatusHandler(&cfg))
 	mux.HandleFunc("/api/singbox/status", singboxStatusHandler())
@@ -2631,6 +2846,10 @@ type vpngateRuntimeStatus struct {
 	VPNConnected        bool     `json:"vpn_connected"`
 	SocksBridgeRunning  bool     `json:"socks_bridge_running"`
 	NonNativeEgressOK   bool     `json:"non_native_egress_ok"`
+	ExitIP              string   `json:"exit_ip,omitempty"`
+	NativeIP            string   `json:"native_ip,omitempty"`
+	LatencyMS           int64    `json:"latency_ms,omitempty"`
+	KillSwitchOK        bool     `json:"kill_switch_ok"`
 	LastError           string   `json:"last_error"`
 	PerformsSideEffects bool     `json:"performs_side_effects"`
 	Notes               []string `json:"notes"`
@@ -2849,7 +3068,7 @@ func vpngateEgressRuntimeStartHandler(cfg *routerConfig) http.HandlerFunc {
 			})
 			return
 		}
-		result, err := cfg.vpnGateRuntimeStarter.Start(r.Context(), VPNGateRuntimeStartTarget{
+		target := VPNGateRuntimeStartTarget{
 			Runtime:         doctor.Runtime,
 			OutboundID:      outbound.ID,
 			OutboundTag:     outbound.Tag,
@@ -2858,7 +3077,8 @@ func vpngateEgressRuntimeStartHandler(cfg *routerConfig) http.HandlerFunc {
 			ServerHostName:  outbound.VPNGateServerHostName,
 			ServerIP:        outbound.VPNGateServerIP,
 			DependencyPaths: vpngateRuntimeDependencyPaths(doctor.Checks),
-		})
+		}
+		result, err := cfg.vpnGateRuntimeStarter.Start(r.Context(), target)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "runtime_start_failed", map[string]interface{}{
 				"status":                "failed",
@@ -2871,6 +3091,71 @@ func vpngateEgressRuntimeStartHandler(cfg *routerConfig) http.HandlerFunc {
 				"commands_executed":     []string{},
 				"detail":                err.Error(),
 			})
+			return
+		}
+		if cfg.vpnGateRuntimeHealthChecker != nil {
+			health, healthErr := cfg.vpnGateRuntimeHealthChecker.Check(r.Context(), target)
+			if healthErr != nil {
+				_, _ = cfg.store.SetOutboundEnabled(r.Context(), outbound.ID, false)
+				writeJSONError(w, http.StatusFailedDependency, "runtime_health_failed", map[string]interface{}{"status": "failed", "runtime": doctor.Runtime, "outbound_id": outbound.ID, "outbound_tag": outbound.Tag, "performs_side_effects": true, "commands_executed": result.CommandsExecuted, "detail": healthErr.Error()})
+				return
+			}
+			result.VPNConnected = health.VPNConnected
+			result.SocksBridgeRunning = health.SocksBridgeRunning
+			result.NonNativeEgressOK = health.NonNativeEgressOK
+			result.ExitIP = health.ExitIP
+			result.NativeIP = health.NativeIP
+			result.LatencyMS = health.LatencyMS
+			result.KillSwitchOK = health.KillSwitchOK
+			result.LastError = health.LastError
+			if !health.VPNConnected || !health.SocksBridgeRunning || !health.NonNativeEgressOK || !health.KillSwitchOK {
+				_, _ = cfg.store.SetOutboundEnabled(r.Context(), outbound.ID, false)
+				writeJSONError(w, http.StatusFailedDependency, "runtime_health_failed_closed", map[string]interface{}{"status": "failed_closed", "runtime": doctor.Runtime, "outbound_id": outbound.ID, "outbound_tag": outbound.Tag, "vpn_connected": health.VPNConnected, "socks_bridge_running": health.SocksBridgeRunning, "non_native_egress_ok": health.NonNativeEgressOK, "exit_ip": health.ExitIP, "native_ip": health.NativeIP, "latency_ms": health.LatencyMS, "kill_switch_ok": health.KillSwitchOK, "last_error": health.LastError, "performs_side_effects": true, "commands_executed": result.CommandsExecuted})
+				return
+			}
+			apply := cfg.xrayController.Apply(r.Context())
+			result.XrayApplied = apply.Status == "applied"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+	}
+}
+
+func vpngateEgressRuntimeStopHandler(cfg *routerConfig) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		outbound, ok := loadVPNGateSoftEtherOutbound(w, r, cfg)
+		if !ok {
+			return
+		}
+		var req vpngateRuntimeStartRequest
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&req)
+		}
+		if !req.Confirm || !req.AllowSystemChanges {
+			writeJSONError(w, http.StatusForbidden, "confirmation_required", map[string]interface{}{"status": "rejected", "runtime": "softether_netns_socks_bridge", "outbound_id": outbound.ID, "outbound_tag": outbound.Tag, "performs_side_effects": false, "commands_executed": []string{}, "required_gates": []string{"confirm", "allow_system_changes"}})
+			return
+		}
+		probe := cfg.vpnGateRuntimeProbe
+		if probe == nil {
+			probe = execVPNGateRuntimeProbe{}
+		}
+		doctor := buildVPNGateRuntimeDoctor(outbound, probe)
+		if doctor.Status != "ready" {
+			writeJSONError(w, http.StatusFailedDependency, "runtime_preflight_failed", map[string]interface{}{"status": doctor.Status, "runtime": doctor.Runtime, "outbound_id": doctor.OutboundID, "outbound_tag": doctor.OutboundTag, "performs_side_effects": false, "commands_executed": []string{}, "checks": doctor.Checks})
+			return
+		}
+		stopper := cfg.vpnGateRuntimeStopper
+		if stopper == nil {
+			writeJSONError(w, http.StatusNotImplemented, "runtime_stop_not_implemented", map[string]interface{}{"status": "not_implemented", "runtime": doctor.Runtime, "outbound_id": outbound.ID, "outbound_tag": outbound.Tag, "performs_side_effects": false, "commands_executed": []string{}})
+			return
+		}
+		result, err := stopper.Stop(r.Context(), VPNGateRuntimeStartTarget{Runtime: doctor.Runtime, OutboundID: outbound.ID, OutboundTag: outbound.Tag, BridgeAddress: outbound.Address, BridgePort: outbound.Port, ServerHostName: outbound.VPNGateServerHostName, ServerIP: outbound.VPNGateServerIP, DependencyPaths: vpngateRuntimeDependencyPaths(doctor.Checks)})
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "runtime_stop_failed", map[string]interface{}{"status": "failed", "runtime": doctor.Runtime, "outbound_id": outbound.ID, "outbound_tag": outbound.Tag, "performs_side_effects": false, "commands_executed": []string{}, "detail": err.Error()})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

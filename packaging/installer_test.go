@@ -126,6 +126,26 @@ func TestInstallerOffersSingBoxRuntime(t *testing.T) {
 	}
 }
 
+func TestInstallerOffersVPNGateRuntimeDependencies(t *testing.T) {
+	script := read(t, "packaging", "install.sh")
+	for _, want := range []string{
+		"install_vpngate_runtime_dependencies",
+		"是否安装 VPN Gate runtime 依赖？[Y/n]",
+		"iproute2",
+		"iptables",
+		"microsocks",
+		"softether-vpnclient",
+		"softether-vpncmd",
+		"vpncmd",
+		"vpnclient",
+		"VPN Gate runtime dependencies:",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("installer VPN Gate runtime dependency contract missing %q", want)
+		}
+	}
+}
+
 func TestInstallerDownloadsReleaseAssetAndVerifiesChecksum(t *testing.T) {
 	script := read(t, "packaging", "install.sh")
 	for _, want := range []string{

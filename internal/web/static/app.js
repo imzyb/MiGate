@@ -276,6 +276,7 @@
         '<button class=\"btn-mini\" onclick=\"refreshVPNGateRuntimeStatus(' + ob.id + ')\">运行状态</button>' +
         '<button class=\"btn-mini\" onclick=\"checkVPNGateRuntimeDoctor(' + ob.id + ')\">依赖预检</button>' +
         '<button class=\"btn-mini\" onclick=\"startVPNGateRuntime(' + ob.id + ')\">启动 runtime</button>' +
+        '<button class=\"btn-mini\" onclick=\"stopVPNGateRuntime(' + ob.id + ')\">停止 runtime</button>' +
         '</div>';
     }
 
@@ -299,7 +300,11 @@
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.error || 'status_failed');
         const label = data.socks_bridge_running ? 'SOCKS bridge 运行中' : (data.runtime === 'bridge_not_started' ? '暂未启动' : data.status);
-        if (el) el.textContent = '运行状态：' + label;
+        const healthBits = [];
+        if (data.exit_ip) healthBits.push('出口IP ' + data.exit_ip);
+        if (data.latency_ms) healthBits.push(data.latency_ms + 'ms');
+        healthBits.push('Kill-switch ' + (data.kill_switch_ok ? 'OK' : '未验证'));
+        if (el) el.textContent = '运行状态：' + label + (healthBits.length ? ' · ' + healthBits.join(' · ') : '');
         showToast('VPN Gate 运行状态：' + label, data.socks_bridge_running ? 'success' : 'error');
       } catch(e) {
         if (el) el.textContent = '运行状态：读取失败';
@@ -351,11 +356,35 @@
           return;
         }
         if (!resp.ok) throw new Error(data.error || 'start_failed');
-        if (statusEl) statusEl.textContent = '运行状态：启动已请求';
-        showToast('VPN Gate runtime 启动已请求', 'success');
+        const healthBits = [];
+        if (data.exit_ip) healthBits.push('出口IP ' + data.exit_ip);
+        if (data.latency_ms) healthBits.push(data.latency_ms + 'ms');
+        healthBits.push('Kill-switch ' + (data.kill_switch_ok ? 'OK' : '未验证'));
+        if (statusEl) statusEl.textContent = '运行状态：' + (data.non_native_egress_ok ? '出口已验证' : '已启动待验证') + (healthBits.length ? ' · ' + healthBits.join(' · ') : '');
+        showToast('VPN Gate runtime 已启动' + (data.xray_applied ? '，Xray 已应用' : ''), 'success');
       } catch(e) {
         if (statusEl) statusEl.textContent = '运行状态：启动失败';
         showToast('VPN Gate runtime 启动失败：' + e.message, 'error');
+      }
+    }
+
+
+    async function stopVPNGateRuntime(id) {
+      const statusEl = document.getElementById('vpngate-runtime-' + id);
+      if (statusEl) statusEl.textContent = '运行状态：停止中...';
+      try {
+        const resp = await fetch(apiPath('/api/vpngate/egress/stop?outbound_id=' + encodeURIComponent(id)), {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({confirm:true, allow_system_changes:true})
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'stop_failed');
+        if (statusEl) statusEl.textContent = '运行状态：已停止';
+        showToast('VPN Gate runtime 已停止并清理 netns/SOCKS bridge', 'success');
+      } catch(e) {
+        if (statusEl) statusEl.textContent = '运行状态：停止失败';
+        showToast('VPN Gate runtime 停止失败：' + e.message, 'error');
       }
     }
 
