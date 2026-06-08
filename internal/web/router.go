@@ -214,12 +214,21 @@ func (s vpngateRuntimeStarter) Start(ctx context.Context, target VPNGateRuntimeS
 	if vpnclient == "" {
 		vpnclient = "vpnclient"
 	}
+	vpncmd := strings.TrimSpace(target.DependencyPaths["vpncmd"])
+	if vpncmd == "" {
+		vpncmd = "vpncmd"
+	}
+	nicName := fmt.Sprintf("migate%d", target.OutboundID)
 	executed := []string{fmt.Sprintf("%s netns add %s", ip, netns)}
 	if err := s.runner.Run(ctx, ip, "netns", "add", netns); err != nil {
 		return VPNGateRuntimeStartResult{}, err
 	}
 	executed = append(executed, fmt.Sprintf("%s start", vpnclient))
 	if err := s.runner.Run(ctx, vpnclient, "start"); err != nil {
+		return VPNGateRuntimeStartResult{}, err
+	}
+	executed = append(executed, fmt.Sprintf("%s localhost /CLIENT /CMD NicCreate %s", vpncmd, nicName))
+	if err := s.runner.Run(ctx, vpncmd, "localhost", "/CLIENT", "/CMD", "NicCreate", nicName); err != nil {
 		return VPNGateRuntimeStartResult{}, err
 	}
 	return VPNGateRuntimeStartResult{
