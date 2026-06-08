@@ -115,19 +115,20 @@ func NewXrayApplyer(ctrl XrayController) scheduler.XrayApplyer {
 func (defaultXrayController) Version(ctx context.Context) string { return "" }
 
 type routerConfig struct {
-	store               Store
-	xrayController      XrayController
-	authEnabled         bool
-	authUsername        string
-	authPassword        string
-	sessionSecret       []byte
-	configDir           string
-	version             string
-	basePath            string
-	vpnGateFetcher      VPNGateFetcher
-	vpnGateRuntimeProbe VPNGateRuntimeProbe
-	statsClient         xray.StatsClient
-	healthScheduler     *scheduler.VPNGateHealthScheduler
+	store                 Store
+	xrayController        XrayController
+	authEnabled           bool
+	authUsername          string
+	authPassword          string
+	sessionSecret         []byte
+	configDir             string
+	version               string
+	basePath              string
+	vpnGateFetcher        VPNGateFetcher
+	vpnGateRuntimeProbe   VPNGateRuntimeProbe
+	vpnGateRuntimeStarter VPNGateRuntimeStarter
+	statsClient           xray.StatsClient
+	healthScheduler       *scheduler.VPNGateHealthScheduler
 }
 
 type VPNGateFetcher interface {
@@ -136,6 +137,28 @@ type VPNGateFetcher interface {
 
 type VPNGateRuntimeProbe interface {
 	LookPath(name string) (string, error)
+}
+
+type VPNGateRuntimeStarter interface {
+	Start(ctx context.Context, target VPNGateRuntimeStartTarget) (VPNGateRuntimeStartResult, error)
+}
+
+type VPNGateRuntimeStartTarget struct {
+	OutboundID    int64  `json:"outbound_id"`
+	OutboundTag   string `json:"outbound_tag"`
+	BridgeAddress string `json:"bridge_address"`
+	BridgePort    int    `json:"bridge_port"`
+}
+
+type VPNGateRuntimeStartResult struct {
+	Status              string   `json:"status"`
+	Runtime             string   `json:"runtime"`
+	OutboundID          int64    `json:"outbound_id"`
+	OutboundTag         string   `json:"outbound_tag"`
+	BridgeAddress       string   `json:"bridge_address"`
+	BridgePort          int      `json:"bridge_port"`
+	PerformsSideEffects bool     `json:"performs_side_effects"`
+	CommandsExecuted    []string `json:"commands_executed"`
 }
 
 type execVPNGateRuntimeProbe struct{}
@@ -221,6 +244,12 @@ func WithVPNGateFetcher(fetcher VPNGateFetcher) Option {
 func WithVPNGateRuntimeProbe(probe VPNGateRuntimeProbe) Option {
 	return func(cfg *routerConfig) {
 		cfg.vpnGateRuntimeProbe = probe
+	}
+}
+
+func WithVPNGateRuntimeStarter(starter VPNGateRuntimeStarter) Option {
+	return func(cfg *routerConfig) {
+		cfg.vpnGateRuntimeStarter = starter
 	}
 }
 
@@ -2635,17 +2664,42 @@ func vpngateEgressRuntimeStartHandler(cfg *routerConfig) http.HandlerFunc {
 			})
 			return
 		}
-		writeJSONError(w, http.StatusNotImplemented, "runtime_start_not_implemented", map[string]interface{}{
-			"status":                doctor.Status,
-			"runtime":               doctor.Runtime,
-			"outbound_id":           doctor.OutboundID,
-			"outbound_tag":          doctor.OutboundTag,
-			"bridge_address":        doctor.BridgeAddress,
-			"bridge_port":           doctor.BridgePort,
-			"performs_side_effects": false,
-			"commands_executed":     []string{},
-			"checks":                doctor.Checks,
+		if cfg.vpnGateRuntimeStarter == nil {
+			writeJSONError(w, http.StatusNotImplemented, "runtime_start_not_implemented", map[string]interface{}{
+				"status":                doctor.Status,
+				"runtime":               doctor.Runtime,
+				"outbound_id":           doctor.OutboundID,
+				"outbound_tag":          doctor.OutboundTag,
+				"bridge_address":        doctor.BridgeAddress,
+				"bridge_port":           doctor.BridgePort,
+				"performs_side_effects": false,
+				"commands_executed":     []string{},
+				"checks":                doctor.Checks,
+			})
+			return
+		}
+		result, err := cfg.vpnGateRuntimeStarter.Start(r.Context(), VPNGateRuntimeStartTarget{
+			OutboundID:    outbound.ID,
+			OutboundTag:   outbound.Tag,
+			BridgeAddress: outbound.Address,
+			BridgePort:    outbound.Port,
 		})
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "runtime_start_failed", map[string]interface{}{
+				"status":                "failed",
+				"runtime":               doctor.Runtime,
+				"outbound_id":           outbound.ID,
+				"outbound_tag":          outbound.Tag,
+				"bridge_address":        outbound.Address,
+				"bridge_port":           outbound.Port,
+				"performs_side_effects": false,
+				"commands_executed":     []string{},
+				"detail":                err.Error(),
+			})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
 	}
 }
 

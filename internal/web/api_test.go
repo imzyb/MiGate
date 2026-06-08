@@ -97,6 +97,63 @@ func (p *fakeVPNGateRuntimeProbe) LookPath(name string) (string, error) {
 	return "", fmt.Errorf("%s not found", name)
 }
 
+type fakeVPNGateRuntimeStarter struct {
+	calls       int
+	outboundIDs []int64
+	result      web.VPNGateRuntimeStartResult
+}
+
+func (s *fakeVPNGateRuntimeStarter) Start(ctx context.Context, outbound web.VPNGateRuntimeStartTarget) (web.VPNGateRuntimeStartResult, error) {
+	_ = ctx
+	s.calls++
+	s.outboundIDs = append(s.outboundIDs, outbound.OutboundID)
+	return s.result, nil
+}
+
+func TestVPNGateSoftEtherRuntimeStartDelegatesToInjectedStarterAfterReadyPreflight(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	outbound := createTestVPNGateSoftEtherOutbound(t, store)
+	probe := &fakeVPNGateRuntimeProbe{paths: map[string]string{
+		"vpncmd": "/usr/local/bin/vpncmd", "vpnclient": "/usr/local/bin/vpnclient", "ip": "/sbin/ip", "iptables": "/sbin/iptables", "microsocks": "/usr/bin/microsocks",
+	}}
+	starter := &fakeVPNGateRuntimeStarter{result: web.VPNGateRuntimeStartResult{
+		Status:              "started",
+		Runtime:             "softether_netns_socks_bridge",
+		OutboundID:          outbound.ID,
+		OutboundTag:         outbound.Tag,
+		BridgeAddress:       outbound.Address,
+		BridgePort:          outbound.Port,
+		PerformsSideEffects: true,
+		CommandsExecuted:    []string{"vpnclient start", "microsocks start"},
+	}}
+	router := web.NewRouter(web.WithStore(store), web.WithVPNGateRuntimeProbe(probe), web.WithVPNGateRuntimeStarter(starter))
+	body := bytes.NewBufferString(`{"confirm":true,"allow_system_changes":true}`)
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/vpngate/egress/start?outbound_id="+strconv.FormatInt(outbound.ID, 10), body))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 delegated start, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if starter.calls != 1 || len(starter.outboundIDs) != 1 || starter.outboundIDs[0] != outbound.ID {
+		t.Fatalf("expected one starter call for outbound %d, got calls=%d ids=%+v", outbound.ID, starter.calls, starter.outboundIDs)
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("parse delegated start response: %v", err)
+	}
+	if got["status"] != "started" || got["performs_side_effects"] != true {
+		t.Fatalf("unexpected delegated start response: %+v", got)
+	}
+	commands, ok := got["commands_executed"].([]interface{})
+	if !ok || len(commands) != 2 {
+		t.Fatalf("expected delegated commands in response, got %+v", got["commands_executed"])
+	}
+}
+
 func TestVPNGateSoftEtherRuntimeDoctorAPIReportsDependenciesReadOnly(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
@@ -219,7 +276,8 @@ func TestVPNGateSoftEtherRuntimeStartRequiresDoubleConfirmation(t *testing.T) {
 	probe := &fakeVPNGateRuntimeProbe{paths: map[string]string{
 		"vpncmd": "/usr/local/bin/vpncmd", "vpnclient": "/usr/local/bin/vpnclient", "ip": "/sbin/ip", "iptables": "/sbin/iptables", "microsocks": "/usr/bin/microsocks",
 	}}
-	router := web.NewRouter(web.WithStore(store), web.WithVPNGateRuntimeProbe(probe))
+	starter := &fakeVPNGateRuntimeStarter{}
+	router := web.NewRouter(web.WithStore(store), web.WithVPNGateRuntimeProbe(probe), web.WithVPNGateRuntimeStarter(starter))
 
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/vpngate/egress/start?outbound_id="+strconv.FormatInt(outbound.ID, 10), bytes.NewBufferString(`{}`)))
@@ -240,6 +298,9 @@ func TestVPNGateSoftEtherRuntimeStartRequiresDoubleConfirmation(t *testing.T) {
 	if len(probe.calls) != 0 {
 		t.Fatalf("start without gates must not run doctor probes, got %+v", probe.calls)
 	}
+	if starter.calls != 0 {
+		t.Fatalf("start without gates must not call starter, got %d calls", starter.calls)
+	}
 	after, err := store.ListOutbounds(context.Background())
 	if err != nil {
 		t.Fatalf("list after: %v", err)
@@ -259,7 +320,8 @@ func TestVPNGateSoftEtherRuntimeStartStopsWhenDoctorFails(t *testing.T) {
 	probe := &fakeVPNGateRuntimeProbe{paths: map[string]string{
 		"vpncmd": "/usr/local/bin/vpncmd", "vpnclient": "/usr/local/bin/vpnclient", "ip": "/sbin/ip", "iptables": "/sbin/iptables",
 	}}
-	router := web.NewRouter(web.WithStore(store), web.WithVPNGateRuntimeProbe(probe))
+	starter := &fakeVPNGateRuntimeStarter{}
+	router := web.NewRouter(web.WithStore(store), web.WithVPNGateRuntimeProbe(probe), web.WithVPNGateRuntimeStarter(starter))
 	body := bytes.NewBufferString(`{"confirm":true,"allow_system_changes":true}`)
 
 	resp := httptest.NewRecorder()
@@ -284,6 +346,9 @@ func TestVPNGateSoftEtherRuntimeStartStopsWhenDoctorFails(t *testing.T) {
 	}
 	if strings.Join(probe.calls, ",") != "vpncmd,vpnclient,ip,iptables,microsocks" {
 		t.Fatalf("unexpected doctor probes: %+v", probe.calls)
+	}
+	if starter.calls != 0 {
+		t.Fatalf("failed preflight must not call starter, got %d calls", starter.calls)
 	}
 }
 
