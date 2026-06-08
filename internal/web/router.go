@@ -144,10 +144,12 @@ type VPNGateRuntimeStarter interface {
 }
 
 type VPNGateRuntimeStartTarget struct {
-	OutboundID    int64  `json:"outbound_id"`
-	OutboundTag   string `json:"outbound_tag"`
-	BridgeAddress string `json:"bridge_address"`
-	BridgePort    int    `json:"bridge_port"`
+	Runtime         string            `json:"runtime"`
+	OutboundID      int64             `json:"outbound_id"`
+	OutboundTag     string            `json:"outbound_tag"`
+	BridgeAddress   string            `json:"bridge_address"`
+	BridgePort      int               `json:"bridge_port"`
+	DependencyPaths map[string]string `json:"dependency_paths"`
 }
 
 type VPNGateRuntimeStartResult struct {
@@ -2679,10 +2681,12 @@ func vpngateEgressRuntimeStartHandler(cfg *routerConfig) http.HandlerFunc {
 			return
 		}
 		result, err := cfg.vpnGateRuntimeStarter.Start(r.Context(), VPNGateRuntimeStartTarget{
-			OutboundID:    outbound.ID,
-			OutboundTag:   outbound.Tag,
-			BridgeAddress: outbound.Address,
-			BridgePort:    outbound.Port,
+			Runtime:         doctor.Runtime,
+			OutboundID:      outbound.ID,
+			OutboundTag:     outbound.Tag,
+			BridgeAddress:   outbound.Address,
+			BridgePort:      outbound.Port,
+			DependencyPaths: vpngateRuntimeDependencyPaths(doctor.Checks),
 		})
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "runtime_start_failed", map[string]interface{}{
@@ -2747,6 +2751,16 @@ func vpngateRuntimeDependency(probe VPNGateRuntimeProbe, name, command, notes st
 	check.Status = "available"
 	check.Path = path
 	return check
+}
+
+func vpngateRuntimeDependencyPaths(checks []vpngateRuntimeDependencyCheck) map[string]string {
+	paths := make(map[string]string, len(checks))
+	for _, check := range checks {
+		if check.Status == "available" && strings.TrimSpace(check.Command) != "" && strings.TrimSpace(check.Path) != "" {
+			paths[check.Command] = check.Path
+		}
+	}
+	return paths
 }
 
 func loadVPNGateSoftEtherOutbound(w http.ResponseWriter, r *http.Request, cfg *routerConfig) (db.Outbound, bool) {

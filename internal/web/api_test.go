@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -100,14 +101,17 @@ func (p *fakeVPNGateRuntimeProbe) LookPath(name string) (string, error) {
 type fakeVPNGateRuntimeStarter struct {
 	calls       int
 	outboundIDs []int64
+	targets     []web.VPNGateRuntimeStartTarget
 	result      web.VPNGateRuntimeStartResult
+	err         error
 }
 
 func (s *fakeVPNGateRuntimeStarter) Start(ctx context.Context, outbound web.VPNGateRuntimeStartTarget) (web.VPNGateRuntimeStartResult, error) {
 	_ = ctx
 	s.calls++
 	s.outboundIDs = append(s.outboundIDs, outbound.OutboundID)
-	return s.result, nil
+	s.targets = append(s.targets, outbound)
+	return s.result, s.err
 }
 
 func TestVPNGateSoftEtherRuntimeStartDelegatesToInjectedStarterAfterReadyPreflight(t *testing.T) {
@@ -141,6 +145,12 @@ func TestVPNGateSoftEtherRuntimeStartDelegatesToInjectedStarterAfterReadyPreflig
 	if starter.calls != 1 || len(starter.outboundIDs) != 1 || starter.outboundIDs[0] != outbound.ID {
 		t.Fatalf("expected one starter call for outbound %d, got calls=%d ids=%+v", outbound.ID, starter.calls, starter.outboundIDs)
 	}
+	if len(starter.targets) != 1 || starter.targets[0].Runtime != "softether_netns_socks_bridge" {
+		t.Fatalf("expected starter target to include runtime, got %+v", starter.targets)
+	}
+	if starter.targets[0].DependencyPaths["vpncmd"] != "/usr/local/bin/vpncmd" || starter.targets[0].DependencyPaths["microsocks"] != "/usr/bin/microsocks" {
+		t.Fatalf("expected starter target dependency paths, got %+v", starter.targets[0].DependencyPaths)
+	}
 	var got map[string]interface{}
 	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
 		t.Fatalf("parse delegated start response: %v", err)
@@ -151,6 +161,44 @@ func TestVPNGateSoftEtherRuntimeStartDelegatesToInjectedStarterAfterReadyPreflig
 	commands, ok := got["commands_executed"].([]interface{})
 	if !ok || len(commands) != 2 {
 		t.Fatalf("expected delegated commands in response, got %+v", got["commands_executed"])
+	}
+}
+
+func TestVPNGateSoftEtherRuntimeStartReportsStarterFailure(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	outbound := createTestVPNGateSoftEtherOutbound(t, store)
+	probe := &fakeVPNGateRuntimeProbe{paths: map[string]string{
+		"vpncmd": "/usr/local/bin/vpncmd", "vpnclient": "/usr/local/bin/vpnclient", "ip": "/sbin/ip", "iptables": "/sbin/iptables", "microsocks": "/usr/bin/microsocks",
+	}}
+	starter := &fakeVPNGateRuntimeStarter{err: errors.New("vpnclient connect failed")}
+	router := web.NewRouter(web.WithStore(store), web.WithVPNGateRuntimeProbe(probe), web.WithVPNGateRuntimeStarter(starter))
+	body := bytes.NewBufferString(`{"confirm":true,"allow_system_changes":true}`)
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/vpngate/egress/start?outbound_id="+strconv.FormatInt(outbound.ID, 10), body))
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 starter failure, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if starter.calls != 1 {
+		t.Fatalf("expected one starter call after ready preflight, got %d", starter.calls)
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("parse starter failure response: %v", err)
+	}
+	if got["error"] != "runtime_start_failed" || got["status"] != "failed" || got["performs_side_effects"] != false {
+		t.Fatalf("unexpected starter failure response: %+v", got)
+	}
+	if got["detail"] != "vpnclient connect failed" {
+		t.Fatalf("expected starter error detail, got %+v", got["detail"])
+	}
+	commands, ok := got["commands_executed"].([]interface{})
+	if !ok || len(commands) != 0 {
+		t.Fatalf("starter failure wrapper must not invent executed commands, got %+v", got["commands_executed"])
 	}
 }
 
