@@ -130,6 +130,7 @@ func TestPanelShowsVPNGateSoftEtherCapabilityPreview(t *testing.T) {
 	for _, want := range []string{
 		"SoftEther",
 		`id="vpngate-import-btn" onclick="importSelectedVPNGate()" title="创建并自动接入 VPN Gate 出口"`,
+		`id="vpngate-import-footer-btn" onclick="importSelectedVPNGate()" title="创建并自动接入 VPN Gate 出口"`,
 		"创建 VPN Gate 出口",
 		"官方列表不会被当作 SOCKS5 代理源",
 	} {

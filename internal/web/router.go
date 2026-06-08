@@ -4816,6 +4816,7 @@ const panelHTML = `<!doctype html>
         <div class="modal-footer">
           <span class="muted" style="font-size:12px">参考列表/候选信息，来自 vpngate.net；创建出口只生成本地 SoftEther bridge 占位配置</span>
           <button class="secondary" onclick="closeModal()">关闭</button>
+          <button class="primary" id="vpngate-import-footer-btn" onclick="importSelectedVPNGate()" title="创建并自动接入 VPN Gate 出口">选择 1 个节点后创建出口</button>
         </div>
       </div>
     </div>

@@ -924,12 +924,14 @@ function openCreateRoutingRule() {
     }
 
     function updateVPNGateImportBtn() {
-      var btn = document.getElementById('vpngate-import-btn');
-      if (!btn) return;
       var selected = Object.keys(vpngateSelected).length;
-      btn.disabled = selected !== 1;
-      btn.textContent = selected === 0 ? '选择 1 个节点后创建出口' : selected === 1 ? '创建 VPN Gate 出口' : '一次仅能创建 1 个出口';
-      btn.title = '创建并自动接入 VPN Gate 出口';
+      ['vpngate-import-btn', 'vpngate-import-footer-btn'].forEach(function(id) {
+        var btn = document.getElementById(id);
+        if (!btn) return;
+        btn.disabled = selected !== 1;
+        btn.textContent = selected === 0 ? '选择 1 个节点后创建出口' : selected === 1 ? '创建 VPN Gate 出口' : '一次仅能创建 1 个出口';
+        btn.title = '创建并自动接入 VPN Gate 出口';
+      });
     }
 
     async function importSelectedVPNGate() {
