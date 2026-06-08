@@ -275,6 +275,7 @@
         '<button class=\"btn-mini\" onclick=\"showVPNGateRuntimePlan(' + ob.id + ')\">启动计划</button>' +
         '<button class=\"btn-mini\" onclick=\"refreshVPNGateRuntimeStatus(' + ob.id + ')\">运行状态</button>' +
         '<button class=\"btn-mini\" onclick=\"checkVPNGateRuntimeDoctor(' + ob.id + ')\">依赖预检</button>' +
+        '<button class=\"btn-mini\" onclick=\"startVPNGateRuntime(' + ob.id + ')\">启动 runtime</button>' +
         '</div>';
     }
 
@@ -321,6 +322,40 @@
       } catch(e) {
         if (el) el.textContent = '依赖预检：读取失败';
         showToast('读取 VPN Gate 依赖预检失败：' + e.message, 'error');
+      }
+    }
+
+    async function startVPNGateRuntime(id) {
+      const statusEl = document.getElementById('vpngate-runtime-' + id);
+      const doctorEl = document.getElementById('vpngate-runtime-doctor-' + id);
+      if (statusEl) statusEl.textContent = '运行状态：启动预检中...';
+      try {
+        const resp = await fetch(apiPath('/api/vpngate/egress/start?outbound_id=' + encodeURIComponent(id)), {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({confirm:true, allow_system_changes:true})
+        });
+        const data = await resp.json();
+        if (data.checks && doctorEl) {
+          const missing = data.checks.filter(function(c) { return c.status !== 'available'; });
+          doctorEl.textContent = '依赖预检：' + (missing.length ? '缺少依赖 ' + missing.map(function(c) { return c.command; }).join(', ') : '依赖就绪');
+        }
+        if (resp.status === 424 || data.error === 'runtime_preflight_failed') {
+          if (statusEl) statusEl.textContent = '运行状态：预检未通过';
+          showToast('VPN Gate runtime 启动已阻断：缺少依赖', 'error');
+          return;
+        }
+        if (resp.status === 501 || data.error === 'runtime_start_not_implemented') {
+          if (statusEl) statusEl.textContent = '运行状态：启动器待实现';
+          showToast('VPN Gate runtime 启动入口已就绪，真实启动器待实现', 'error');
+          return;
+        }
+        if (!resp.ok) throw new Error(data.error || 'start_failed');
+        if (statusEl) statusEl.textContent = '运行状态：启动已请求';
+        showToast('VPN Gate runtime 启动已请求', 'success');
+      } catch(e) {
+        if (statusEl) statusEl.textContent = '运行状态：启动失败';
+        showToast('VPN Gate runtime 启动失败：' + e.message, 'error');
       }
     }
 

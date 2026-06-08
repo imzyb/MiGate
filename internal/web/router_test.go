@@ -167,25 +167,22 @@ func TestPanelShowsVPNGateRuntimeControlsForSoftEtherOutbounds(t *testing.T) {
 		`function showVPNGateRuntimePlan(id)`,
 		`function refreshVPNGateRuntimeStatus(id)`,
 		`function checkVPNGateRuntimeDoctor(id)`,
+		`async function startVPNGateRuntime(id)`,
 		`/api/vpngate/egress/plan?outbound_id=`,
 		`/api/vpngate/egress/status?outbound_id=`,
 		`/api/vpngate/egress/doctor?outbound_id=`,
+		`/api/vpngate/egress/start?outbound_id=`,
+		`JSON.stringify({confirm:true, allow_system_changes:true})`,
 		`启动计划`,
 		`运行状态`,
 		`依赖预检`,
+		`启动 runtime`,
 		`缺少依赖`,
 		`暂未启动`,
+		`runtime_start_not_implemented`,
 	} {
 		if !strings.Contains(jsBody, want) {
 			t.Fatalf("app.js missing VPN Gate runtime control contract %q", want)
-		}
-	}
-	for _, forbidden := range []string{
-		`startVPNGateRuntime(`,
-		`/api/vpngate/egress/start`,
-	} {
-		if strings.Contains(jsBody, forbidden) {
-			t.Fatalf("VPN Gate runtime controls must stay passive in this slice, found %q", forbidden)
 		}
 	}
 }
