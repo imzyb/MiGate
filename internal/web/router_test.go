@@ -91,28 +91,35 @@ func TestPanelWiresSocks5PoolPickerToOutboundManagement(t *testing.T) {
 		`onclick="openSocks5PoolDialog()"`,
 		`id="socks5-pool-dialog"`,
 		`id="socks5-pool-region"`,
-		`id="socks5-pool-map"`,
+		`id="socks5-pool-detail"`,
 		`id="socks5-pool-list"`,
 		`导入 SOCKS5 地址池`,
+		`请选择地区后显示对应 SOCKS5`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("panel missing socks5 pool UI contract %q", want)
 		}
 	}
+	if strings.Contains(body, `id="socks5-pool-map"`) || strings.Contains(jsBody, `renderSocks5PoolMap`) {
+		t.Fatalf("SOCKS5 pool dialog should not render the map anymore")
+	}
 	for _, want := range []string{
 		`openSocks5PoolDialog()`,
-		`loadSocks5Pool()`,
-		`renderSocks5PoolMap`,
+		`loadSocks5PoolRegions()`,
+		`onSocks5PoolRegionChange()`,
+		`pingSocks5PoolProxy(index)`,
 		`selectSocks5PoolProxy`,
 		`confirmSocks5PoolProxy()`,
+		`renderSocks5PoolDetail`,
 		`renderSocks5RegionOptions`,
 		`groupSocks5RegionsByContinent`,
-		`formatSocks5ProxyLine`,
-		`验证中`,
-		`socks5-pool-option selected`,
-		`sortSocks5PoolProxies`,
+		`formatSocks5ProxyCompactLine`,
+		`请选择地区后显示对应 SOCKS5`,
+		`overflow-x:hidden`,
 		`apiFetch('/api/outbounds/socks5-pool?country=' + encodeURIComponent(country))`,
-		`fetch(apiPath('/api/outbounds/socks5-pool/import')`,
+		`apiFetch('/api/outbounds/socks5-pool/ping'`,
+		`tcping`,
+		`apiFetch('/api/outbounds/socks5-pool/import'`,
 	} {
 		if !strings.Contains(jsBody, want) {
 			t.Fatalf("app.js missing socks5 pool contract %q", want)

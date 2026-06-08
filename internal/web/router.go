@@ -293,19 +293,15 @@ func outboundsHandler(store Store, ctrl XrayController) http.HandlerFunc {
 }
 
 func pingOutbound(address string, port int) map[string]interface{} {
+	start := time.Now()
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort(address, strconv.Itoa(port)), 3*time.Second)
 	if err != nil {
 		return map[string]interface{}{"latency": -1, "error": err.Error()}
 	}
-	start := time.Now()
-	// Send a SOCKS5 handshake greeting to measure round-trip
-	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
-	_, _ = conn.Write([]byte{5, 1, 0})
-	var buf [1]byte
-	_, _ = conn.Read(buf[:])
+	// tcping semantics: measure TCP connect latency only. Do not perform a SOCKS5 handshake.
 	latency := time.Since(start).Milliseconds()
 	_ = conn.Close()
-	return map[string]interface{}{"latency": latency}
+	return map[string]interface{}{"latency": latency, "method": "tcping"}
 }
 
 type socks5PoolProxy struct {
@@ -616,6 +612,28 @@ func socks5PoolListHandler(cfg *routerConfig, w http.ResponseWriter, r *http.Req
 	})
 }
 
+func socks5PoolPingHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Address string `json:"address"`
+		Port    int    `json:"port"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid_json"}`, http.StatusBadRequest)
+		return
+	}
+	address := strings.TrimSpace(req.Address)
+	if address == "" || req.Port <= 0 || req.Port > 65535 {
+		http.Error(w, `{"error":"invalid_proxy"}`, http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(pingOutbound(address, req.Port))
+}
+
 func socks5PoolImportHandler(store Store, ctrl XrayController, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
@@ -677,6 +695,10 @@ func outboundChildrenHandler(cfg *routerConfig) http.HandlerFunc {
 		path := strings.TrimPrefix(r.URL.Path, "/api/outbounds/")
 		if path == "socks5-pool" {
 			socks5PoolListHandler(cfg, w, r)
+			return
+		}
+		if path == "socks5-pool/ping" {
+			socks5PoolPingHandler(w, r)
 			return
 		}
 		if path == "socks5-pool/import" {
@@ -3321,18 +3343,18 @@ const panelHTML = `<!doctype html>
           </div>
           <button class="modal-close" onclick="closeModal()">✕</button>
         </div>
-        <div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(300px,360px);gap:16px;align-items:stretch">
-          <div id="socks5-pool-map" style="min-height:360px;border:1px solid var(--line);border-radius:var(--radius-lg);background:radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 28%),linear-gradient(135deg,var(--surface-subtle),var(--surface));position:relative;overflow:hidden"></div>
-          <div style="display:flex;flex-direction:column;gap:12px;min-height:360px">
+        <div style="display:grid;grid-template-columns:minmax(220px,280px) minmax(360px,1fr);gap:16px;align-items:stretch">
+          <div id="socks5-pool-detail" style="min-height:360px;border:1px solid var(--line);border-radius:var(--radius-lg);background:linear-gradient(135deg,var(--surface-subtle),var(--surface));padding:14px;overflow:hidden"></div>
+          <div style="display:flex;flex-direction:column;gap:12px;min-height:360px;min-width:0">
             <div class="field-group">
               <label class="field-label" for="socks5-pool-region">选择目标地区</label>
-              <select id="socks5-pool-region" onchange="loadSocks5Pool()">
-                <option value="">全部地区</option>
+              <select id="socks5-pool-region" onchange="onSocks5PoolRegionChange()">
+                <option value="">-- 请选择地区 --</option>
               </select>
             </div>
-            <div class="field-group" style="flex:1;min-height:0">
+            <div class="field-group" style="flex:1;min-height:0;min-width:0">
               <label class="field-label">可用 SOCKS5</label>
-              <div id="socks5-pool-list" class="list muted" style="height:260px;overflow:auto;padding:8px">点击打开后加载地址池...</div>
+              <div id="socks5-pool-list" class="list muted" style="height:260px;overflow-y:auto;overflow-x:hidden;padding:8px">请选择地区后显示对应 SOCKS5</div>
             </div>
           </div>
         </div>

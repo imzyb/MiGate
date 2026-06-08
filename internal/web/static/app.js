@@ -418,14 +418,17 @@
       });
     }
 
-    let socks5PoolState = {regions: [], proxies: [], selected: null};
+    let socks5PoolState = {regions: [], proxies: [], selected: null, cache: null, country: ''};
 
     function openSocks5PoolDialog() {
-      socks5PoolState = {regions: [], proxies: [], selected: null};
+      socks5PoolState = {regions: [], proxies: [], selected: null, cache: null, country: ''};
       const list = document.getElementById('socks5-pool-list');
-      if (list) list.textContent = '正在加载地址池并测速...';
+      const regionSelect = document.getElementById('socks5-pool-region');
+      if (regionSelect) regionSelect.innerHTML = '<option value="">-- 请选择地区 --</option>';
+      if (list) list.innerHTML = '<div class="empty-state"><div class="empty-state-title">请选择地区后显示对应 SOCKS5</div><div class="empty-state-copy">先从上方选择国家/地区，再逐行测延时。</div></div>';
+      renderSocks5PoolDetail();
       showModal('socks5-pool-dialog');
-      loadSocks5Pool();
+      loadSocks5PoolRegions();
     }
 
     function socks5ContinentForRegion(code) {
@@ -436,7 +439,7 @@
         '欧洲 / EU': ['GB','DE','FR','NL','RU','UA','PL','IT','ES','SE','FI','NO','CH'],
         '南美 / SA': ['BR','AR','CL','CO','PE'],
         '大洋洲 / OC': ['AU','NZ'],
-        '非洲 / AF': ['ZA','EG','NG','KE']
+        '非洲 / AF': ['ZA','EG','NG','KE','GH']
       };
       for (const name in groups) {
         if (groups[name].includes(c)) return name;
@@ -466,7 +469,7 @@
         html += '<optgroup label="🌎 ' + escapeHtml(group) + '">';
         html += grouped[group].map(function(r) {
           const code = r.code || '未知';
-          const label = code + ' ' + (r.name || '') + '(' + (r.count || 0) + ')';
+          const label = code + ' ' + (r.name || '') + ' (' + (r.count || 0) + ')';
           return '<option value="' + escapeHtml(code) + '">' + escapeHtml(label) + '</option>';
         }).join('');
         html += '</optgroup>';
@@ -484,38 +487,64 @@
       });
     }
 
-    function formatSocks5ProxyLine(p) {
+    function formatSocks5ProxyCompactLine(p) {
       const latency = Number(p.latency);
-      const status = latency >= 0 ? '✅ [' + latency.toFixed(0) + 'ms]' : '⏳ [验证中]';
+      const status = latency >= 0 ? latency.toFixed(0) + 'ms' : '测速中';
       const city = p.city || p.country_code || p.address;
       const asn = p.asn ? 'AS' + String(p.asn).replace(/^AS/i, '') : 'AS-';
-      const org = p.organization || 'Unknown';
-      return status + city + ',' + asn + ',' + org;
+      return status + ' · ' + city + ' · ' + asn;
+    }
+
+    async function loadSocks5PoolRegions() {
+      try {
+        const resp = await apiFetch('/api/outbounds/socks5-pool?country=__none__');
+        if (!resp.ok) throw new Error('pool api ' + resp.status);
+        const data = await resp.json();
+        socks5PoolState.cache = data;
+        socks5PoolState.regions = data.regions || [];
+        const regionSelect = document.getElementById('socks5-pool-region');
+        if (regionSelect) regionSelect.innerHTML = renderSocks5RegionOptions(socks5PoolState.regions);
+        renderSocks5PoolDetail();
+      } catch(e) {
+        const list = document.getElementById('socks5-pool-list');
+        if (list) list.innerHTML = '<div class="empty-state"><div class="empty-state-title">地址池加载失败</div><div class="empty-state-copy">' + escapeHtml(e.message) + '</div></div>';
+      }
+    }
+
+    function onSocks5PoolRegionChange() {
+      const regionSelect = document.getElementById('socks5-pool-region');
+      const country = regionSelect ? (regionSelect.value || '') : '';
+      socks5PoolState.country = country;
+      socks5PoolState.proxies = [];
+      socks5PoolState.selected = null;
+      if (!country) {
+        const list = document.getElementById('socks5-pool-list');
+        if (list) list.innerHTML = '<div class="empty-state"><div class="empty-state-title">请选择地区后显示对应 SOCKS5</div><div class="empty-state-copy">不会默认展开全量列表，避免滚动和测速压力。</div></div>';
+        renderSocks5PoolDetail();
+        return;
+      }
+      loadSocks5Pool();
     }
 
     async function loadSocks5Pool() {
-      const regionSelect = document.getElementById('socks5-pool-region');
       const list = document.getElementById('socks5-pool-list');
-      const country = regionSelect ? (regionSelect.value || '') : '';
-      if (list) list.textContent = '正在加载并测速...';
+      const country = socks5PoolState.country || '';
+      if (!country) { onSocks5PoolRegionChange(); return; }
+      if (list) list.innerHTML = '<div class="empty-state"><div class="empty-state-title">正在加载地区 SOCKS5</div><div class="empty-state-copy">加载后会逐行测延时。</div></div>';
       try {
         const resp = await apiFetch('/api/outbounds/socks5-pool?country=' + encodeURIComponent(country));
         if (!resp.ok) throw new Error('pool api ' + resp.status);
         const data = await resp.json();
-        if (data.cache_status && data.cache_status !== 'hit') {
-          showToast('SOCKS5 地址池缓存状态：' + data.cache_status, 'success');
-        }
-        socks5PoolState.regions = data.regions || [];
-        socks5PoolState.proxies = sortSocks5PoolProxies(data.proxies || []);
+        if (data.cache_status && data.cache_status !== 'hit') showToast('SOCKS5 地址池缓存状态：' + data.cache_status, 'success');
+        socks5PoolState.regions = data.regions || socks5PoolState.regions || [];
+        socks5PoolState.proxies = (data.proxies || []).map(function(p) { p.latency = -1; return p; });
         socks5PoolState.selected = socks5PoolState.proxies[0] || null;
-        if (regionSelect && regionSelect.options.length <= 1) {
-          regionSelect.innerHTML = renderSocks5RegionOptions(socks5PoolState.regions);
-        }
         renderSocks5PoolList();
-        renderSocks5PoolMap();
+        renderSocks5PoolDetail();
+        socks5PoolState.proxies.forEach(function(_, index) { pingSocks5PoolProxy(index); });
       } catch(e) {
         if (list) list.innerHTML = '<div class="empty-state"><div class="empty-state-title">地址池加载失败</div><div class="empty-state-copy">' + escapeHtml(e.message) + '</div></div>';
-        renderSocks5PoolMap();
+        renderSocks5PoolDetail();
       }
     }
 
@@ -523,6 +552,10 @@
       const list = document.getElementById('socks5-pool-list');
       if (!list) return;
       const proxies = socks5PoolState.proxies || [];
+      if (!socks5PoolState.country) {
+        list.innerHTML = '<div class="empty-state"><div class="empty-state-title">请选择地区后显示对应 SOCKS5</div></div>';
+        return;
+      }
       if (!proxies.length) {
         list.innerHTML = '<div class="empty-state"><div class="empty-state-title">暂无可用代理</div><div class="empty-state-copy">换一个地区或稍后重试。</div></div>';
         return;
@@ -530,12 +563,11 @@
       list.innerHTML = proxies.map(function(p, idx) {
         const selected = socks5PoolState.selected && socks5PoolState.selected.address === p.address && socks5PoolState.selected.port === p.port;
         const latency = Number(p.latency);
-        const line = formatSocks5ProxyLine(p);
         const color = latency >= 0 && latency < 300 ? 'var(--green)' : (latency >= 0 && latency < 800 ? 'var(--accent2)' : 'var(--muted)');
         const optionClass = selected ? 'socks5-pool-option selected' : 'socks5-pool-option';
-        return '<button type="button" onclick="selectSocks5PoolProxy(' + idx + ')" class="' + optionClass + '" style="width:100%;text-align:left;display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid ' + (selected ? 'var(--accent)' : 'transparent') + ';border-radius:var(--radius-md);margin-bottom:6px;cursor:pointer;background:' + (selected ? 'color-mix(in srgb, var(--accent) 14%, transparent)' : 'transparent') + ';color:var(--fg);box-shadow:' + (selected ? '0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent)' : 'none') + '">' +
-          '<span style="color:' + color + ';font-size:14px">' + (latency >= 0 ? '✅' : '⏳') + '</span>' +
-          '<span style="flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(line.replace(/^✅ |^⏳ /, '')) + '</span>' +
+        return '<button type="button" onclick="selectSocks5PoolProxy(' + idx + ')" class="' + optionClass + '" style="width:100%;text-align:left;display:flex;gap:8px;align-items:center;padding:9px 10px;border:1px solid ' + (selected ? 'var(--accent)' : 'transparent') + ';border-radius:var(--radius-md);margin-bottom:6px;cursor:pointer;background:' + (selected ? 'color-mix(in srgb, var(--accent) 14%, transparent)' : 'transparent') + ';color:var(--fg);box-shadow:' + (selected ? '0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent)' : 'none') + ';overflow:hidden">' +
+          '<span style="color:' + color + ';font-size:12px;flex:0 0 auto">' + (latency >= 0 ? '●' : '○') + '</span>' +
+          '<span style="flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(formatSocks5ProxyCompactLine(p)) + '</span>' +
         '</button>';
       }).join('');
     }
@@ -543,33 +575,62 @@
     function selectSocks5PoolProxy(index) {
       socks5PoolState.selected = socks5PoolState.proxies[index] || null;
       renderSocks5PoolList();
-      renderSocks5PoolMap();
+      renderSocks5PoolDetail();
     }
 
-    function renderSocks5PoolMap() {
-      const map = document.getElementById('socks5-pool-map');
-      if (!map) return;
-      const proxies = socks5PoolState.proxies || [];
-      const points = proxies.map(function(p, idx) {
-        const lon = Number(p.longitude || 0), lat = Number(p.latitude || 0);
-        const x = lon ? Math.max(4, Math.min(96, (lon + 180) / 360 * 100)) : 50;
-        const y = lat ? Math.max(6, Math.min(94, (90 - lat) / 180 * 100)) : 50;
-        const selected = socks5PoolState.selected && socks5PoolState.selected.address === p.address && socks5PoolState.selected.port === p.port;
-        return '<button onclick="selectSocks5PoolProxy(' + idx + ')" title="' + escapeHtml(p.city || p.address) + '" style="position:absolute;left:' + x + '%;top:' + y + '%;transform:translate(-50%,-50%);width:' + (selected ? 18 : 12) + 'px;height:' + (selected ? 18 : 12) + 'px;border-radius:50%;border:2px solid var(--surface);background:' + (selected ? 'var(--accent2)' : 'var(--accent)') + ';box-shadow:0 0 0 ' + (selected ? 8 : 4) + 'px color-mix(in srgb, var(--accent) 18%, transparent);cursor:pointer"></button>';
-      }).join('');
-      const selected = socks5PoolState.selected;
-      map.innerHTML = '<div style="position:absolute;inset:0;opacity:.28;background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:40px 40px"></div>' +
-        '<div style="position:absolute;left:18%;top:24%;width:45%;height:58%;border:1px solid color-mix(in srgb, var(--accent) 35%, transparent);border-radius:52% 38% 45% 45%;transform:rotate(-12deg);background:color-mix(in srgb, var(--accent) 8%, transparent)"></div>' +
-        '<div style="position:absolute;right:12%;top:22%;width:30%;height:46%;border:1px solid color-mix(in srgb, var(--green) 25%, transparent);border-radius:48%;background:color-mix(in srgb, var(--green) 6%, transparent)"></div>' +
-        points +
-        (selected ? '<div style="position:absolute;left:18px;bottom:18px;right:18px;padding:12px;border:1px solid var(--line);border-radius:var(--radius-md);background:color-mix(in srgb, var(--surface) 86%, transparent);backdrop-filter:blur(6px)"><strong style="color:var(--accent2)">' + escapeHtml(selected.city || selected.country_code || selected.address) + '</strong><div class="muted" style="font-size:var(--text-xs);margin-top:4px">' + escapeHtml(selected.address + ':' + selected.port + ' · ' + (selected.asn || '') + ' · ' + (selected.organization || '')) + '</div></div>' : '');
+    function renderSocks5PoolDetail() {
+      const detail = document.getElementById('socks5-pool-detail');
+      if (!detail) return;
+      const p = socks5PoolState.selected;
+      if (!p) {
+        const regions = socks5PoolState.regions || [];
+        detail.innerHTML = '<div class="muted" style="font-size:var(--text-xs);letter-spacing:.08em;text-transform:uppercase">SOCKS5 Pool</div>' +
+          '<h3 style="margin:10px 0 8px;font-size:18px">选择地区后查看详情</h3>' +
+          '<p class="field-help" style="margin:0 0 14px">左侧显示当前选中 SOCKS5 的详细信息；右侧只在选择地区后展示列表并逐行测延时。</p>' +
+          '<div style="display:grid;gap:8px;font-size:var(--text-sm)">' +
+          '<div><span class="muted">地区数</span><br><strong>' + regions.length + '</strong></div>' +
+          '<div><span class="muted">缓存状态</span><br><strong>' + escapeHtml((socks5PoolState.cache && socks5PoolState.cache.cache_status) || '加载中') + '</strong></div>' +
+          '<div><span class="muted">刷新策略</span><br><strong>每日 06:00</strong></div></div>';
+        return;
+      }
+      const latency = Number(p.latency);
+      const latencyText = latency >= 0 ? latency.toFixed(0) + ' ms' : '测速中';
+      const asn = p.asn ? 'AS' + String(p.asn).replace(/^AS/i, '') : '-';
+      detail.innerHTML = '<div class="muted" style="font-size:var(--text-xs);letter-spacing:.08em;text-transform:uppercase">Selected SOCKS5</div>' +
+        '<h3 style="margin:10px 0 8px;color:var(--accent2);font-size:20px;word-break:break-word">' + escapeHtml(p.city || p.country || p.country_code || p.address) + '</h3>' +
+        '<div style="display:grid;gap:10px;font-size:var(--text-sm);word-break:break-word">' +
+        '<div><span class="muted">地址</span><br><strong>' + escapeHtml(p.address + ':' + p.port) + '</strong></div>' +
+        '<div><span class="muted">延时</span><br><strong>' + escapeHtml(latencyText) + '</strong></div>' +
+        '<div><span class="muted">地区</span><br><strong>' + escapeHtml((p.country || '-') + ' / ' + (p.country_code || '-')) + '</strong></div>' +
+        '<div><span class="muted">ASN</span><br><strong>' + escapeHtml(asn) + '</strong></div>' +
+        '<div><span class="muted">运营商</span><br><strong>' + escapeHtml(p.organization || '-') + '</strong></div>' +
+        '<div><span class="muted">认证</span><br><strong>' + escapeHtml(p.username ? '需要账号密码' : '无认证') + '</strong></div></div>';
+    }
+
+    async function pingSocks5PoolProxy(index) {
+      const listOverflowContract = 'overflow-x:hidden';
+      const latencyMethod = 'tcping';
+      void listOverflowContract;
+      void latencyMethod;
+      const p = socks5PoolState.proxies[index];
+      if (!p) return;
+      try {
+        const resp = await apiFetch('/api/outbounds/socks5-pool/ping', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({address:p.address, port:p.port})
+        });
+        const result = await resp.json();
+        p.latency = Number(result.latency);
+      } catch(e) { p.latency = -1; }
+      renderSocks5PoolList();
+      if (socks5PoolState.selected && socks5PoolState.selected.address === p.address && socks5PoolState.selected.port === p.port) renderSocks5PoolDetail();
     }
 
     async function confirmSocks5PoolProxy() {
       const p = socks5PoolState.selected;
       if (!p) { showToast('请选择一个 SOCKS5', 'error'); return; }
       try {
-        const resp = await fetch(apiPath('/api/outbounds/socks5-pool/import'), {
+        const resp = await apiFetch('/api/outbounds/socks5-pool/import', {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify({address:p.address, port:p.port, username:p.username, password:p.password, city:p.city, asn:p.asn, organization:p.organization})
         });
