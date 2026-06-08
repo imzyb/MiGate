@@ -43,6 +43,36 @@ func TestRouterBackendSecurityContracts(t *testing.T) {
 	}
 }
 
+func TestSystemResourcesAPIReportsServerUsage(t *testing.T) {
+	router := web.NewRouter()
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/system/resources", nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected system resources 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]float64
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode resources response: %v", err)
+	}
+	for _, key := range []string{"cpu_percent", "memory_total", "memory_used", "memory_percent", "disk_total", "disk_used", "disk_percent", "uptime_seconds"} {
+		if _, ok := body[key]; !ok {
+			t.Fatalf("resources response missing %s: %#v", key, body)
+		}
+	}
+	if body["memory_total"] <= 0 || body["disk_total"] <= 0 || body["uptime_seconds"] <= 0 {
+		t.Fatalf("resources response should contain positive totals/uptime: %#v", body)
+	}
+	if body["cpu_percent"] < 0 || body["cpu_percent"] > 100 || body["memory_percent"] < 0 || body["memory_percent"] > 100 || body["disk_percent"] < 0 || body["disk_percent"] > 100 {
+		t.Fatalf("resource percentages should be clamped to 0..100: %#v", body)
+	}
+
+	post := httptest.NewRecorder()
+	router.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/api/system/resources", nil))
+	if post.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected POST to be rejected, got %d", post.Code)
+	}
+}
+
 func TestRouterServesStaticPanelAndHealthAPI(t *testing.T) {
 	router := web.NewRouter()
 
@@ -1189,18 +1219,26 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		}
 	}
 
-	// Overview traffic stats
-	for _, want := range []string{"total-traffic", "xray-status-metric"} {
+	// Overview traffic and server resource stats
+	for _, want := range []string{"total-traffic", "xray-status-metric", "server-cpu", "server-memory", "server-disk", "server-uptime"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("panel missing overview stat element %q", want)
 		}
 	}
 	for _, want := range []string{
 		"formatBytes",
+		"formatPercent",
+		"formatUptime",
+		"async function loadSystemResources()",
+		"fetch(apiPath('/api/system/resources'))",
+		"document.getElementById('server-cpu').textContent",
+		"document.getElementById('server-memory').textContent",
+		"document.getElementById('server-disk').textContent",
+		"document.getElementById('server-uptime').textContent",
 		"async function loadOverviewServiceStatuses()",
 		"xrayStatusMetric.textContent = formatServiceStatus(xs)",
 		"document.getElementById('singbox-status-metric').textContent = formatServiceStatus(ss)",
-		"if (sectionId === 'overview') { loadStats(); loadOverviewServiceStatuses(); }",
+		"if (sectionId === 'overview') { loadStats(); loadOverviewServiceStatuses(); loadSystemResources(); }",
 	} {
 		if !strings.Contains(jsBody, want) {
 			t.Fatalf("app.js missing overview stat/status contract %q", want)
@@ -1229,7 +1267,8 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		`运行概况`,
 		`协议分布`,
 	} {
-		if !strings.Contains(body, want) {
+		if !strings.Contains(body, want) && !strings.Contains(jsBody, want) {
+			t.Fatalf("panel missing overview insights contract %q", want)
 		}
 	}
 
@@ -1239,13 +1278,53 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		`id="sidebar-overlay"`,
 		`.sidebar-open`,
 		`@media (max-width: 768px)`,
+		`.mobile-topbar`,
+		`class="mobile-topbar"`,
+		`class="mobile-title"`,
+		`class="mobile-menu-button"`,
+		`env(safe-area-inset-top)`,
+		`touch-action:manipulation`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("panel missing mobile sidebar contract %q", want)
 		}
 	}
-	if !strings.Contains(jsBody, "function toggleSidebar()") {
-		t.Fatalf("app.js missing toggleSidebar function")
+	for _, want := range []string{
+		"function toggleSidebar()",
+		"document.body.classList.toggle('sidebar-open')",
+		"document.body.classList.remove('sidebar-open')",
+		"e.key === 'Escape'",
+	} {
+		if !strings.Contains(jsBody, want) {
+			t.Fatalf("app.js missing mobile sidebar JS contract %q", want)
+		}
+	}
+
+	// Mobile outbound cards must wrap details/actions instead of overflowing narrow screens.
+	for _, want := range []string{
+		`.outbound-card`,
+		`.outbound-status-dot`,
+		`.outbound-main`,
+		`.outbound-meta`,
+		`.outbound-actions`,
+		`.outbound-card.is-disabled`,
+		`.outbound-actions .icon-btn`,
+		`.outbound-actions .danger-icon-btn`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing mobile outbound CSS contract %q", want)
+		}
+	}
+	for _, want := range []string{
+		`class=\"card outbound-card`,
+		`class=\"outbound-status-dot`,
+		`class=\"outbound-main\"`,
+		`class=\"outbound-meta\"`,
+		`class=\"outbound-actions\"`,
+	} {
+		if !strings.Contains(jsBody, want) {
+			t.Fatalf("app.js missing mobile outbound card contract %q", want)
+		}
 	}
 
 	// Touch-friendly control heights

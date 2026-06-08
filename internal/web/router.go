@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"sync"
 	"time"
 
@@ -186,6 +187,7 @@ func NewRouter(options ...Option) http.Handler {
 	mux.HandleFunc("/api/routing-rules", routingRulesHandler(cfg.store, cfg.xrayController))
 	mux.HandleFunc("/api/routing-rules/", routingRuleChildrenHandler(cfg.store, cfg.xrayController))
 	mux.HandleFunc("/api/stats", statsHandler(cfg.store, cfg.statsClient))
+	mux.HandleFunc("/api/system/resources", systemResourcesHandler())
 	mux.HandleFunc("/api/xray/config", xrayConfigHandler(cfg.store))
 	mux.HandleFunc("/api/xray/status", xrayStatusHandler(cfg.xrayController))
 	mux.HandleFunc("/api/xray/apply", xrayApplyHandler(cfg.xrayController, cfg.store))
@@ -1008,6 +1010,146 @@ func statsHandler(store Store, statsClient xray.StatsClient) http.HandlerFunc {
 			"routing_rules_enabled": enabledRules,
 		})
 	}
+}
+
+type cpuSample struct {
+	Idle  uint64
+	Total uint64
+}
+
+func systemResourcesHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		memTotal, memUsed, memPercent := readMemoryUsage()
+		diskTotal, diskUsed, diskPercent := readDiskUsage("/")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"cpu_percent":    sampleCPUPercent(),
+			"memory_total":   memTotal,
+			"memory_used":    memUsed,
+			"memory_percent": memPercent,
+			"disk_total":     diskTotal,
+			"disk_used":      diskUsed,
+			"disk_percent":   diskPercent,
+			"uptime_seconds": readUptimeSeconds(),
+		})
+	}
+}
+
+func sampleCPUPercent() float64 {
+	first, err := readCPUSample()
+	if err != nil {
+		return 0
+	}
+	time.Sleep(100 * time.Millisecond)
+	second, err := readCPUSample()
+	if err != nil || second.Total <= first.Total {
+		return 0
+	}
+	totalDelta := second.Total - first.Total
+	idleDelta := second.Idle - first.Idle
+	if totalDelta == 0 || idleDelta > totalDelta {
+		return 0
+	}
+	return clampPercent(round1(float64(totalDelta-idleDelta) * 100 / float64(totalDelta)))
+}
+
+func readCPUSample() (cpuSample, error) {
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return cpuSample{}, err
+	}
+	line := strings.SplitN(string(data), "\n", 2)[0]
+	fields := strings.Fields(line)
+	if len(fields) < 5 || fields[0] != "cpu" {
+		return cpuSample{}, fmt.Errorf("invalid cpu stat")
+	}
+	var total uint64
+	var idle uint64
+	for i, field := range fields[1:] {
+		value, err := strconv.ParseUint(field, 10, 64)
+		if err != nil {
+			return cpuSample{}, err
+		}
+		total += value
+		if i == 3 || i == 4 {
+			idle += value
+		}
+	}
+	return cpuSample{Idle: idle, Total: total}, nil
+}
+
+func readMemoryUsage() (totalBytes, usedBytes int64, percent float64) {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0, 0, 0
+	}
+	values := map[string]int64{}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		value, err := strconv.ParseInt(fields[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		values[strings.TrimSuffix(fields[0], ":")] = value * 1024
+	}
+	total := values["MemTotal"]
+	available := values["MemAvailable"]
+	if total <= 0 || available < 0 {
+		return 0, 0, 0
+	}
+	used := total - available
+	return total, used, clampPercent(round1(float64(used)*100/float64(total)))
+}
+
+func readDiskUsage(path string) (totalBytes, usedBytes int64, percent float64) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return 0, 0, 0
+	}
+	total := int64(stat.Blocks) * int64(stat.Bsize)
+	free := int64(stat.Bavail) * int64(stat.Bsize)
+	if total <= 0 || free < 0 {
+		return 0, 0, 0
+	}
+	used := total - free
+	return total, used, clampPercent(round1(float64(used)*100/float64(total)))
+}
+
+func readUptimeSeconds() int64 {
+	data, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		return 0
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		return 0
+	}
+	seconds, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return 0
+	}
+	return int64(seconds)
+}
+
+func round1(v float64) float64 {
+	return float64(int(v*10+0.5)) / 10
+}
+
+func clampPercent(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 100 {
+		return 100
+	}
+	return v
 }
 
 func inboundsHandler(store Store, ctrl XrayController) http.HandlerFunc {
@@ -2501,12 +2643,17 @@ const panelHTML = `<!doctype html>
     main { padding:var(--space-6); background:var(--bg); }
     main > section{display:none}
     #overview.overview-grid{display:grid}
-    .overview-grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:var(--space-4); margin-bottom:var(--space-4); }
+    .overview-grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:var(--space-4); margin-bottom:var(--space-4); align-items:stretch; }
+    .overview-section { grid-column:1 / -1; display:grid; gap:var(--space-3); }
+    .overview-section-title { color:var(--muted); font-size:var(--text-sm); font-weight:600; letter-spacing:.02em; }
     .sidebar { position:sticky; top:0; height:100vh; overflow:auto; box-shadow:inset -1px 0 0 var(--line-strong); padding:var(--space-6) 18px; background:var(--surface); display:flex; flex-direction:column; }
     .brand { font-size:24px; font-weight:600; letter-spacing:-0.96px; margin-bottom:var(--space-1); color:var(--fg); }
     .subtitle { color:var(--muted); font-size:var(--text-sm); line-height:1.5; margin-bottom:var(--space-4); }
     nav { flex:1; overflow:visible; }
-    #sidebar-toggle { display:none; align-items:center; justify-content:center; width:36px; height:36px; border:none; background:var(--surface); color:var(--fg); font-size:22px; cursor:pointer; border-radius:var(--radius-sm); box-shadow:var(--shadow-md); z-index:101; position:fixed; top:12px; left:12px; }
+    #sidebar-toggle { display:none; align-items:center; justify-content:center; width:36px; height:36px; border:none; background:var(--surface); color:var(--fg); font-size:22px; cursor:pointer; border-radius:var(--radius-sm); box-shadow:var(--shadow-md); z-index:101; position:fixed; top:12px; left:12px; touch-action:manipulation; }
+    .mobile-topbar { display:none; position:sticky; top:0; z-index:90; align-items:center; gap:12px; min-height:56px; padding:calc(8px + env(safe-area-inset-top)) 18px 8px; margin:calc(-1 * var(--space-6)) calc(-1 * var(--space-6)) var(--space-4); background:color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter:blur(12px); box-shadow:inset 0 -1px 0 var(--line); }
+    .mobile-menu-button { display:inline-flex; align-items:center; justify-content:center; width:40px; min-width:40px; min-height:40px; padding:0; background:var(--surface); color:var(--fg); border-radius:var(--radius-md); box-shadow:var(--shadow-sm); touch-action:manipulation; }
+    .mobile-title { color:var(--fg); font-size:var(--text-lg); font-weight:600; letter-spacing:-.32px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .account-panel { display:grid; gap:var(--space-2); padding:var(--space-3); margin-top:auto; border-radius:var(--radius-md); background:transparent; box-shadow:inset 0 1px 0 var(--line); }
     .account-label { color:var(--muted); font-size:var(--text-xs); text-transform:uppercase; letter-spacing:.08em; }
     .account-name { color:var(--fg); font-size:var(--text-sm); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -2575,6 +2722,13 @@ const panelHTML = `<!doctype html>
     .status-badge.enabled { color:var(--accent2); background:rgba(22,163,74,.14); }
     .status-badge.disabled { color:var(--muted); background:rgba(161,161,170,.14); }
     .resource-actions { display:flex; align-items:center; justify-content:flex-end; gap:6px; }
+    .outbound-card { padding:12px 16px; display:flex; align-items:center; gap:12px; min-width:0; }
+    .outbound-card.is-disabled { opacity:.68; }
+    .outbound-status-dot { flex:0 0 auto; font-size:18px; line-height:1; }
+    .outbound-main { flex:1; min-width:0; display:grid; gap:4px; }
+    .outbound-meta { color:var(--muted); font-size:var(--text-xs); line-height:1.45; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .outbound-actions { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex:0 0 auto; }
+    .outbound-actions .icon-btn, .outbound-actions .danger-icon-btn { touch-action:manipulation; }
     .icon-btn, .danger-icon-btn { display:inline-flex; align-items:center; justify-content:center; min-width:32px; min-height:32px; height:32px; padding:0 var(--space-2); border-radius:var(--control-radius); font-size:var(--text-xs); }
     .icon-btn { background:var(--surface); color:var(--fg); box-shadow:var(--shadow-sm); }
     .danger-icon-btn { background:rgba(239,68,68,.12); color:var(--danger); box-shadow:var(--shadow-sm); }
@@ -2643,16 +2797,25 @@ const panelHTML = `<!doctype html>
     #sidebar-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.12); backdrop-filter:blur(4px); z-index:99; }
     @media (max-width: 768px) {
       .app-shell { grid-template-columns:1fr; }
-      .sidebar { position:fixed; top:0; left:0; bottom:0; width:var(--sidebar-width); z-index:100; transform:translateX(-100%); transition:transform .25s ease; box-shadow:inset -1px 0 0 var(--line-strong); }
-      .sidebar-open .sidebar { transform:translateX(0); }
+      main { padding:calc(var(--space-6) + 56px) var(--space-4) var(--space-4); }
+      .mobile-topbar { display:flex; position:fixed; left:0; right:0; margin:0; }
+      .sidebar { position:fixed; top:0; left:0; bottom:0; width:min(var(--sidebar-width), 86vw); z-index:100; transform:translateX(-100%); transition:transform .25s ease; box-shadow:inset -1px 0 0 var(--line-strong); }
+      .sidebar-open .sidebar, body.sidebar-open .sidebar { transform:translateX(0); }
       #sidebar-overlay { display:block; opacity:0; pointer-events:none; transition:opacity .25s ease; }
-      .sidebar-open #sidebar-overlay { opacity:1; pointer-events:auto; }
-      #sidebar-toggle { display:flex; }
+      .sidebar-open #sidebar-overlay, body.sidebar-open #sidebar-overlay { opacity:1; pointer-events:auto; }
+      #sidebar-toggle { display:none; }
       .grid,.overview-grid,.protocols { grid-template-columns:1fr 1fr; }
       .overview-insights { grid-template-columns:1fr; }
+      .action-toolbar { align-items:stretch; flex-direction:column; }
+      .toolbar-actions { justify-content:flex-start; }
       form { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .outbound-card { align-items:flex-start; flex-wrap:wrap; padding:14px; }
+      .outbound-main { flex-basis:calc(100% - 34px); }
+      .outbound-meta { white-space:normal; word-break:break-word; }
+      .outbound-actions { width:100%; justify-content:flex-start; padding-left:30px; }
+      .outbound-actions .icon-btn, .outbound-actions .danger-icon-btn { min-width:40px; min-height:40px; }
     }
-    @media (max-width: 560px) { .grid,.overview-grid,.protocols, form { grid-template-columns:1fr; } main { padding:18px; } }
+    @media (max-width: 560px) { .grid,.overview-grid,.protocols, form { grid-template-columns:1fr; } main { padding:calc(var(--space-5) + 56px) var(--space-3) var(--space-4); } .mobile-topbar { padding-left:var(--space-3); padding-right:var(--space-3); } .modal-content,#confirm-dialog { min-width:0; width:calc(100vw - 28px); max-width:calc(100vw - 28px); } .modal-form { grid-template-columns:1fr; } .form-actions,.modal-footer { flex-direction:column-reverse; align-items:stretch; } }
   </style>
 </head>
 <body>
@@ -3135,8 +3298,22 @@ const panelHTML = `<!doctype html>
     </aside>
     <div id="sidebar-overlay" onclick="closeSidebar()"></div>
     <main>
+      <div class="mobile-topbar" aria-label="移动端导航栏">
+        <button class="mobile-menu-button" onclick="toggleSidebar()" aria-label="展开菜单">☰</button>
+        <div class="mobile-title">MiGate</div>
+      </div>
       <section id="overview" class="overview-grid" aria-label="概览指标">
         <div id="version-banner" class="version-banner" style="display:none; grid-column:1 / -1"></div>
+        <div class="overview-section" aria-label="服务器资源占用">
+          <div class="overview-section-title">服务器资源</div>
+        </div>
+        <div class="card panel"><div>CPU</div><div id="server-cpu" class="metric">--</div><p>当前系统 CPU 占用</p></div>
+        <div class="card panel"><div>内存</div><div id="server-memory" class="metric">--</div><p id="server-memory-detail">已用 / 总量</p></div>
+        <div class="card panel"><div>硬盘</div><div id="server-disk" class="metric">--</div><p id="server-disk-detail">根分区已用 / 总量</p></div>
+        <div class="card panel"><div>开机时长</div><div id="server-uptime" class="metric">--</div><p>系统运行时间</p></div>
+        <div class="overview-section" aria-label="业务状态">
+          <div class="overview-section-title">业务状态</div>
+        </div>
         <div class="card panel"><div>入站</div><div id="inbound-count" class="metric">0</div><p>VLESS / VMess / Trojan / Shadowsocks</p></div>
         <div class="card panel"><div>客户端</div><div id="client-count" class="metric">0</div><p>活跃 / 总计</p></div>
         <div class="card panel"><div>总流量</div><div id="total-traffic" class="metric">0 B</div><p>所有客户端上行+下行累计</p></div>

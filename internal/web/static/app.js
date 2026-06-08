@@ -265,6 +265,40 @@
       }
     }
 
+    function formatPercent(value) {
+      const n = Number(value || 0);
+      return (Number.isFinite(n) ? n.toFixed(1) : '0.0') + '%';
+    }
+
+    function formatUptime(seconds) {
+      const total = Math.max(0, Number(seconds || 0));
+      const days = Math.floor(total / 86400);
+      const hours = Math.floor((total % 86400) / 3600);
+      const minutes = Math.floor((total % 3600) / 60);
+      if (days > 0) return days + '天 ' + hours + '小时';
+      if (hours > 0) return hours + '小时 ' + minutes + '分钟';
+      return minutes + '分钟';
+    }
+
+    async function loadSystemResources() {
+      try {
+        const resp = await fetch(apiPath('/api/system/resources'));
+        if (!resp.ok) throw new Error('resources ' + resp.status);
+        const data = await resp.json();
+        document.getElementById('server-cpu').textContent = formatPercent(data.cpu_percent);
+        document.getElementById('server-memory').textContent = formatPercent(data.memory_percent);
+        document.getElementById('server-disk').textContent = formatPercent(data.disk_percent);
+        document.getElementById('server-uptime').textContent = formatUptime(data.uptime_seconds);
+        document.getElementById('server-memory-detail').textContent = formatBytes(data.memory_used) + ' / ' + formatBytes(data.memory_total);
+        document.getElementById('server-disk-detail').textContent = formatBytes(data.disk_used) + ' / ' + formatBytes(data.disk_total);
+      } catch (e) {
+        document.getElementById('server-cpu').textContent = '--';
+        document.getElementById('server-memory').textContent = '--';
+        document.getElementById('server-disk').textContent = '--';
+        document.getElementById('server-uptime').textContent = '--';
+      }
+    }
+
     var outbounds = [];
 
     function isCustomSpeedTestOutbound(ob) {
@@ -305,13 +339,14 @@
       const enabledColor = ob.enabled ? 'var(--green)' : 'var(--muted)';
       const pinned = ob.sort === 0 || ob.sort === 1;
       const isDraggable = editable && !pinned;
-      return '<div class=\"card\" style=\"padding:12px 16px;display:flex;align-items:center;gap:12px\"' +
+      const disabledClass = ob.enabled ? '' : ' is-disabled';
+      return '<div class=\"card outbound-card' + disabledClass + '\"' +
         (isDraggable ? ' draggable=\"true\" data-ob-id=\"' + ob.id + '\"' : '') + '>' +
-        '<span style=\"color:' + enabledColor + ';font-size:18px\">' + (ob.enabled ? '&#9679;' : '&#9678;') + '</span>' +
-        '<div style=\"flex:1;min-width:0\">' +
+        '<span class=\"outbound-status-dot\" style=\"color:' + enabledColor + '\">' + (ob.enabled ? '&#9679;' : '&#9678;') + '</span>' +
+        '<div class=\"outbound-main\">' +
         '<div style=\"font-weight:600;font-size:var(--text-sm)\">' + escHtml(ob.remark||ob.tag) + '</div>' +
-        '<div class=\"muted\" style=\"font-size:var(--text-xs)\">' + escHtml(ob.tag) + ' &middot; ' + protoLabel + (detail ? ' &middot; ' + escHtml(detail) : '') + ' <span id=\"ping-' + ob.id + '\"></span></div>' +
-        '</div><div style=\"display:flex;gap:6px\">' +
+        '<div class=\"outbound-meta\">' + escHtml(ob.tag) + ' &middot; ' + protoLabel + (detail ? ' &middot; ' + escHtml(detail) : '') + ' <span id=\"ping-' + ob.id + '\"></span></div>' +
+        '</div><div class=\"outbound-actions\">' +
         (editable ? '<button class=\"icon-btn\" onclick=\"speedTestOutbound(' + ob.id + ')\" title=\"测速\">&#9889;</button>' +
           '<button class=\"icon-btn\" onclick=\"openEditOutbound(' + ob.id + ')\" title=\"编辑\">&#9998;</button>' +
           '<button class=\"danger-icon-btn\" onclick=\"deleteOutbound(' + ob.id + ')\" title=\"删除\">&#10005;</button>' :
@@ -1047,10 +1082,15 @@ function openCreateRoutingRule() {
 
     function toggleSidebar() {
       document.querySelector('.app-shell').classList.toggle('sidebar-open');
+      document.body.classList.toggle('sidebar-open');
     }
     function closeSidebar() {
       document.querySelector('.app-shell').classList.remove('sidebar-open');
+      document.body.classList.remove('sidebar-open');
     }
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeSidebar();
+    });
     function toggleClientSection(inboundId) {
       const el = document.getElementById('client-section-' + inboundId);
       if (!el) return;
@@ -1112,7 +1152,7 @@ function openCreateRoutingRule() {
         a.classList.toggle('active', (sectionId === 'overview' && href === '#') || href === '#' + sectionId);
       });
       history.replaceState(null, '', sectionId === 'overview' ? panelPath('/') : panelPath('/#' + sectionId));
-      if (sectionId === 'overview') { loadStats(); loadOverviewServiceStatuses(); }
+      if (sectionId === 'overview') { loadStats(); loadOverviewServiceStatuses(); loadSystemResources(); }
       if (sectionId === 'xray') fetchXrayStatus();
       if (sectionId === 'singbox') fetchSingboxStatus();
     }

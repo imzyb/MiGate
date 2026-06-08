@@ -24,7 +24,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/packaging/in
 安装指定版本：
 
 ```bash
-MIGATE_VERSION=v0.2.41 bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/packaging/install.sh)
+MIGATE_VERSION=v1.0.0 bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/packaging/install.sh)
 ```
 
 安装过程中会提示输入：
