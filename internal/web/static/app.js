@@ -407,6 +407,71 @@
       loadSocks5Pool();
     }
 
+    function socks5ContinentForRegion(code) {
+      const c = String(code || '').toUpperCase();
+      const groups = {
+        '北美 / NA': ['US','CA','MX'],
+        '亚洲 / AS': ['HK','TW','JP','KR','SG','VN','BD','IN','ID','TH','MY','PH','CN'],
+        '欧洲 / EU': ['GB','DE','FR','NL','RU','UA','PL','IT','ES','SE','FI','NO','CH'],
+        '南美 / SA': ['BR','AR','CL','CO','PE'],
+        '大洋洲 / OC': ['AU','NZ'],
+        '非洲 / AF': ['ZA','EG','NG','KE']
+      };
+      for (const name in groups) {
+        if (groups[name].includes(c)) return name;
+      }
+      return '其他 / OT';
+    }
+
+    function groupSocks5RegionsByContinent(regions) {
+      const grouped = {};
+      (regions || []).forEach(function(r) {
+        const key = socks5ContinentForRegion(r.code);
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(r);
+      });
+      Object.keys(grouped).forEach(function(key) {
+        grouped[key].sort(function(a,b) { return (b.count || 0) - (a.count || 0); });
+      });
+      return grouped;
+    }
+
+    function renderSocks5RegionOptions(regions) {
+      const grouped = groupSocks5RegionsByContinent(regions);
+      const order = ['北美 / NA','亚洲 / AS','欧洲 / EU','南美 / SA','大洋洲 / OC','非洲 / AF','其他 / OT'];
+      let html = '<option value="">-- 请选择地区 --</option>';
+      order.forEach(function(group) {
+        if (!grouped[group] || !grouped[group].length) return;
+        html += '<optgroup label="🌎 ' + escapeHtml(group) + '">';
+        html += grouped[group].map(function(r) {
+          const code = r.code || '未知';
+          const label = code + ' ' + (r.name || '') + '(' + (r.count || 0) + ')';
+          return '<option value="' + escapeHtml(code) + '">' + escapeHtml(label) + '</option>';
+        }).join('');
+        html += '</optgroup>';
+      });
+      return html;
+    }
+
+    function sortSocks5PoolProxies(proxies) {
+      return (proxies || []).slice().sort(function(a,b) {
+        const al = Number(a.latency), bl = Number(b.latency);
+        const ao = al >= 0, bo = bl >= 0;
+        if (ao !== bo) return ao ? -1 : 1;
+        if (ao && al !== bl) return al - bl;
+        return String(a.city || a.address).localeCompare(String(b.city || b.address));
+      });
+    }
+
+    function formatSocks5ProxyLine(p) {
+      const latency = Number(p.latency);
+      const status = latency >= 0 ? '✅ [' + latency.toFixed(0) + 'ms]' : '⏳ [验证中]';
+      const city = p.city || p.country_code || p.address;
+      const asn = p.asn ? 'AS' + String(p.asn).replace(/^AS/i, '') : 'AS-';
+      const org = p.organization || 'Unknown';
+      return status + city + ',' + asn + ',' + org;
+    }
+
     async function loadSocks5Pool() {
       const regionSelect = document.getElementById('socks5-pool-region');
       const list = document.getElementById('socks5-pool-list');
@@ -417,12 +482,10 @@
         if (!resp.ok) throw new Error('pool api ' + resp.status);
         const data = await resp.json();
         socks5PoolState.regions = data.regions || [];
-        socks5PoolState.proxies = data.proxies || [];
+        socks5PoolState.proxies = sortSocks5PoolProxies(data.proxies || []);
         socks5PoolState.selected = socks5PoolState.proxies[0] || null;
         if (regionSelect && regionSelect.options.length <= 1) {
-          regionSelect.innerHTML = '<option value="">全部地区</option>' + socks5PoolState.regions.map(function(r) {
-            return '<option value="' + escapeHtml(r.code || '') + '">' + escapeHtml((r.code || '未知') + ' · ' + (r.name || '') + ' (' + (r.count || 0) + ')') + '</option>';
-          }).join('');
+          regionSelect.innerHTML = renderSocks5RegionOptions(socks5PoolState.regions);
         }
         renderSocks5PoolList();
         renderSocks5PoolMap();
@@ -442,14 +505,14 @@
       }
       list.innerHTML = proxies.map(function(p, idx) {
         const selected = socks5PoolState.selected && socks5PoolState.selected.address === p.address && socks5PoolState.selected.port === p.port;
-        const latency = p.latency >= 0 ? p.latency + 'ms' : '超时';
-        const color = p.latency >= 0 && p.latency < 300 ? 'var(--green)' : (p.latency >= 0 && p.latency < 800 ? 'var(--accent2)' : 'var(--danger)');
-        return '<label onclick="selectSocks5PoolProxy(' + idx + ')" style="display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid ' + (selected ? 'var(--accent)' : 'var(--line)') + ';border-radius:var(--radius-md);margin-bottom:8px;cursor:pointer;background:' + (selected ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : 'var(--surface)') + '">' +
-          '<input type="radio" name="socks5-pool-choice" ' + (selected ? 'checked' : '') + ' style="margin-top:3px">' +
-          '<span style="flex:1;min-width:0"><strong>' + escapeHtml(p.city || p.country_code || p.address) + '</strong><br>' +
-          '<span class="muted" style="font-size:var(--text-xs)">' + escapeHtml((p.asn || '') + ' · ' + (p.organization || '') + ' · ' + p.address + ':' + p.port) + '</span></span>' +
-          '<span style="color:' + color + ';font-weight:600;font-size:var(--text-xs)">' + latency + '</span>' +
-        '</label>';
+        const latency = Number(p.latency);
+        const line = formatSocks5ProxyLine(p);
+        const color = latency >= 0 && latency < 300 ? 'var(--green)' : (latency >= 0 && latency < 800 ? 'var(--accent2)' : 'var(--muted)');
+        const optionClass = selected ? 'socks5-pool-option selected' : 'socks5-pool-option';
+        return '<button type="button" onclick="selectSocks5PoolProxy(' + idx + ')" class="' + optionClass + '" style="width:100%;text-align:left;display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid ' + (selected ? 'var(--accent)' : 'transparent') + ';border-radius:var(--radius-md);margin-bottom:6px;cursor:pointer;background:' + (selected ? 'color-mix(in srgb, var(--accent) 14%, transparent)' : 'transparent') + ';color:var(--fg);box-shadow:' + (selected ? '0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent)' : 'none') + '">' +
+          '<span style="color:' + color + ';font-size:14px">' + (latency >= 0 ? '✅' : '⏳') + '</span>' +
+          '<span style="flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(line.replace(/^✅ |^⏳ /, '')) + '</span>' +
+        '</button>';
       }).join('');
     }
 

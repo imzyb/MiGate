@@ -105,6 +105,12 @@ func TestPanelWiresSocks5PoolPickerToOutboundManagement(t *testing.T) {
 		`renderSocks5PoolMap`,
 		`selectSocks5PoolProxy`,
 		`confirmSocks5PoolProxy()`,
+		`renderSocks5RegionOptions`,
+		`groupSocks5RegionsByContinent`,
+		`formatSocks5ProxyLine`,
+		`验证中`,
+		`socks5-pool-option selected`,
+		`sortSocks5PoolProxies`,
 		`fetch(apiPath('/api/outbounds/socks5-pool?country=' + encodeURIComponent(country)))`,
 		`fetch(apiPath('/api/outbounds/socks5-pool/import')`,
 	} {
