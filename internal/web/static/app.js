@@ -271,8 +271,10 @@
     function renderVPNGateRuntimeControls(ob) {
       return '<div class=\"muted\" style=\"font-size:var(--text-xs);margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap\">' +
         '<span id=\"vpngate-runtime-' + ob.id + '\">运行状态：暂未启动</span>' +
+        '<span id=\"vpngate-runtime-doctor-' + ob.id + '\">依赖预检：未检查</span>' +
         '<button class=\"btn-mini\" onclick=\"showVPNGateRuntimePlan(' + ob.id + ')\">启动计划</button>' +
         '<button class=\"btn-mini\" onclick=\"refreshVPNGateRuntimeStatus(' + ob.id + ')\">运行状态</button>' +
+        '<button class=\"btn-mini\" onclick=\"checkVPNGateRuntimeDoctor(' + ob.id + ')\">依赖预检</button>' +
         '</div>';
     }
 
@@ -301,6 +303,24 @@
       } catch(e) {
         if (el) el.textContent = '运行状态：读取失败';
         showToast('读取 VPN Gate 运行状态失败：' + e.message, 'error');
+      }
+    }
+
+    async function checkVPNGateRuntimeDoctor(id) {
+      const el = document.getElementById('vpngate-runtime-doctor-' + id);
+      if (el) el.textContent = '依赖预检：检查中...';
+      try {
+        const resp = await fetch(apiPath('/api/vpngate/egress/doctor?outbound_id=' + encodeURIComponent(id)));
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'doctor_failed');
+        const checks = data.checks || [];
+        const missing = checks.filter(function(c) { return c.status !== 'available'; });
+        const label = missing.length ? '缺少依赖 ' + missing.map(function(c) { return c.command; }).join(', ') : '依赖就绪';
+        if (el) el.textContent = '依赖预检：' + label;
+        showToast('VPN Gate 依赖预检：' + label, missing.length ? 'error' : 'success');
+      } catch(e) {
+        if (el) el.textContent = '依赖预检：读取失败';
+        showToast('读取 VPN Gate 依赖预检失败：' + e.message, 'error');
       }
     }
 

@@ -166,10 +166,14 @@ func TestPanelShowsVPNGateRuntimeControlsForSoftEtherOutbounds(t *testing.T) {
 		`function renderVPNGateRuntimeControls(ob)`,
 		`function showVPNGateRuntimePlan(id)`,
 		`function refreshVPNGateRuntimeStatus(id)`,
+		`function checkVPNGateRuntimeDoctor(id)`,
 		`/api/vpngate/egress/plan?outbound_id=`,
 		`/api/vpngate/egress/status?outbound_id=`,
+		`/api/vpngate/egress/doctor?outbound_id=`,
 		`启动计划`,
 		`运行状态`,
+		`依赖预检`,
+		`缺少依赖`,
 		`暂未启动`,
 	} {
 		if !strings.Contains(jsBody, want) {
