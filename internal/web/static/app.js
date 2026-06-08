@@ -1894,20 +1894,33 @@ function openCreateRoutingRule() {
       try {
         const res = await fetch(apiPath('/api/xray/status'));
         const data = await res.json();
-        document.getElementById('xray-status').textContent = data.status || '未知';
+        if (!data.installed) {
+          document.getElementById('xray-status').textContent = '未安装';
+          document.getElementById('xray-version').textContent = '-';
+          document.getElementById('xray-memory').textContent = '-';
+          document.getElementById('xray-uptime').textContent = '-';
+          document.getElementById('xray-connections').textContent = '-';
+          document.getElementById('xray-managed').textContent = data.managed ? '是' : '否';
+          document.getElementById('xray-service').textContent = data.service || 'xray';
+          document.getElementById('xray-config-path').textContent = data.config_path || '-';
+          return;
+        }
+        document.getElementById('xray-status').textContent =
+          data.status === 'running' ? '运行中' : (data.status === 'stopped' ? '已停止' : (data.status || '未知'));
+        document.getElementById('xray-version').textContent = data.version || '-';
+        document.getElementById('xray-memory').textContent = data.memory_rss_bytes ? formatBytes(data.memory_rss_bytes) : '-';
+        document.getElementById('xray-uptime').textContent = data.uptime || '-';
+        document.getElementById('xray-connections').textContent = data.active_connections != null ? data.active_connections.toString() : '-';
         document.getElementById('xray-managed').textContent = data.managed ? '是' : '否';
         document.getElementById('xray-service').textContent = data.service || 'xray';
-      } catch (e) {
-        document.getElementById('xray-status').textContent = '连接失败';
-      }
-      try {
-        const vr = await fetch(apiPath('/api/xray/version'));
-        const vdata = await vr.json();
-        document.getElementById('xray-version').textContent = vdata.version || '-';
+        document.getElementById('xray-config-path').textContent = data.config_path || '-';
         // Hysteria2 is not supported by any current Xray version
         document.getElementById('xray-unsupported-warning').style.display = 'block';
       } catch (e) {
-        document.getElementById('xray-version').textContent = '获取失败';
+        document.getElementById('xray-status').textContent = '连接失败';
+        document.getElementById('xray-memory').textContent = '-';
+        document.getElementById('xray-uptime').textContent = '-';
+        document.getElementById('xray-connections').textContent = '-';
       }
     }
     async function runCoreAction(core, action) {

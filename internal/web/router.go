@@ -33,6 +33,10 @@ var validEmail = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-
 
 const maxXrayLogLines = 200
 
+type XrayStatusStore interface {
+	ListInbounds(ctx context.Context) ([]db.Inbound, error)
+}
+
 type Store interface {
 	ListInbounds(ctx context.Context) ([]db.Inbound, error)
 	CreateInbound(ctx context.Context, params db.CreateInboundParams) (db.Inbound, error)
@@ -69,10 +73,16 @@ type XrayController interface {
 }
 
 type XrayStatus struct {
-	Service          string   `json:"service"`
-	Status           string   `json:"status"`
-	Managed          bool     `json:"managed"`
-	CommandsExecuted []string `json:"commands_executed"`
+	Service           string   `json:"service"`
+	Status            string   `json:"status"`
+	Managed           bool     `json:"managed"`
+	Installed         bool     `json:"installed"`
+	Version           string   `json:"version"`
+	MemoryRSSBytes    int64    `json:"memory_rss_bytes"`
+	Uptime            string   `json:"uptime"`
+	ActiveConnections int      `json:"active_connections"`
+	ConfigPath        string   `json:"config_path"`
+	CommandsExecuted  []string `json:"commands_executed"`
 }
 
 type XrayApplyResult struct {
@@ -4220,8 +4230,12 @@ const panelHTML = `<!doctype html>
         <div class="xray-status-panel">
           <div><strong>状态</strong>：<span id="xray-status">未知</span></div>
           <div><strong>版本</strong>：<span id="xray-version">-</span></div>
-          <div><strong>托管</strong>：<span id="xray-managed">-</span></div>
+          <div><strong>内存</strong>：<span id="xray-memory">-</span></div>
+          <div><strong>运行时长</strong>：<span id="xray-uptime">-</span></div>
+          <div><strong>活跃连接</strong>：<span id="xray-connections">-</span></div>
+          <div><strong>托管服务</strong>：<span id="xray-managed">-</span></div>
           <div><strong>服务</strong>：<span id="xray-service">xray</span></div>
+          <div><strong>配置路径</strong>：<span id="xray-config-path">-</span></div>
         </div>
         <div id="xray-unsupported-warning" class="xray-warning muted" style="display:none;margin-top:12px;padding:12px 16px;border-radius:var(--radius-md);background:var(--surface-warning);color:var(--fg)">当前 Xray 版本不支持 Hysteria2 协议，需要使用 sing-box 等后端配合。</div>
         <div id="vpngate-auto-health-card" class="muted" style="display:none;margin-top:12px;padding:12px 16px;border-radius:var(--radius-md);background:var(--surface-subtle)">

@@ -1994,7 +1994,7 @@ type fakeXrayController struct {
 
 func (f *fakeXrayController) Status(ctx context.Context) web.XrayStatus {
 	f.statusCalls++
-	return web.XrayStatus{Service: "xray", Status: "running", Managed: true, CommandsExecuted: []string{}}
+	return web.XrayStatus{Service: "xray", Status: "running", Managed: true, Installed: true, Version: "Xray 25.6.8", MemoryRSSBytes: 12345678, Uptime: "2h3m", ActiveConnections: 4, ConfigPath: "/usr/local/migate/xray.json", CommandsExecuted: []string{}}
 }
 
 func (f *fakeXrayController) Apply(ctx context.Context) web.XrayApplyResult {
@@ -2015,7 +2015,7 @@ func TestXrayStatusAPIIsReadOnly(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
-	for _, want := range []string{`"service":"xray"`, `"status":"running"`, `"managed":true`, `"commands_executed":[]`} {
+	for _, want := range []string{`"service":"xray"`, `"status":"running"`, `"managed":true`, `"installed":true`, `"version":"Xray 25.6.8"`, `"memory_rss_bytes":12345678`, `"uptime":"2h3m"`, `"active_connections":4`, `"config_path":"/usr/local/migate/xray.json"`, `"commands_executed":[]`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("status response missing %q: %s", want, body)
 		}
@@ -2085,6 +2085,51 @@ func TestXrayVersionAPIReturnsVersionFromController(t *testing.T) {
 	}
 	if data["version"] != "Xray 1.8.0" {
 		t.Fatalf("expected version 'Xray 1.8.0', got %q", data["version"])
+	}
+}
+
+func TestRealControllerStatusReturnsDetailedRuntimeFields(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	_, err = store.CreateInbound(context.Background(), db.CreateInboundParams{
+		Remark: "xray-vless", Protocol: "vless", Port: 8443, Network: "tcp", Security: "none",
+	})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+
+	configDir := "/usr/local/migate"
+	mockRun := func(name string, args ...string) (string, error) {
+		cmd := name + " " + strings.Join(args, " ")
+		switch cmd {
+		case "systemctl is-active xray":
+			return "active\n", nil
+		case "systemctl show xray --property=MemoryCurrent --property=MainPID --property=ActiveEnterTimestamp":
+			return "MemoryCurrent=24680\nMainPID=123\nActiveEnterTimestamp=Mon 2026-06-08 08:00:00 UTC\n", nil
+		case "xray version":
+			return "Xray 26.3.27\nA unified platform for anti-censorship.", nil
+		case "ss -tn state established":
+			return "ESTAB 0 0 203.0.113.10:8443 198.51.100.2:50000\nESTAB 0 0 203.0.113.10:21000 198.51.100.3:50001\n", nil
+		default:
+			return "", fmt.Errorf("unexpected command %s", cmd)
+		}
+	}
+
+	status := web.NewRealController(store, configDir, mockRun).Status(context.Background())
+	if status.Status != "running" || !status.Managed || !status.Installed {
+		t.Fatalf("expected running managed installed status, got %+v", status)
+	}
+	if status.Version != "Xray 26.3.27" || status.MemoryRSSBytes != 24680 || status.ConfigPath != "/usr/local/migate/xray.json" {
+		t.Fatalf("unexpected detail fields: %+v", status)
+	}
+	if status.Uptime == "" || status.Uptime == "未知" {
+		t.Fatalf("expected parsed uptime, got %+v", status)
+	}
+	if status.ActiveConnections != 1 {
+		t.Fatalf("expected only Xray inbound port connection counted, got %+v", status)
 	}
 }
 

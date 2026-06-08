@@ -885,7 +885,7 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 	}
 
 	// New sections: outbound and xray
-	for _, want := range []string{`id="outbound"`, `id="xray"`, `id="xray-status"`} {
+	for _, want := range []string{`id="outbound"`, `id="xray"`, `id="xray-status"`, `id="xray-memory"`, `id="xray-uptime"`, `id="xray-connections"`, `id="xray-config-path"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("panel missing section/element %q", want)
 		}

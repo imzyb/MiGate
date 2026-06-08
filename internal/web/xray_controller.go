@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/imzyb/MiGate/internal/xray"
 )
@@ -17,9 +19,9 @@ type CmdRunner func(name string, args ...string) (string, error)
 // RealController implements XrayController by writing config to disk,
 // validating with xray, and restarting the xray systemd service.
 type RealController struct {
-	store      Store
-	configDir  string
-	runCmd     CmdRunner
+	store     Store
+	configDir string
+	runCmd    CmdRunner
 }
 
 // NewRealController creates a controller that persists the generated xray
@@ -46,11 +48,32 @@ func (c *RealController) Status(ctx context.Context) XrayStatus {
 		}
 	}
 
+	showOut, showErr := c.runCmd("systemctl", "show", "xray", "--property=MemoryCurrent", "--property=MainPID", "--property=ActiveEnterTimestamp")
+	executed = append(executed, "systemctl show xray --property=MemoryCurrent --property=MainPID --property=ActiveEnterTimestamp")
+	memoryRSS, uptime := parseXrayServiceStatus(showOut)
+	if showErr == nil {
+		managed = true
+	}
+
+	version := c.Version(ctx)
+	if version != "" {
+		executed = append(executed, "xray version")
+	}
+
+	activeConnections := countXrayActiveConnections(ctx, c.store, c.runCmd)
+	executed = append(executed, "ss -tn state established")
+
 	return XrayStatus{
-		Service:          "xray",
-		Status:           status,
-		Managed:          managed,
-		CommandsExecuted: executed,
+		Service:           "xray",
+		Status:            status,
+		Managed:           managed,
+		Installed:         version != "",
+		Version:           version,
+		MemoryRSSBytes:    memoryRSS,
+		Uptime:            uptime,
+		ActiveConnections: activeConnections,
+		ConfigPath:        filepath.Join(c.configDir, "xray.json"),
+		CommandsExecuted:  executed,
 	}
 }
 
@@ -133,6 +156,89 @@ func (c *RealController) Apply(ctx context.Context) XrayApplyResult {
 		Status:           "applied",
 		Service:          "xray",
 		CommandsExecuted: executed,
+	}
+}
+
+func parseXrayServiceStatus(output string) (int64, string) {
+	var memory int64
+	var activeEnter string
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "MemoryCurrent="):
+			memory, _ = strconv.ParseInt(strings.TrimPrefix(line, "MemoryCurrent="), 10, 64)
+		case strings.HasPrefix(line, "ActiveEnterTimestamp="):
+			activeEnter = strings.TrimPrefix(line, "ActiveEnterTimestamp=")
+		}
+	}
+	return memory, humanUptimeSinceSystemdTimestamp(activeEnter)
+}
+
+func humanUptimeSinceSystemdTimestamp(ts string) string {
+	if ts == "" {
+		return "未知"
+	}
+	for _, layout := range []string{"Mon 2006-01-02 15:04:05 MST", "Mon 2006-01-02 15:04:05 -0700"} {
+		t, err := time.Parse(layout, ts)
+		if err != nil {
+			continue
+		}
+		dur := time.Since(t)
+		if dur < 0 {
+			return "刚启动"
+		}
+		h := int(dur.Hours())
+		m := int(dur.Minutes()) % 60
+		if h > 0 {
+			return fmt.Sprintf("%dh%dm", h, m)
+		}
+		return fmt.Sprintf("%dm", m)
+	}
+	return "未知"
+}
+
+func countXrayActiveConnections(ctx context.Context, store Store, run CmdRunner) int {
+	out, err := run("ss", "-tn", "state", "established")
+	if err != nil {
+		return 0
+	}
+	inboundPorts := map[int]struct{}{}
+	if store != nil {
+		inbounds, err := store.ListInbounds(ctx)
+		if err == nil {
+			for _, inbound := range inbounds {
+				if inbound.Enabled && isXrayHandledProtocol(inbound.Protocol) && inbound.Port > 0 {
+					inboundPorts[inbound.Port] = struct{}{}
+				}
+			}
+		}
+	}
+	count := 0
+	for _, line := range strings.Split(out, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if len(inboundPorts) == 0 {
+			count++
+			continue
+		}
+		for port := range inboundPorts {
+			if strings.Contains(trimmed, fmt.Sprintf(":%d ", port)) || strings.HasSuffix(trimmed, fmt.Sprintf(":%d", port)) {
+				count++
+				break
+			}
+		}
+	}
+	return count
+}
+
+func isXrayHandledProtocol(protocol string) bool {
+	switch strings.ToLower(protocol) {
+	case "hysteria2", "tuic", "shadowtls", "wireguard":
+		return false
+	default:
+		return true
 	}
 }
 
