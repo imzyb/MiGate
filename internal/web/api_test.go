@@ -114,6 +114,22 @@ func (s *fakeVPNGateRuntimeStarter) Start(ctx context.Context, outbound web.VPNG
 	return s.result, s.err
 }
 
+type fakeVPNGateRuntimeCommandRunner struct {
+	calls []fakeVPNGateRuntimeCommandCall
+	err   error
+}
+
+type fakeVPNGateRuntimeCommandCall struct {
+	command string
+	args    []string
+}
+
+func (r *fakeVPNGateRuntimeCommandRunner) Run(ctx context.Context, command string, args ...string) error {
+	_ = ctx
+	r.calls = append(r.calls, fakeVPNGateRuntimeCommandCall{command: command, args: append([]string{}, args...)})
+	return r.err
+}
+
 func TestBuildVPNGateRuntimeStartPlanIsSideEffectFree(t *testing.T) {
 	plan := web.BuildVPNGateRuntimeStartPlan(web.VPNGateRuntimeStartTarget{
 		Runtime:       "softether_netns_socks_bridge",
@@ -436,7 +452,7 @@ func TestVPNGateSoftEtherRuntimeStartStopsWhenDoctorFails(t *testing.T) {
 	}
 }
 
-func TestVPNGateSoftEtherRuntimeStartReadyPathIsStillPlaceholder(t *testing.T) {
+func TestVPNGateSoftEtherRuntimeStartReadyPathRunsInjectedNetnsPhase(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -446,24 +462,34 @@ func TestVPNGateSoftEtherRuntimeStartReadyPathIsStillPlaceholder(t *testing.T) {
 	probe := &fakeVPNGateRuntimeProbe{paths: map[string]string{
 		"vpncmd": "/usr/local/bin/vpncmd", "vpnclient": "/usr/local/bin/vpnclient", "ip": "/sbin/ip", "iptables": "/sbin/iptables", "microsocks": "/usr/bin/microsocks",
 	}}
-	router := web.NewRouter(web.WithStore(store), web.WithVPNGateRuntimeProbe(probe))
+	runner := &fakeVPNGateRuntimeCommandRunner{}
+	router := web.NewRouter(web.WithStore(store), web.WithVPNGateRuntimeProbe(probe), web.WithVPNGateRuntimeRunner(runner))
 	body := bytes.NewBufferString(`{"confirm":true,"allow_system_changes":true}`)
 
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/vpngate/egress/start?outbound_id="+strconv.FormatInt(outbound.ID, 10), body))
-	if resp.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501 placeholder start, got %d: %s", resp.Code, resp.Body.String())
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 real start, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected exactly one netns command, got %+v", runner.calls)
+	}
+	if runner.calls[0].command != "/sbin/ip" || strings.Join(runner.calls[0].args, " ") != "netns add migate-vpngate-"+strconv.FormatInt(outbound.ID, 10) {
+		t.Fatalf("expected injected netns creation command, got %+v", runner.calls[0])
 	}
 	var got map[string]interface{}
 	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
-		t.Fatalf("parse placeholder start response: %v", err)
+		t.Fatalf("parse real start response: %v", err)
 	}
-	if got["error"] != "runtime_start_not_implemented" || got["status"] != "ready" || got["performs_side_effects"] != false {
-		t.Fatalf("unexpected placeholder start response: %+v", got)
+	if got["status"] != "started" || got["runtime"] != "softether_netns_socks_bridge" || got["performs_side_effects"] != true {
+		t.Fatalf("unexpected real start response: %+v", got)
 	}
 	commands, ok := got["commands_executed"].([]interface{})
-	if !ok || len(commands) != 0 {
-		t.Fatalf("placeholder start must not execute commands, got %+v", got["commands_executed"])
+	if !ok || len(commands) != 1 || !strings.Contains(fmt.Sprint(commands[0]), "/sbin/ip netns add migate-vpngate-") {
+		t.Fatalf("expected reported netns command, got %+v", got["commands_executed"])
+	}
+	if strings.Contains(resp.Body.String(), "runtime_start_not_implemented") {
+		t.Fatalf("ready runtime start must not return placeholder response: %s", resp.Body.String())
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -127,6 +128,7 @@ type routerConfig struct {
 	vpnGateFetcher        VPNGateFetcher
 	vpnGateRuntimeProbe   VPNGateRuntimeProbe
 	vpnGateRuntimeStarter VPNGateRuntimeStarter
+	vpnGateRuntimeRunner  VPNGateRuntimeCommandRunner
 	statsClient           xray.StatsClient
 	healthScheduler       *scheduler.VPNGateHealthScheduler
 }
@@ -141,6 +143,10 @@ type VPNGateRuntimeProbe interface {
 
 type VPNGateRuntimeStarter interface {
 	Start(ctx context.Context, target VPNGateRuntimeStartTarget) (VPNGateRuntimeStartResult, error)
+}
+
+type VPNGateRuntimeCommandRunner interface {
+	Run(ctx context.Context, command string, args ...string) error
 }
 
 type VPNGateRuntimeStartTarget struct {
@@ -167,6 +173,57 @@ type execVPNGateRuntimeProbe struct{}
 
 func (execVPNGateRuntimeProbe) LookPath(name string) (string, error) {
 	return exec.LookPath(name)
+}
+
+type execVPNGateRuntimeCommandRunner struct{}
+
+func (execVPNGateRuntimeCommandRunner) Run(ctx context.Context, command string, args ...string) error {
+	cmd := exec.CommandContext(ctx, command, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail != "" {
+			return fmt.Errorf("%s %s: %w: %s", command, strings.Join(args, " "), err, detail)
+		}
+		return fmt.Errorf("%s %s: %w", command, strings.Join(args, " "), err)
+	}
+	return nil
+}
+
+type vpngateRuntimeStarter struct {
+	runner VPNGateRuntimeCommandRunner
+}
+
+func NewVPNGateRuntimeStarter(runner VPNGateRuntimeCommandRunner) VPNGateRuntimeStarter {
+	return vpngateRuntimeStarter{runner: runner}
+}
+
+func (s vpngateRuntimeStarter) Start(ctx context.Context, target VPNGateRuntimeStartTarget) (VPNGateRuntimeStartResult, error) {
+	if s.runner == nil {
+		return VPNGateRuntimeStartResult{}, errors.New("runtime command runner is required")
+	}
+	if target.Runtime != "softether_netns_socks_bridge" {
+		return VPNGateRuntimeStartResult{}, fmt.Errorf("unsupported vpngate runtime %q", target.Runtime)
+	}
+	netns := fmt.Sprintf("migate-vpngate-%d", target.OutboundID)
+	ip := strings.TrimSpace(target.DependencyPaths["ip"])
+	if ip == "" {
+		ip = "ip"
+	}
+	executed := []string{fmt.Sprintf("%s netns add %s", ip, netns)}
+	if err := s.runner.Run(ctx, ip, "netns", "add", netns); err != nil {
+		return VPNGateRuntimeStartResult{}, err
+	}
+	return VPNGateRuntimeStartResult{
+		Status:              "started",
+		Runtime:             target.Runtime,
+		OutboundID:          target.OutboundID,
+		OutboundTag:         target.OutboundTag,
+		BridgeAddress:       target.BridgeAddress,
+		BridgePort:          target.BridgePort,
+		PerformsSideEffects: true,
+		CommandsExecuted:    executed,
+	}, nil
 }
 
 // VPNGateServer is the public type exposed to the web package.
@@ -255,6 +312,12 @@ func WithVPNGateRuntimeStarter(starter VPNGateRuntimeStarter) Option {
 	}
 }
 
+func WithVPNGateRuntimeRunner(runner VPNGateRuntimeCommandRunner) Option {
+	return func(cfg *routerConfig) {
+		cfg.vpnGateRuntimeRunner = runner
+	}
+}
+
 // WithHealthScheduler sets the VPN Gate auto-health scheduler for status reporting.
 func WithHealthScheduler(scheduler *scheduler.VPNGateHealthScheduler) Option {
 	return func(cfg *routerConfig) {
@@ -275,6 +338,12 @@ func NewRouter(options ...Option) http.Handler {
 	}
 	for _, option := range options {
 		option(&cfg)
+	}
+	if cfg.vpnGateRuntimeStarter == nil && cfg.vpnGateRuntimeRunner != nil {
+		cfg.vpnGateRuntimeStarter = NewVPNGateRuntimeStarter(cfg.vpnGateRuntimeRunner)
+	}
+	if cfg.vpnGateRuntimeStarter == nil && cfg.vpnGateRuntimeProbe == nil {
+		cfg.vpnGateRuntimeStarter = NewVPNGateRuntimeStarter(execVPNGateRuntimeCommandRunner{})
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", panelHandler)
