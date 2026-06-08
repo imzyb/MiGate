@@ -3360,7 +3360,7 @@ const panelHTML = `<!doctype html>
         </div>
         <div class="modal-footer">
           <button class="secondary" onclick="closeModal()">取消</button>
-          <button onclick="confirmSocks5PoolProxy()" class="btn-modal-primary">确定</button>
+          <button id="socks5-pool-confirm-btn" onclick="confirmSocks5PoolProxy()" class="btn-modal-primary">确定</button>
         </div>
       </div>
     </div>
@@ -3503,7 +3503,7 @@ const panelHTML = `<!doctype html>
         </form>
         <div class="modal-footer">
           <button class="secondary" onclick="closeModal()">取消</button>
-          <button onclick="submitCreateRoutingRule()" class="btn-modal-primary">创建</button>
+          <button id="create-routing-rule-submit-btn" onclick="submitCreateRoutingRule()" class="btn-modal-primary">创建</button>
         </div>
       </div>
     </div>
@@ -3547,7 +3547,7 @@ const panelHTML = `<!doctype html>
         </form>
         <div class="modal-footer">
           <button class="secondary" onclick="closeModal()">取消</button>
-          <button onclick="submitEditRoutingRule()" class="btn-modal-primary">保存</button>
+          <button id="edit-routing-rule-submit-btn" onclick="submitEditRoutingRule()" class="btn-modal-primary">保存</button>
         </div>
       </div>
     </div>

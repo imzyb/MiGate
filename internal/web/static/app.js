@@ -29,6 +29,27 @@
       return fetch(apiPath(path), options || {});
     }
 
+    async function responseErrorMessage(resp, fallback) {
+      try {
+        const data = await resp.json();
+        return data.error || data.message || fallback;
+      } catch(e) {
+        return fallback;
+      }
+    }
+
+    function setActionButtonBusy(id, busyText) {
+      const btn = document.getElementById(id);
+      if (!btn) return null;
+      const previous = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = busyText;
+      return function restore() {
+        btn.disabled = false;
+        btn.textContent = previous;
+      };
+    }
+
     const inboundList = document.getElementById('inbound-list');
     const inboundCount = document.getElementById('inbound-count');
     const clientCount = document.getElementById('client-count');
@@ -629,16 +650,20 @@
     async function confirmSocks5PoolProxy() {
       const p = socks5PoolState.selected;
       if (!p) { showToast('请选择一个 SOCKS5', 'error'); return; }
+      const restoreButton = setActionButtonBusy('socks5-pool-confirm-btn', '导入中...');
       try {
         const resp = await apiFetch('/api/outbounds/socks5-pool/import', {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify({address:p.address, port:p.port, username:p.username, password:p.password, city:p.city, asn:p.asn, organization:p.organization})
         });
-        if (!resp.ok) throw new Error('导入失败');
-        showToast('SOCKS5 已添加到出站', 'success');
+        if (!resp.ok) throw new Error(await responseErrorMessage(resp, '导入失败'));
+        const result = await resp.json();
+        const outbound = result.outbound || {};
+        showToast('SOCKS5 已添加：' + (outbound.remark || (p.address + ':' + p.port)), 'success');
         closeModal();
         await loadOutbounds();
       } catch(e) { showToast('导入失败: ' + e.message, 'error'); }
+      finally { if (restoreButton) restoreButton(); }
     }
 
     function openCreateOutbound() {
@@ -876,6 +901,7 @@ function openCreateRoutingRule() {
     async function submitCreateRoutingRule() {
       var outboundTag = document.getElementById('crr-outbound').value;
       if (!outboundTag) { showToast('请选择目标出站', 'error'); return; }
+      var restoreButton = setActionButtonBusy('create-routing-rule-submit-btn', '创建中...');
       var body = {
         outbound_tag: outboundTag,
         domain: document.getElementById('crr-domain').value.trim(),
@@ -884,15 +910,16 @@ function openCreateRoutingRule() {
         enabled: document.getElementById('crr-enabled').checked,
       };
       try {
-        var resp = await fetch(apiPath('/api/routing-rules'), {
+        var resp = await apiFetch('/api/routing-rules', {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify(body)
         });
-        if (!resp.ok) { showToast('创建失败', 'error'); return; }
+        if (!resp.ok) throw new Error(await responseErrorMessage(resp, '创建失败'));
         showToast('路由规则已创建', 'success');
         closeModal();
         await refreshRoutingRuleViews();
       } catch(e) { showToast('创建失败: ' + e.message, 'error'); }
+      finally { if (restoreButton) restoreButton(); }
     }
 
     async function refreshRoutingRuleViews() {
@@ -955,6 +982,7 @@ function openCreateRoutingRule() {
       var id = parseInt(document.getElementById('err-id').value);
       var outboundTag = document.getElementById('err-outbound').value;
       if (!outboundTag) { showToast('请选择目标出站', 'error'); return; }
+      var restoreButton = setActionButtonBusy('edit-routing-rule-submit-btn', '保存中...');
       var body = {
         outbound_tag: outboundTag,
         domain: document.getElementById('err-domain').value.trim(),
@@ -963,15 +991,16 @@ function openCreateRoutingRule() {
         enabled: document.getElementById('err-enabled').checked,
       };
       try {
-        var resp = await fetch(apiPath('/api/routing-rules/' + id), {
+        var resp = await apiFetch('/api/routing-rules/' + id, {
           method: 'PUT', headers: {'Content-Type':'application/json'},
           body: JSON.stringify(body)
         });
-        if (!resp.ok) { showToast('保存失败', 'error'); return; }
+        if (!resp.ok) throw new Error(await responseErrorMessage(resp, '保存失败'));
         showToast('路由规则已更新', 'success');
         closeModal();
         await refreshRoutingRuleViews();
       } catch(e) { showToast('保存失败: ' + e.message, 'error'); }
+      finally { if (restoreButton) restoreButton(); }
     }
 
     function preferredTheme() {

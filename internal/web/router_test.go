@@ -120,9 +120,52 @@ func TestPanelWiresSocks5PoolPickerToOutboundManagement(t *testing.T) {
 		`apiFetch('/api/outbounds/socks5-pool/ping'`,
 		`tcping`,
 		`apiFetch('/api/outbounds/socks5-pool/import'`,
+		`socks5-pool-confirm-btn`,
+		`导入中...`,
+		`SOCKS5 已添加：`,
 	} {
 		if !strings.Contains(jsBody, want) {
 			t.Fatalf("app.js missing socks5 pool contract %q", want)
+		}
+	}
+	for _, want := range []string{
+		`id="socks5-pool-confirm-btn"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing socks5 pool button contract %q", want)
+		}
+	}
+}
+
+func TestPanelRoutingRuleSaveButtonsProvideFeedback(t *testing.T) {
+	router := web.NewRouter()
+	page := httptest.NewRecorder()
+	router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("expected 200 for panel, got %d: %s", page.Code, page.Body.String())
+	}
+	body := page.Body.String()
+	jsBody := readAppJS(t)
+	for _, want := range []string{
+		`id="create-routing-rule-submit-btn"`,
+		`id="edit-routing-rule-submit-btn"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing routing save button contract %q", want)
+		}
+	}
+	for _, want := range []string{
+		`setActionButtonBusy('create-routing-rule-submit-btn', '创建中...')`,
+		`setActionButtonBusy('edit-routing-rule-submit-btn', '保存中...')`,
+		`apiFetch('/api/routing-rules'`,
+		`apiFetch('/api/routing-rules/' + id`,
+		`responseErrorMessage(resp, '创建失败')`,
+		`responseErrorMessage(resp, '保存失败')`,
+		`showToast('路由规则已创建', 'success')`,
+		`showToast('路由规则已更新', 'success')`,
+	} {
+		if !strings.Contains(jsBody, want) {
+			t.Fatalf("app.js missing routing save feedback contract %q", want)
 		}
 	}
 }
