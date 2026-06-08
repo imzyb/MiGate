@@ -204,6 +204,9 @@ func TestVPNGateSoftEtherRuntimeStartDelegatesToInjectedStarterAfterReadyPreflig
 	if len(starter.targets) != 1 || starter.targets[0].Runtime != "softether_netns_socks_bridge" {
 		t.Fatalf("expected starter target to include runtime, got %+v", starter.targets)
 	}
+	if starter.targets[0].ServerHostName != "vpn123.opengw.net" || starter.targets[0].ServerIP != "203.0.113.10" {
+		t.Fatalf("expected starter target to include persisted VPN Gate server endpoint, got %+v", starter.targets[0])
+	}
 	if starter.targets[0].DependencyPaths["vpncmd"] != "/usr/local/bin/vpncmd" || starter.targets[0].DependencyPaths["microsocks"] != "/usr/bin/microsocks" {
 		t.Fatalf("expected starter target dependency paths, got %+v", starter.targets[0].DependencyPaths)
 	}
@@ -354,11 +357,13 @@ func TestVPNGateSoftEtherRuntimeDoctorAPIReportsDependenciesReadOnly(t *testing.
 func createTestVPNGateSoftEtherOutbound(t *testing.T, store *db.Store) db.Outbound {
 	t.Helper()
 	outbound, err := store.CreateOutbound(context.Background(), db.CreateOutboundParams{
-		Tag:      "vpngate-jp-softether",
-		Remark:   "VPN Gate SoftEther - Japan",
-		Protocol: "vpngate_softether",
-		Address:  "127.0.0.1",
-		Port:     21080,
+		Tag:                   "vpngate-jp-softether",
+		Remark:                "VPN Gate SoftEther - Japan",
+		Protocol:              "vpngate_softether",
+		Address:               "127.0.0.1",
+		Port:                  21080,
+		VPNGateServerHostName: "vpn123.opengw.net",
+		VPNGateServerIP:       "203.0.113.10",
 	})
 	if err != nil {
 		t.Fatalf("create outbound: %v", err)
@@ -701,6 +706,9 @@ func TestCreateVPNGateSoftEtherEgressCreatesPendingBridgeOutbound(t *testing.T) 
 	if got.Outbound.Address != "127.0.0.1" || got.Outbound.Port != 21088 || !got.Outbound.Enabled {
 		t.Fatalf("expected local bridge address to be persisted, got %+v", got.Outbound)
 	}
+	if got.Outbound.VPNGateServerHostName != "vpn123.opengw.net" || got.Outbound.VPNGateServerIP != "203.0.113.10" {
+		t.Fatalf("expected VPN Gate server endpoint to be persisted on outbound, got %+v", got.Outbound)
+	}
 	if !strings.Contains(got.Outbound.Remark, "vpn123.opengw.net") || !strings.Contains(got.Outbound.Remark, "Japan") {
 		t.Fatalf("expected server identity in remark, got %q", got.Outbound.Remark)
 	}
@@ -719,7 +727,7 @@ func TestCreateVPNGateSoftEtherEgressCreatesPendingBridgeOutbound(t *testing.T) 
 	for _, ob := range outbounds {
 		if ob.ID == got.Outbound.ID {
 			found = true
-			if ob.Protocol != "vpngate_softether" || ob.Address != "127.0.0.1" || ob.Port != 21088 {
+			if ob.Protocol != "vpngate_softether" || ob.Address != "127.0.0.1" || ob.Port != 21088 || ob.VPNGateServerHostName != "vpn123.opengw.net" || ob.VPNGateServerIP != "203.0.113.10" {
 				t.Fatalf("stored outbound mismatch: %+v", ob)
 			}
 		}

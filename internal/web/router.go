@@ -155,6 +155,8 @@ type VPNGateRuntimeStartTarget struct {
 	OutboundTag     string            `json:"outbound_tag"`
 	BridgeAddress   string            `json:"bridge_address"`
 	BridgePort      int               `json:"bridge_port"`
+	ServerHostName  string            `json:"server_hostname"`
+	ServerIP        string            `json:"server_ip"`
 	DependencyPaths map[string]string `json:"dependency_paths"`
 }
 
@@ -2415,11 +2417,13 @@ func vpngateCreateEgressHandler(cfg *routerConfig) http.HandlerFunc {
 			remark += " (" + strings.TrimSpace(req.Server.CountryLong) + ")"
 		}
 		outbound, err := cfg.store.CreateOutbound(r.Context(), db.CreateOutboundParams{
-			Tag:      tag,
-			Remark:   remark,
-			Protocol: "vpngate_softether",
-			Address:  address,
-			Port:     port,
+			Tag:                   tag,
+			Remark:                remark,
+			Protocol:              "vpngate_softether",
+			Address:               address,
+			Port:                  port,
+			VPNGateServerHostName: strings.TrimSpace(req.Server.HostName),
+			VPNGateServerIP:       strings.TrimSpace(req.Server.IP),
 		})
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "create_outbound_failed", map[string]interface{}{"detail": err.Error()})
@@ -2813,6 +2817,8 @@ func vpngateEgressRuntimeStartHandler(cfg *routerConfig) http.HandlerFunc {
 			OutboundTag:     outbound.Tag,
 			BridgeAddress:   outbound.Address,
 			BridgePort:      outbound.Port,
+			ServerHostName:  outbound.VPNGateServerHostName,
+			ServerIP:        outbound.VPNGateServerIP,
 			DependencyPaths: vpngateRuntimeDependencyPaths(doctor.Checks),
 		})
 		if err != nil {
