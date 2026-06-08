@@ -8,6 +8,27 @@
     function apiPath(path) { return basePath() + path; }
     function panelPath(path) { return basePath() + path; }
 
+    function handleSessionExpired(response) {
+      if (!response || response.status !== 401) return false;
+      showToast('登录状态已过期，请重新登录', 'error');
+      setTimeout(function() { window.location.href = panelPath('/login'); }, 600);
+      return true;
+    }
+
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = async function(input, init) {
+      const response = await nativeFetch(input, init);
+      const url = String(input && input.url ? input.url : input);
+      if (url.includes('/api/') && !url.includes('/api/login') && !url.includes('/api/session')) {
+        handleSessionExpired(response);
+      }
+      return response;
+    };
+
+    async function apiFetch(path, options) {
+      return fetch(apiPath(path), options || {});
+    }
+
     const inboundList = document.getElementById('inbound-list');
     const inboundCount = document.getElementById('inbound-count');
     const clientCount = document.getElementById('client-count');
@@ -478,9 +499,12 @@
       const country = regionSelect ? (regionSelect.value || '') : '';
       if (list) list.textContent = '正在加载并测速...';
       try {
-        const resp = await fetch(apiPath('/api/outbounds/socks5-pool?country=' + encodeURIComponent(country)));
+        const resp = await apiFetch('/api/outbounds/socks5-pool?country=' + encodeURIComponent(country));
         if (!resp.ok) throw new Error('pool api ' + resp.status);
         const data = await resp.json();
+        if (data.cache_status && data.cache_status !== 'hit') {
+          showToast('SOCKS5 地址池缓存状态：' + data.cache_status, 'success');
+        }
         socks5PoolState.regions = data.regions || [];
         socks5PoolState.proxies = sortSocks5PoolProxies(data.proxies || []);
         socks5PoolState.selected = socks5PoolState.proxies[0] || null;

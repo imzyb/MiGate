@@ -16,9 +16,15 @@ type Config struct {
 	Routing   *RoutingConfig   `json:"routing,omitempty"`
 	Stats     *StatsConfig     `json:"stats,omitempty"`
 	Policy    *PolicyConfig    `json:"policy,omitempty"`
+	API       *APIConfig       `json:"api,omitempty"`
 }
 
 type StatsConfig struct{}
+
+type APIConfig struct {
+	Tag      string   `json:"tag"`
+	Services []string `json:"services"`
+}
 
 type PolicyConfig struct {
 	Levels map[string]PolicyLevel `json:"levels"`
@@ -78,8 +84,13 @@ func BuildConfig(inbounds []db.Inbound) (Config, error) {
 		}},
 		Stats:  &StatsConfig{},
 		Policy: enableUserStats(),
+		API:    enableStatsAPI(),
 	}
-	return appendInbounds(config, inbounds)
+	config, err := appendInbounds(config, inbounds)
+	if err != nil {
+		return Config{}, err
+	}
+	return appendStatsAPIInbound(config), nil
 }
 
 func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, routingRules []db.RoutingRule) (Config, error) {
@@ -89,6 +100,7 @@ func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, ro
 		Outbounds: []OutboundConfig{},
 		Stats:     &StatsConfig{},
 		Policy:    enableUserStats(),
+		API:       enableStatsAPI(),
 	}
 	config, err := appendInbounds(config, inbounds)
 	if err != nil {
@@ -152,11 +164,27 @@ func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, ro
 			config.Routing = r
 		}
 	}
-	return config, nil
+	return appendStatsAPIInbound(config), nil
 }
 
 // enableUserStats returns a PolicyConfig that enables per-client traffic stats
 // in Xray. The stats are identified by client email addresses.
+func enableStatsAPI() *APIConfig {
+	return &APIConfig{Tag: "api", Services: []string{"StatsService"}}
+}
+
+func appendStatsAPIInbound(config Config) Config {
+	config.Inbounds = append(config.Inbounds, InboundConfig{
+		Tag: "api", Listen: "127.0.0.1", Port: 10085, Protocol: "dokodemo-door",
+		Settings: map[string]interface{}{"address": "127.0.0.1"},
+	})
+	if config.Routing == nil {
+		config.Routing = &RoutingConfig{DomainStrategy: "AsIs", Rules: []RoutingRule{}}
+	}
+	config.Routing.Rules = append(config.Routing.Rules, RoutingRule{InboundTag: []string{"api"}, OutboundTag: "api"})
+	return config
+}
+
 func enableUserStats() *PolicyConfig {
 	return &PolicyConfig{
 		Levels: map[string]PolicyLevel{

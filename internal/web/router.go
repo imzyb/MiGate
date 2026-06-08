@@ -329,6 +329,77 @@ type socks5PoolRegion struct {
 	Count int    `json:"count"`
 }
 
+type socks5PoolCache struct {
+	mu        sync.Mutex
+	proxies   []socks5PoolProxy
+	updatedAt time.Time
+	err       string
+}
+
+var globalSocks5PoolCache = &socks5PoolCache{}
+
+func nextSocks5PoolRefresh(now time.Time) time.Time {
+	loc := now.Location()
+	next := time.Date(now.Year(), now.Month(), now.Day(), 6, 0, 0, 0, loc)
+	if !now.Before(next) {
+		next = next.Add(24 * time.Hour)
+	}
+	return next
+}
+
+// StartSocks5PoolCacheScheduler refreshes the public SOCKS5 pool once a day at
+// 06:00 local time (upstream updates around 05:30) and keeps an in-memory cache
+// so opening the dialog does not block on the remote pool.
+func StartSocks5PoolCacheScheduler(poolURL string) func() {
+	cfg := &routerConfig{socks5PoolURL: poolURL}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		_, _, _, _ = cachedSocks5Pool(ctx, cfg)
+		for {
+			delay := time.Until(nextSocks5PoolRefresh(time.Now()))
+			if delay < time.Second {
+				delay = time.Second
+			}
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+				_, _, _, _ = cachedSocks5Pool(ctx, cfg)
+			}
+		}
+	}()
+	return cancel
+}
+
+func cachedSocks5Pool(ctx context.Context, cfg *routerConfig) ([]socks5PoolProxy, time.Time, string, error) {
+	globalSocks5PoolCache.mu.Lock()
+	cached := append([]socks5PoolProxy(nil), globalSocks5PoolCache.proxies...)
+	updatedAt := globalSocks5PoolCache.updatedAt
+	lastErr := globalSocks5PoolCache.err
+	fresh := len(cached) > 0 && time.Now().Before(nextSocks5PoolRefresh(updatedAt))
+	globalSocks5PoolCache.mu.Unlock()
+	if fresh {
+		return cached, updatedAt, "hit", nil
+	}
+	proxies, err := fetchSocks5Pool(ctx, cfg.socks5PoolURL)
+	globalSocks5PoolCache.mu.Lock()
+	defer globalSocks5PoolCache.mu.Unlock()
+	if err != nil {
+		globalSocks5PoolCache.err = err.Error()
+		if len(globalSocks5PoolCache.proxies) > 0 {
+			return append([]socks5PoolProxy(nil), globalSocks5PoolCache.proxies...), globalSocks5PoolCache.updatedAt, "stale", nil
+		}
+		return nil, time.Time{}, "miss", err
+	}
+	globalSocks5PoolCache.proxies = append([]socks5PoolProxy(nil), proxies...)
+	globalSocks5PoolCache.updatedAt = time.Now()
+	globalSocks5PoolCache.err = ""
+	_ = lastErr
+	return append([]socks5PoolProxy(nil), proxies...), globalSocks5PoolCache.updatedAt, "refresh", nil
+}
+
 func fetchSocks5Pool(ctx context.Context, poolURL string) ([]socks5PoolProxy, error) {
 	if poolURL == "" {
 		poolURL = defaultSocks5PoolURL
@@ -525,9 +596,9 @@ func socks5PoolListHandler(cfg *routerConfig, w http.ResponseWriter, r *http.Req
 		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
-	proxies, err := fetchSocks5Pool(r.Context(), cfg.socks5PoolURL)
+	proxies, updatedAt, cacheStatus, err := cachedSocks5Pool(r.Context(), cfg)
 	if err != nil {
-		http.Error(w, `{"error":"pool_fetch_failed"}`, http.StatusBadGateway)
+		writeJSONError(w, http.StatusBadGateway, "pool_fetch_failed", map[string]interface{}{"cache_status": cacheStatus, "detail": err.Error()})
 		return
 	}
 	country := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("country")))
@@ -553,7 +624,11 @@ func socks5PoolListHandler(cfg *routerConfig, w http.ResponseWriter, r *http.Req
 	}
 	wg.Wait()
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"regions": socks5PoolRegions(proxies), "proxies": filtered})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"regions": socks5PoolRegions(proxies), "proxies": filtered,
+		"cache_status": cacheStatus, "cache_updated_at": updatedAt.Format(time.RFC3339),
+		"next_refresh_at": nextSocks5PoolRefresh(time.Now()).Format(time.RFC3339),
+	})
 }
 
 func socks5PoolImportHandler(store Store, ctrl XrayController, w http.ResponseWriter, r *http.Request) {
@@ -1898,6 +1973,10 @@ func settingsHandler(cfg *routerConfig) http.HandlerFunc {
 	}
 }
 
+func runningUnderGoTest() bool {
+	return strings.HasSuffix(os.Args[0], ".test")
+}
+
 func restartHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -1914,10 +1993,12 @@ func restartHandler() http.HandlerFunc {
 			time.Sleep(500 * time.Millisecond)
 			_ = exec.Command("systemctl", "restart", "migate").Run()
 		}()
-		go func() {
-			time.Sleep(2 * time.Second)
-			os.Exit(0)
-		}()
+		if !runningUnderGoTest() {
+			go func() {
+				time.Sleep(2 * time.Second)
+				os.Exit(0)
+			}()
+		}
 	}
 }
 

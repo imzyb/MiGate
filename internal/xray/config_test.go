@@ -9,6 +9,26 @@ import (
 	"github.com/imzyb/MiGate/internal/xray"
 )
 
+func userInboundsForTest(inbounds []xray.InboundConfig) []xray.InboundConfig {
+	out := []xray.InboundConfig{}
+	for _, in := range inbounds {
+		if in.Tag != "api" {
+			out = append(out, in)
+		}
+	}
+	return out
+}
+
+func userRoutingRulesForTest(rules []xray.RoutingRule) []xray.RoutingRule {
+	out := []xray.RoutingRule{}
+	for _, r := range rules {
+		if r.OutboundTag != "api" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func TestBuildConfigIncludesSupportedProtocolInboundsAndFreedomOutbound(t *testing.T) {
 	inbounds := []db.Inbound{
 		{ID: 1, UUID: "11111111-1111-4111-8111-111111111111", Remark: "vless-reality", Protocol: "vless", Port: 443, Network: "tcp", Security: "reality", Enabled: true, Clients: []db.Client{{UUID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Email: "a@example.com", Enabled: true}}},
@@ -23,8 +43,9 @@ func TestBuildConfigIncludesSupportedProtocolInboundsAndFreedomOutbound(t *testi
 	if err != nil {
 		t.Fatalf("build config: %v", err)
 	}
-	if len(config.Inbounds) != 5 {
-		t.Fatalf("expected five enabled inbounds, got %+v", config.Inbounds)
+	userInbounds := userInboundsForTest(config.Inbounds)
+	if len(userInbounds) != 5 {
+		t.Fatalf("expected five enabled user inbounds, got %+v", config.Inbounds)
 	}
 	if len(config.Outbounds) != 1 || config.Outbounds[0].Protocol != "freedom" {
 		t.Fatalf("expected direct freedom outbound, got %+v", config.Outbounds)
@@ -128,8 +149,9 @@ func TestBuildConfigWithRoutingRules(t *testing.T) {
 	if config.Routing.DomainStrategy != "AsIs" {
 		t.Fatalf("expected AsIs domain strategy, got %s", config.Routing.DomainStrategy)
 	}
-	if len(config.Routing.Rules) != 2 {
-		t.Fatalf("expected 2 enabled routing rules, got %d", len(config.Routing.Rules))
+	userRules := userRoutingRulesForTest(config.Routing.Rules)
+	if len(userRules) != 2 {
+		t.Fatalf("expected 2 enabled routing rules, got %d", len(userRules))
 	}
 	if config.Routing.Rules[0].OutboundTag != "proxy-socks" || config.Routing.Rules[0].Domain[0] != "geosite:netflix" {
 		t.Fatalf("unexpected first rule: %+v", config.Routing.Rules[0])
@@ -142,8 +164,8 @@ func TestBuildConfigWithRoutingRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build with nil rules: %v", err)
 	}
-	if config2.Routing != nil {
-		t.Fatal("expected no routing section when no rules")
+	if config2.Routing == nil || len(userRoutingRulesForTest(config2.Routing.Rules)) != 0 {
+		t.Fatal("expected no user routing rules when no rules are configured")
 	}
 }
 func TestBuildConfigRejectsUnsupportedProtocol(t *testing.T) {
@@ -275,8 +297,9 @@ func TestBuildConfigGeneratesMissingRealityPrivateKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build config: %v", err)
 	}
-	if len(config.Inbounds) != 1 {
-		t.Fatalf("expected 1 inbound, got %d", len(config.Inbounds))
+	userInbounds := userInboundsForTest(config.Inbounds)
+	if len(userInbounds) != 1 {
+		t.Fatalf("expected 1 user inbound, got %d", len(userInbounds))
 	}
 	encoded, _ := json.Marshal(config)
 	text := string(encoded)
@@ -307,8 +330,8 @@ func TestBuildConfigHysteria2WithTLSUsesCorrectSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build config: %v", err)
 	}
-	if len(config.Inbounds) != 0 {
-		t.Fatalf("expected 0 inbounds (hysteria2 skipped for Xray), got %d", len(config.Inbounds))
+	if got := len(userInboundsForTest(config.Inbounds)); got != 0 {
+		t.Fatalf("expected 0 user inbounds (hysteria2 skipped for Xray), got %d", got)
 	}
 }
 
@@ -327,8 +350,8 @@ func TestBuildConfigHysteria2NoTLSUsesPasswordAuthOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build config: %v", err)
 	}
-	if len(config.Inbounds) != 0 {
-		t.Fatalf("expected 0 inbounds (hysteria2 skipped for Xray), got %d", len(config.Inbounds))
+	if got := len(userInboundsForTest(config.Inbounds)); got != 0 {
+		t.Fatalf("expected 0 user inbounds (hysteria2 skipped for Xray), got %d", got)
 	}
 }
 
@@ -353,8 +376,8 @@ func TestBuildConfigHysteria2WithObfsIncludesObfuscationSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build config: %v", err)
 	}
-	if len(config.Inbounds) != 0 {
-		t.Fatalf("expected 0 inbounds (hysteria2 skipped for Xray), got %d", len(config.Inbounds))
+	if got := len(userInboundsForTest(config.Inbounds)); got != 0 {
+		t.Fatalf("expected 0 user inbounds (hysteria2 skipped for Xray), got %d", got)
 	}
 }
 
@@ -380,5 +403,23 @@ func TestBuildConfigIncludesStatsAndPolicy(t *testing.T) {
 	}
 	if !strings.Contains(text, `"statsUserDownlink":true`) {
 		t.Fatalf("config missing statsUserDownlink: %s", text)
+	}
+}
+
+func TestBuildConfigExposesStatsAPIInbound(t *testing.T) {
+	config, err := xray.BuildConfig([]db.Inbound{{
+		ID: 1, UUID: "test-uuid", Remark: "test", Protocol: "vless",
+		Port: 10000, Network: "tcp", Security: "none", Enabled: true,
+		Clients: []db.Client{{UUID: "c1-uuid", Email: "client1@test.com", Enabled: true}},
+	}})
+	if err != nil {
+		t.Fatalf("build config: %v", err)
+	}
+	encoded, _ := json.Marshal(config)
+	text := string(encoded)
+	for _, want := range []string{`"api":{"tag":"api"`, `"StatsService"`, `"tag":"api"`, `"port":10085`, `"outboundTag":"api"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("config missing stats API contract %q: %s", want, text)
+		}
 	}
 }

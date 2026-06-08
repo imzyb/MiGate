@@ -2,7 +2,10 @@ package xray
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os/exec"
+	"strings"
 )
 
 // StatsClient provides access to Xray's traffic statistics.
@@ -42,9 +45,27 @@ type ClientStats struct {
 // It has zero external dependencies and keeps the binary lightweight.
 type StubStatsClient struct{}
 
+// CommandStatsClient queries real Xray traffic counters through the xray CLI
+// without pulling gRPC/protobuf into the default MiGate binary. It expects the
+// generated Xray config to expose the local StatsService API.
+type CommandStatsClient struct {
+	BinaryPath string
+	Server     string
+}
+
 // NewStubStatsClient creates a stub client that returns empty stats.
 func NewStubStatsClient() *StubStatsClient {
 	return &StubStatsClient{}
+}
+
+func NewCommandStatsClient(binaryPath, server string) *CommandStatsClient {
+	if strings.TrimSpace(binaryPath) == "" {
+		binaryPath = "/usr/local/bin/xray"
+	}
+	if strings.TrimSpace(server) == "" {
+		server = "127.0.0.1:10085"
+	}
+	return &CommandStatsClient{BinaryPath: binaryPath, Server: server}
 }
 
 // QueryAllStats returns an empty map (no real stats available).
@@ -55,6 +76,48 @@ func (c *StubStatsClient) QueryAllStats(ctx context.Context) (map[string]*Client
 // Close is a no-op for the stub client.
 func (c *StubStatsClient) Close() error {
 	return nil
+}
+
+func (c *CommandStatsClient) QueryAllStats(ctx context.Context) (map[string]*ClientStats, error) {
+	out, err := exec.CommandContext(ctx, c.BinaryPath, "api", "statsquery", "--server", c.Server, "-pattern", "user>>>").Output()
+	if err != nil {
+		return nil, fmt.Errorf("xray statsquery: %w", err)
+	}
+	return ParseStatsQueryOutput(out)
+}
+
+func (c *CommandStatsClient) Close() error { return nil }
+
+func ParseStatsQueryOutput(raw []byte) (map[string]*ClientStats, error) {
+	var payload struct {
+		Stat []struct {
+			Name  string `json:"name"`
+			Value int64  `json:"value"`
+		} `json:"stat"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	result := map[string]*ClientStats{}
+	for _, st := range payload.Stat {
+		parts := strings.Split(st.Name, ">>>")
+		if len(parts) != 4 || parts[0] != "user" || parts[2] != "traffic" {
+			continue
+		}
+		email := parts[1]
+		cs := result[email]
+		if cs == nil {
+			cs = &ClientStats{Email: email}
+			result[email] = cs
+		}
+		switch parts[3] {
+		case "uplink":
+			cs.Uplink = st.Value
+		case "downlink":
+			cs.Downlink = st.Value
+		}
+	}
+	return result, nil
 }
 
 // GRPCStatsClient uses gRPC to query real traffic stats from Xray.

@@ -111,12 +111,51 @@ func TestPanelWiresSocks5PoolPickerToOutboundManagement(t *testing.T) {
 		`验证中`,
 		`socks5-pool-option selected`,
 		`sortSocks5PoolProxies`,
-		`fetch(apiPath('/api/outbounds/socks5-pool?country=' + encodeURIComponent(country)))`,
+		`apiFetch('/api/outbounds/socks5-pool?country=' + encodeURIComponent(country))`,
 		`fetch(apiPath('/api/outbounds/socks5-pool/import')`,
 	} {
 		if !strings.Contains(jsBody, want) {
 			t.Fatalf("app.js missing socks5 pool contract %q", want)
 		}
+	}
+}
+
+func TestPanelUsesApiFetchForIdleSessionRecoveryAndSocks5Cache(t *testing.T) {
+	jsBody := readAppJS(t)
+	for _, want := range []string{
+		`async function apiFetch(path, options)`,
+		`handleSessionExpired(response)`,
+		`window.location.href = panelPath('/login')`,
+		`apiFetch('/api/outbounds/socks5-pool?country=' + encodeURIComponent(country))`,
+		`cache_status`,
+	} {
+		if !strings.Contains(jsBody, want) {
+			t.Fatalf("app.js missing idle/cache contract %q", want)
+		}
+	}
+	if strings.Contains(jsBody, `fetch(apiPath('/api/outbounds/socks5-pool?country=' + encodeURIComponent(country)))`) {
+		t.Fatalf("SOCKS5 pool dialog must use apiFetch/cache-aware endpoint, not raw fetch")
+	}
+}
+
+func TestSocks5PoolEndpointReportsCacheMetadata(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"proxy":"socks5://user:pass@127.0.0.1:65000","country":"US","country_en":"United States"}]`))
+	}))
+	defer upstream.Close()
+	router := web.NewRouter(web.WithSocks5PoolURL(upstream.URL))
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/outbounds/socks5-pool", nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected socks5 pool 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["cache_status"] == nil || body["cache_updated_at"] == nil {
+		t.Fatalf("SOCKS5 pool response must expose cache metadata: %s", resp.Body.String())
 	}
 }
 

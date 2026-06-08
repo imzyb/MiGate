@@ -266,8 +266,8 @@ func routerFromConfig(path string) (http.Handler, func(), error) {
 		xrayCtrl = web.NewRealController(store, cfg.XrayConfigPath, execCmd)
 		opts = append(opts, web.WithXrayController(xrayCtrl))
 	}
-	// Inject stub stats client (lightweight, no gRPC dependency)
-	statsClient := xray.NewStubStatsClient()
+	// Query real Xray traffic stats through the lightweight xray CLI API.
+	statsClient := xray.NewCommandStatsClient("/usr/local/bin/xray", "127.0.0.1:10085")
 	opts = append(opts, web.WithStatsClient(statsClient))
 
 	// Create schedulers before building router (needed for options and cleanup wiring)
@@ -278,6 +278,8 @@ func routerFromConfig(path string) (http.Handler, func(), error) {
 	}
 
 	router := web.NewRouter(opts...)
+
+	stopSocks5Cache := web.StartSocks5PoolCacheScheduler("")
 
 	// Start schedulers in background and wait for them during cleanup.
 	var schedWG sync.WaitGroup
@@ -298,6 +300,7 @@ func routerFromConfig(path string) (http.Handler, func(), error) {
 	var cleanupOnce sync.Once
 	cleanup := func() {
 		cleanupOnce.Do(func() {
+			stopSocks5Cache()
 			if trafficSched != nil {
 				trafficSched.Stop()
 			}

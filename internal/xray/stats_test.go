@@ -60,3 +60,15 @@ func TestGRPCStatsClientRequiresBuildTag(t *testing.T) {
 		t.Errorf("Expected nil client when grpc not enabled, got %v", client)
 	}
 }
+
+func TestParseCommandStatsQueryOutput(t *testing.T) {
+	raw := []byte(`{"stat":[{"name":"user>>>sam@example.com>>>traffic>>>uplink","value":60300000},{"name":"user>>>sam@example.com>>>traffic>>>downlink","value":202400000}]}`)
+	stats, err := ParseStatsQueryOutput(raw)
+	if err != nil {
+		t.Fatalf("parse stats: %v", err)
+	}
+	got := stats["sam@example.com"]
+	if got == nil || got.Uplink != 60300000 || got.Downlink != 202400000 {
+		t.Fatalf("unexpected stats: %#v", got)
+	}
+}

@@ -46,7 +46,20 @@ func Version() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("sing-box version: %w", err)
 	}
-	return string(out), nil
+	return NormalizeVersion(string(out)), nil
+}
+
+// NormalizeVersion keeps the compact user-facing sing-box version line and
+// drops verbose build metadata such as "Tags:" and later lines.
+func NormalizeVersion(raw string) string {
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Tags:") {
+			continue
+		}
+		return line
+	}
+	return strings.TrimSpace(raw)
 }
 
 // CheckConfig validates the config file with sing-box.
@@ -124,9 +137,9 @@ func NextPort(count int) int {
 
 // ServiceProperties holds parsed systemctl show data for the sing-box service.
 type ServiceProperties struct {
-	MemoryRSS              int64
-	MainPID                int64
-	ActiveEnterTimestamp   string
+	MemoryRSS                     int64
+	MainPID                       int64
+	ActiveEnterTimestamp          string
 	ActiveEnterTimestampMonotonic int64
 }
 
