@@ -2273,7 +2273,6 @@ func shareLink(host string, inbound db.Inbound, client db.Client) string {
 		}
 		addParam("obfs", inbound.Hy2Obfs)
 		addParam("obfs-password", inbound.Hy2ObfsPassword)
-		addParam("mport", inbound.Hy2MPort)
 		// sing-box v1.13 requires TLS for Hysteria2 server inbounds.
 		// MiGate uses generated self-signed certs by default, so share links must
 		// include TLS + insecure even when the UI stores security=none.

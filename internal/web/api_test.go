@@ -355,6 +355,49 @@ func TestInboundsAPIListsStoredInboundsWithClients(t *testing.T) {
 	}
 }
 
+func TestCreateInboundPersistsHysteria2MPortForWebUILink(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	router := web.NewRouter(web.WithStore(store))
+	payload := map[string]any{
+		"remark":            "hy2-link",
+		"protocol":          "hysteria2",
+		"port":              21001,
+		"network":           "quic",
+		"security":          "none",
+		"hy2_up_mbps":       100,
+		"hy2_down_mbps":     200,
+		"hy2_obfs":          "salamander",
+		"hy2_obfs_password": "obfs secret",
+		"hy2_mport":         "40000-50000",
+		"initial_client":    map[string]any{"email": "hy2-user", "uuid": "hy2-password"},
+	}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	response := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/inbounds", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(response, req)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", response.Code, response.Body.String())
+	}
+	list := httptest.NewRecorder()
+	router.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/inbounds", nil))
+	if list.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d: %s", list.Code, list.Body.String())
+	}
+	for _, want := range []string{`"hy2_up_mbps":100`, `"hy2_down_mbps":200`, `"hy2_obfs":"salamander"`, `"hy2_obfs_password":"obfs secret"`, `"hy2_mport":"40000-50000"`} {
+		if !strings.Contains(list.Body.String(), want) {
+			t.Fatalf("inbound list missing %s: %s", want, list.Body.String())
+		}
+	}
+}
+
 func TestCreateInboundAPIStoresInbound(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
@@ -614,16 +657,11 @@ func TestSubscriptionHysteria2DefaultGeneratedTLSLink(t *testing.T) {
 	}
 	defer store.Close()
 	inbound, err := store.CreateInbound(context.Background(), db.CreateInboundParams{
-		Remark:          "hy2",
-		Protocol:        "hysteria2",
-		Port:            21001,
-		Network:         "quic",
-		Security:        "none",
-		Hy2UpMbps:       100,
-		Hy2DownMbps:     200,
-		Hy2Obfs:         "salamander",
-		Hy2ObfsPassword: "obfs secret",
-		Hy2MPort:        "40000-50000",
+		Remark:   "hy2",
+		Protocol: "hysteria2",
+		Port:     21001,
+		Network:  "quic",
+		Security: "none",
 	})
 	if err != nil {
 		t.Fatalf("create inbound: %v", err)
@@ -643,7 +681,7 @@ func TestSubscriptionHysteria2DefaultGeneratedTLSLink(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
-	for _, want := range []string{"hysteria2://" + client.UUID + "@panel.example.com:21001", "up_mbps=100", "down_mbps=200", "obfs=salamander", "obfs-password=obfs+secret", "mport=40000-50000", "security=tls", "insecure=1"} {
+	for _, want := range []string{"hysteria2://" + client.UUID + "@panel.example.com:21001", "security=tls", "insecure=1"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("hysteria2 default generated TLS link missing %q: %s", want, body)
 		}
