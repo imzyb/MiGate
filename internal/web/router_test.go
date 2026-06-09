@@ -1067,6 +1067,11 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
+		`normalizeEditProtocolPreset()`,
+		`if (proto === 'hysteria2') {`,
+		`document.getElementById('ei-network').value = 'quic';`,
+		`document.getElementById('ei-security').value = 'tls';`,
+		`security: editSecurityForProtocol(),`,
 		`document.getElementById('ei-hy2-up').value`,
 		`hy2_up_mbps: Number(document.getElementById('ei-hy2-up').value) || 0`,
 		`document.getElementById('ei-hy2-mport').value`,

@@ -1364,7 +1364,20 @@ function openCreateRoutingRule() {
     let _editingInboundId = null;
     let _editingClientData = null;
 
+    function normalizeEditProtocolPreset() {
+      const proto = document.getElementById('ei-protocol').value;
+      if (proto === 'hysteria2') {
+        document.getElementById('ei-network').value = 'quic';
+        document.getElementById('ei-security').value = 'tls';
+      }
+    }
+
+    function editSecurityForProtocol() {
+      return document.getElementById('ei-protocol').value === 'hysteria2' ? 'tls' : document.getElementById('ei-security').value;
+    }
+
     function eiUpdateDynamicFields() {
+      normalizeEditProtocolPreset();
       const proto = document.getElementById('ei-protocol').value;
       const net = document.getElementById('ei-network').value;
       const sec = document.getElementById('ei-security').value;
@@ -1429,7 +1442,7 @@ function openCreateRoutingRule() {
         protocol: document.getElementById('ei-protocol').value,
         port: parseInt(document.getElementById('ei-port').value) || 0,
         network: document.getElementById('ei-network').value,
-        security: document.getElementById('ei-security').value,
+        security: editSecurityForProtocol(),
         ws_path: document.getElementById('ei-ws-path').value,
         ws_host: document.getElementById('ei-ws-host').value,
         grpc_service_name: document.getElementById('ei-grpc-service-name').value,
