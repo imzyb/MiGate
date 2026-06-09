@@ -1623,35 +1623,51 @@ function openCreateRoutingRule() {
     function closeCreateClient() {
       document.getElementById('create-client-overlay').classList.add('hidden');
     }
+    let _creatingClient = false;
     async function saveCreateClient() {
-      const formEl = document.getElementById('create-client-form');
-      const inboundId = document.getElementById('client-inbound-id').value;
-      if (!inboundId) {
-        showToast('请先展开入站再创建客户端', 'error');
+      if (_creatingClient) return;
+      const submitBtn = document.getElementById('create-client-submit-btn');
+      _creatingClient = true;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '创建中...';
+      }
+      try {
+        const formEl = document.getElementById('create-client-form');
+        const inboundId = document.getElementById('client-inbound-id').value;
+        if (!inboundId) {
+          showToast('请先展开入站再创建客户端', 'error');
+          closeCreateClient();
+          return;
+        }
+        const form = new FormData(formEl);
+        const email = form.get('email');
+        if (!email) { showToast('请输入客户端标识', 'error'); return; }
+        const tl = parseInt(form.get('traffic_limit')) || 0;
+        const clientUUID = String(form.get('uuid') || '').trim();
+        const eaStr = document.getElementById('client-expiry').value;
+        let ea = 0;
+        if (eaStr) { ea = Math.floor(new Date(eaStr).getTime() / 1000); }
+        const response = await fetch(apiPath('/api/inbounds/') + inboundId + '/clients', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({email: email, uuid: clientUUID, traffic_limit: tl, expiry_at: ea})
+        });
+        if (!response.ok) {
+          showToast('创建客户端失败：' + await response.text(), 'error');
+          return;
+        }
+        formEl.reset();
         closeCreateClient();
-        return;
+        showToast('客户端创建成功', 'success');
+        await loadInbounds();
+      } finally {
+        _creatingClient = false;
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = '创建客户端';
+        }
       }
-      const form = new FormData(formEl);
-      const email = form.get('email');
-      if (!email) { showToast('请输入客户端标识', 'error'); return; }
-      const tl = parseInt(form.get('traffic_limit')) || 0;
-      const clientUUID = String(form.get('uuid') || '').trim();
-      const eaStr = document.getElementById('client-expiry').value;
-      let ea = 0;
-      if (eaStr) { ea = Math.floor(new Date(eaStr).getTime() / 1000); }
-      const response = await fetch(apiPath('/api/inbounds/') + inboundId + '/clients', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({email: email, uuid: clientUUID, traffic_limit: tl, expiry_at: ea})
-      });
-      if (!response.ok) {
-        showToast('创建客户端失败：' + await response.text(), 'error');
-        return;
-      }
-      formEl.reset();
-      closeCreateClient();
-      showToast('客户端创建成功', 'success');
-      await loadInbounds();
     }
 
     // === Toast notification ===

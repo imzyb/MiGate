@@ -1111,6 +1111,22 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		}
 	})
 
+	// Create client modal must prevent duplicate submits on click jitter / slow network.
+	for _, want := range []string{
+		`id="create-client-submit-btn"`,
+		`let _creatingClient = false;`,
+		`if (_creatingClient) return;`,
+		`_creatingClient = true;`,
+		`submitBtn.disabled = true;`,
+		`submitBtn.textContent = '创建中...'`,
+		`_creatingClient = false;`,
+		`submitBtn.textContent = '创建客户端'`,
+	} {
+		if !strings.Contains(body+jsBody, want) {
+			t.Fatalf("create client modal must guard duplicate submit, missing %q", want)
+		}
+	}
+
 	// Edit modals replace prompt()
 	for _, want := range []string{"edit-inbound-overlay", "edit-client-overlay", "ei-remark", "ei-protocol", "ei-port", "ei-network", "ei-security", "ec-email"} {
 		if !strings.Contains(body, want) {

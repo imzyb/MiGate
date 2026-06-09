@@ -3063,7 +3063,7 @@ const panelHTML = `<!doctype html>
         </div>
         <div class="form-actions modal-actions">
           <button type="button" class="btn-cancel" onclick="closeCreateClient()">取消</button>
-          <button type="submit" class="btn-modal-primary" onclick="saveCreateClient()">创建客户端</button>
+          <button id="create-client-submit-btn" type="submit" class="btn-modal-primary" onclick="saveCreateClient()">创建客户端</button>
         </div>
       </form>
     </div>
