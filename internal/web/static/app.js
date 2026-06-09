@@ -1677,7 +1677,7 @@ function openCreateRoutingRule() {
       vmess: {network: 'ws', security: 'tls'},
       trojan: {network: 'tcp', security: 'tls'},
       shadowsocks: {network: 'tcp', security: 'none'},
-      hysteria2: {network: 'quic', security: 'none'},
+      hysteria2: {network: 'quic', security: 'tls'},
       tuic: {network: 'quic', security: 'tls'},
       shadowtls: {network: 'tcp', security: 'tls'},
     };
@@ -1703,7 +1703,7 @@ function openCreateRoutingRule() {
         vmess: 'VMess + WebSocket + TLS：适合 CDN 反代场景。',
         trojan: 'Trojan + TLS：兼容性广泛的协议。',
         shadowsocks: 'Shadowsocks：轻量加密代理。',
-        hysteria2: 'Hysteria2：基于 QUIC 的 UDP 加速协议，抗丢包。',
+        hysteria2: 'Hysteria2：基于 QUIC 的 UDP 加速协议；sing-box 1.13 服务端需要 TLS，MiGate 默认使用自签证书。',
         tuic: 'TUIC：基于 QUIC 的低延迟 UDP 代理，适合弱网环境。',
         shadowtls: 'ShadowTLS：将流量伪装成标准 TLS 连接，可绕过深度包检测。',
       };

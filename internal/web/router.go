@@ -2952,13 +2952,13 @@ const panelHTML = `<!doctype html>
           </div>
           <div id="hy2-settings" class="advanced-fieldset field-group span-2 hidden">
             <div class="advanced-fieldset-title">Hysteria2 设置</div>
-            <div class="advanced-fieldset-copy">Hysteria2 使用 QUIC 传输，以下为可选参数。</div>
+            <div class="advanced-fieldset-copy">Hysteria2 使用 QUIC 传输；Hysteria2 在 sing-box v1.13 需要 TLS；MiGate 会默认使用自签证书，以下为可选参数。</div>
             <input name="hy2_up_mbps" type="number" min="0" placeholder="上行速率 mbps (0=不限) 默认 0">
             <input name="hy2_down_mbps" type="number" min="0" placeholder="下行速率 mbps (0=不限) 默认 0">
             <input name="hy2_obfs" placeholder="混淆类型 (如 salamander, 可选)">
-            <div class="inline-field-tools"><input id="inbound-hy2-obfs-password" name="hy2_obfs_password" type="password" placeholder="混淆密码 (可选)"><button type="button" class="btn-mini" onclick="regenerateField('inbound-hy2-obfs-password')">重新生成</button><button type="button" class="btn-mini" onclick="toggleSecretField('inbound-hy2-obfs-password')">显示/隐藏</button></div>
+            <div class="inline-field-tools"><input id="inbound-hy2-obfs-password" name="hy2_obfs_password" type="password" placeholder="混淆密码（自动随机，可选）"><button type="button" class="btn-mini" onclick="regenerateField('inbound-hy2-obfs-password')">重新生成</button><button type="button" class="btn-mini" onclick="toggleSecretField('inbound-hy2-obfs-password')">显示/隐藏</button></div>
             <input name="hy2_mport" placeholder="端口跳跃范围 mport (如 40000-50000, 可选)">
-            <p class="field-help">速率限制为 0 表示不限制。混淆类型通常为 salamander；端口跳跃会写入分享链接的 mport 参数。</p>
+            <p class="field-help">TLS 默认自动启用。速率限制为 0 表示不限制；混淆类型默认 salamander，混淆密码会自动随机生成；端口跳跃会写入分享链接的 mport 参数。</p>
           </div>
           <div id="tuic-settings" class="advanced-fieldset field-group span-2 hidden">
             <div class="advanced-fieldset-title">TUIC 设置</div>
@@ -3174,14 +3174,14 @@ const panelHTML = `<!doctype html>
           </div>
           <div id="ei-hy2-settings" class="advanced-fieldset field-group span-2 hidden">
             <div class="advanced-fieldset-title">Hysteria2 设置</div>
-            <div class="advanced-fieldset-copy">Hysteria2 使用 QUIC 传输，以下为可选参数。</div>
+            <div class="advanced-fieldset-copy">Hysteria2 使用 QUIC 传输；Hysteria2 在 sing-box v1.13 需要 TLS；MiGate 会默认使用自签证书，以下为可选参数。</div>
             <label class="field-label" for="ei-hy2-up">Hysteria2 上行/下行</label>
             <input id="ei-hy2-up" type="number" min="0" placeholder="上行速率 mbps (0=不限) 默认 0">
             <input id="ei-hy2-down" type="number" min="0" placeholder="下行速率 mbps (0=不限) 默认 0">
             <input id="ei-hy2-obfs" placeholder="混淆类型 (如 salamander, 可选)">
-            <input id="ei-hy2-obfs-password" placeholder="混淆密码 (可选)">
+            <div class="inline-field-tools"><input id="ei-hy2-obfs-password" type="password" placeholder="混淆密码（自动随机，可选）"><button type="button" class="btn-mini" onclick="regenerateField('ei-hy2-obfs-password')">重新生成</button><button type="button" class="btn-mini" onclick="toggleSecretField('ei-hy2-obfs-password')">显示/隐藏</button></div>
             <input id="ei-hy2-mport" placeholder="端口跳跃范围 mport (如 40000-50000, 可选)">
-            <p class="field-help">速率限制为 0 表示不限制。混淆类型通常为 salamander；端口跳跃会写入分享链接的 mport 参数。</p>
+            <p class="field-help">TLS 默认自动启用。速率限制为 0 表示不限制；混淆类型默认 salamander，混淆密码会自动随机生成；端口跳跃会写入分享链接的 mport 参数。</p>
           </div>
           <div id="ei-tuic-settings" class="advanced-fieldset field-group span-2 hidden">
             <div class="advanced-fieldset-title">TUIC 设置</div>
