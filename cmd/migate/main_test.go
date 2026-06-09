@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/imzyb/MiGate/internal/xray"
 )
 
 func TestRouterFromPanelConfigOpensConfiguredDatabaseStore(t *testing.T) {
@@ -211,6 +214,38 @@ func TestCommandModeKeepsLegacyConfigArgsServingButBareCommandIsCLI(t *testing.T
 		}
 	}
 }
+
+func TestUsableStatsClientFallsBackToStubWhenProbeFails(t *testing.T) {
+	client := usableStatsClient(context.Background(), &fakeStatsClient{err: errors.New("stats unavailable")})
+	if !xray.StatsClientIsStub(client) {
+		t.Fatalf("expected stub stats client when probe fails, got %T", client)
+	}
+}
+
+func TestUsableStatsClientKeepsRealClientWhenProbeSucceeds(t *testing.T) {
+	real := &fakeStatsClient{stats: map[string]*xray.ClientStats{}}
+	client := usableStatsClient(context.Background(), real)
+	if client != real {
+		t.Fatalf("expected real stats client to be kept, got %T", client)
+	}
+}
+
+type fakeStatsClient struct {
+	stats map[string]*xray.ClientStats
+	err   error
+}
+
+func (c *fakeStatsClient) QueryAllStats(ctx context.Context) (map[string]*xray.ClientStats, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	if c.stats == nil {
+		return map[string]*xray.ClientStats{}, nil
+	}
+	return c.stats, nil
+}
+
+func (c *fakeStatsClient) Close() error { return nil }
 
 type fakeRunner struct {
 	outputs map[string]string

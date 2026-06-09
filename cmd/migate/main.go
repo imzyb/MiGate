@@ -266,8 +266,11 @@ func routerFromConfig(path string) (http.Handler, func(), error) {
 		xrayCtrl = web.NewRealController(store, cfg.XrayConfigPath, execCmd)
 		opts = append(opts, web.WithXrayController(xrayCtrl))
 	}
-	// Query real Xray traffic stats through the lightweight xray CLI API.
-	statsClient := xray.NewCommandStatsClient("/usr/local/bin/xray", "127.0.0.1:10085")
+	// Query real Xray traffic stats through the lightweight xray CLI API when
+	// the local Xray StatsService is actually reachable. Local preview/release
+	// audit runs often have an xray binary but no StatsService, so fall back to
+	// the lightweight stub instead of logging a scheduler error every minute.
+	statsClient := usableStatsClient(context.Background(), xray.NewCommandStatsClient("/usr/local/bin/xray", "127.0.0.1:10085"))
 	opts = append(opts, web.WithStatsClient(statsClient))
 
 	// Create schedulers before building router (needed for options and cleanup wiring)
@@ -310,6 +313,17 @@ func routerFromConfig(path string) (http.Handler, func(), error) {
 	}
 
 	return router, cleanup, nil
+}
+
+func usableStatsClient(ctx context.Context, client xray.StatsClient) xray.StatsClient {
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if _, err := client.QueryAllStats(probeCtx); err != nil {
+		log.Printf("traffic sync: xray stats unavailable, realtime Xray traffic sync disabled: %v", err)
+		_ = client.Close()
+		return xray.NewStubStatsClient()
+	}
+	return client
 }
 
 func readPanelConfig(path string) (panelConfig, error) {

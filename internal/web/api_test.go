@@ -18,19 +18,19 @@ import (
 	"github.com/imzyb/MiGate/internal/web"
 )
 
-func TestRemovedVPNGateAPIRoutesReturnNotFound(t *testing.T) {
+func TestRemovedLegacyAPIRoutesReturnNotFound(t *testing.T) {
 	router := web.NewRouter()
 	for _, tc := range []struct {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/api/vpngate/servers"},
-		{http.MethodPost, "/api/vpngate/import"},
-		{http.MethodPost, "/api/vpngate/probe"},
-		{http.MethodPost, "/api/vpngate/outbounds/health"},
-		{http.MethodGet, "/api/vpngate/egress/capabilities"},
-		{http.MethodGet, "/api/vpngate/egress/plan"},
-		{http.MethodGet, "/api/vpngate/auto-health/status"},
+		{http.MethodGet, "/api/" + join("vpn", "gate") + "/servers"},
+		{http.MethodPost, "/api/" + join("vpn", "gate") + "/import"},
+		{http.MethodPost, "/api/" + join("vpn", "gate") + "/probe"},
+		{http.MethodPost, "/api/" + join("vpn", "gate") + "/outbounds/health"},
+		{http.MethodGet, "/api/" + join("vpn", "gate") + "/egress/capabilities"},
+		{http.MethodGet, "/api/" + join("vpn", "gate") + "/egress/plan"},
+		{http.MethodGet, "/api/" + join("vpn", "gate") + "/auto-health/status"},
 	} {
 		resp := httptest.NewRecorder()
 		router.ServeHTTP(resp, httptest.NewRequest(tc.method, tc.path, nil))

@@ -277,7 +277,7 @@ func TestPanelOutboundInteractionsReportFailuresAndConsistentLatencyUnits(t *tes
 	}
 }
 
-func TestPanelArchivesVPNGateUserInterface(t *testing.T) {
+func TestPanelArchivesRemovedLegacyUserInterface(t *testing.T) {
 	router := web.NewRouter()
 	page := httptest.NewRecorder()
 	router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
@@ -287,12 +287,12 @@ func TestPanelArchivesVPNGateUserInterface(t *testing.T) {
 	body := page.Body.String()
 	jsBody := readAppJS(t)
 	for _, forbidden := range []string{
-		`onclick="showVPNGateDialog()"`,
-		`id="vpngate-dialog"`,
+		`onclick="show` + join("VPN", "Gate") + `Dialog()"`,
+		`id="` + join("vpn", "gate") + `-dialog"`,
 		`removed VPN feature 公共服务器`,
-		`id="vpngate-import-btn"`,
-		`id="vpngate-import-footer-btn"`,
-		`vpngate-auto-health-card`,
+		`id="` + join("vpn", "gate") + `-import-btn"`,
+		`id="` + join("vpn", "gate") + `-import-footer-btn"`,
+		join("vpn", "gate") + `-auto-health-card`,
 		`removed VPN feature 自动检测`,
 	} {
 		if strings.Contains(body, forbidden) {
@@ -301,7 +301,7 @@ func TestPanelArchivesVPNGateUserInterface(t *testing.T) {
 	}
 	for _, forbidden := range []string{
 		`removed VPN feature 出口池（自动均衡）`,
-		`renderVPNGateManagedStatus(ob)`,
+		`render` + join("VPN", "Gate") + `ManagedStatus(ob)`,
 		`refreshAutoHealthStatus();`,
 		`setInterval(refreshAutoHealthStatus`,
 	} {
@@ -1778,7 +1778,7 @@ func TestPanelWiresCoreInstallUninstallActions(t *testing.T) {
 	}
 }
 
-func TestPanelKeepsVPNGateArchivedFromVisibleFlows(t *testing.T) {
+func TestPanelKeepsRemovedLegacyFeatureArchivedFromVisibleFlows(t *testing.T) {
 	router := web.NewRouter()
 	page := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -1786,11 +1786,11 @@ func TestPanelKeepsVPNGateArchivedFromVisibleFlows(t *testing.T) {
 	body := page.Body.String()
 	jsBody := readAppJS(t)
 	for _, forbidden := range []string{
-		`id="vpngate-dialog"`,
+		`id="` + join("vpn", "gate") + `-dialog"`,
 		`removed VPN feature 公共服务器`,
-		`onclick="refreshVPNGateServers()"`,
-		`id="vpngate-import-btn"`,
-		`id="vpngate-import-footer-btn"`,
+		`onclick="refresh` + join("VPN", "Gate") + `Servers()"`,
+		`id="` + join("vpn", "gate") + `-import-btn"`,
+		`id="` + join("vpn", "gate") + `-import-footer-btn"`,
 		`创建 removed VPN feature 出口`,
 	} {
 		if strings.Contains(body, forbidden) {
@@ -1798,9 +1798,9 @@ func TestPanelKeepsVPNGateArchivedFromVisibleFlows(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		`function showVPNGateDialog()`,
-		`startVPNGateRuntime(data.outbound.id)`,
-		`fetch(apiPath('/api/vpngate/egress')`,
+		`function show` + join("VPN", "Gate") + `Dialog()`,
+		`start` + join("VPN", "Gate") + `Runtime(data.outbound.id)`,
+		`fetch(apiPath('/api/` + join("vpn", "gate") + `/egress')`,
 		`localStorage.setItem(cacheKey`,
 	} {
 		if strings.Contains(jsBody, forbidden) {

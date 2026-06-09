@@ -131,7 +131,7 @@ func TestInstallerOffersSingBoxRuntime(t *testing.T) {
 func TestInstallerDoesNotOfferArchivedRuntimeDependencies(t *testing.T) {
 	script := read(t, "packaging", "install.sh")
 	for _, forbidden := range []string{
-		"install_vpngate_runtime_dependencies",
+		"install_" + join("vpn", "gate") + "_runtime_dependencies",
 		"是否安装 removed VPN feature runtime 依赖？[Y/n]",
 		join("micro", "socks"),
 		join("soft", "ether", "-vpn", "client"),

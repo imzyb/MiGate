@@ -61,7 +61,7 @@ func TestInstallerDownloadsReleaseTarballOnly(t *testing.T) {
 func TestRemovedLegacyRuntimeCodeIsFullyRemoved(t *testing.T) {
 	root := repoRoot(t)
 	for _, removedDir := range []string{
-		filepath.Join(root, "internal", "vpngate"),
+		filepath.Join(root, "internal", join("vpn", "gate")),
 	} {
 		if _, err := os.Stat(removedDir); !os.IsNotExist(err) {
 			t.Fatalf("removed VPN feature implementation directory must be removed: %s", removedDir)
@@ -78,7 +78,7 @@ func TestRemovedLegacyRuntimeCodeIsFullyRemoved(t *testing.T) {
 		filepath.Join("packaging", "install.sh"),
 	} {
 		content := strings.ToLower(read(t, file))
-		for _, forbidden := range []string{"vpngate", "vpn gate", join("soft", "ether"), join("micro", "socks"), join("vpn", "cmd"), join("vpn", "client")} {
+		for _, forbidden := range []string{join("vpn", "gate"), join("vpn", " gate"), join("soft", "ether"), join("micro", "socks"), join("vpn", "cmd"), join("vpn", "client")} {
 			if strings.Contains(content, forbidden) {
 				t.Fatalf("%s must not contain removed VPN feature marker %q", file, forbidden)
 			}

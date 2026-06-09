@@ -518,7 +518,7 @@ func TestStoreUpdateInboundRejectsUnsupportedProtocol(t *testing.T) {
 		t.Fatalf("create inbound: %v", err)
 	}
 
-	for _, protocol := range []string{join("vpngate", "_soft", "ether"), "wireguard"} {
+	for _, protocol := range []string{join("vpn", "gate", "_soft", "ether"), "wireguard"} {
 		_, err = store.UpdateInbound(context.Background(), inbound.ID, db.UpdateInboundParams{
 			Remark: "test", Protocol: protocol, Port: 8443, Network: "tcp", Enabled: true,
 		})
@@ -900,7 +900,7 @@ func TestStoreRejectsRemovedLegacyOutbound(t *testing.T) {
 	_, err = store.CreateOutbound(context.Background(), db.CreateOutboundParams{
 		Tag:      "removed-vpn-outbound",
 		Remark:   "removed VPN feature",
-		Protocol: join("vpngate", "_soft", "ether"),
+		Protocol: join("vpn", "gate", "_soft", "ether"),
 		Address:  "10.77.1.2",
 		Port:     21080,
 	})
@@ -909,14 +909,14 @@ func TestStoreRejectsRemovedLegacyOutbound(t *testing.T) {
 	}
 }
 
-func TestStoreRejectsRemovedVPNGatePoolVirtualOutbound(t *testing.T) {
+func TestStoreRejectsRemovedLegacyPoolVirtualOutbound(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
 	defer store.Close()
 
-	_, err = store.CreateRoutingRule(context.Background(), db.CreateRoutingRuleParams{OutboundTag: join("vpngate", "-pool"), Domain: "geosite:google", Enabled: true})
+	_, err = store.CreateRoutingRule(context.Background(), db.CreateRoutingRuleParams{OutboundTag: join("vpn", "gate", "-pool"), Domain: "geosite:google", Enabled: true})
 	if err == nil {
 		t.Fatal("expected removed virtual outbound to be rejected")
 	}

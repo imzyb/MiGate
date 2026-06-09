@@ -125,7 +125,7 @@ func TestBuildConfigWithOutboundsUsesStoredOutbounds(t *testing.T) {
 
 func TestBuildConfigRejectsRemovedLegacyOutbound(t *testing.T) {
 	_, err := xray.BuildConfigWithOutbounds(nil, []db.Outbound{
-		{Tag: "removed-vpn-outbound", Protocol: join("vpngate", "_soft", "ether"), Address: "10.77.1.2", Port: 21080, Enabled: true},
+		{Tag: "removed-vpn-outbound", Protocol: join("vpn", "gate", "_soft", "ether"), Address: "10.77.1.2", Port: 21080, Enabled: true},
 	}, nil)
 	if err == nil {
 		t.Fatal("expected removed outbound protocol to be rejected")

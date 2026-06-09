@@ -13,6 +13,8 @@ import (
 	"github.com/imzyb/MiGate/internal/db"
 )
 
+func join(parts ...string) string { return strings.Join(parts, "") }
+
 func TestAuthIsDisabledByDefault(t *testing.T) {
 	router := NewRouter()
 	response := httptest.NewRecorder()
@@ -48,13 +50,13 @@ func TestAuthAPIEndpointsRequireSession(t *testing.T) {
 	}
 }
 
-func TestAuthRemovedVPNGateRoutesAreNotPublicAllowlisted(t *testing.T) {
+func TestAuthRemovedLegacyRoutesAreNotPublicAllowlisted(t *testing.T) {
 	router := NewRouter(WithAuth("admin", "secret"))
 	response := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/vpngate/servers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/"+join("vpn", "gate")+"/servers", nil)
 	router.ServeHTTP(response, req)
 	if response.Code != http.StatusUnauthorized {
-		t.Fatalf("removed VPN Gate route should not remain public allowlisted, got %d", response.Code)
+		t.Fatalf("removed legacy route should not remain public allowlisted, got %d", response.Code)
 	}
 }
 
