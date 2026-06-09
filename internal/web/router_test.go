@@ -1008,6 +1008,19 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 			t.Fatalf("panel missing section/element %q", want)
 		}
 	}
+	if strings.Contains(body, `xray-unsupported-warning`) || strings.Contains(body, `当前 Xray 版本不支持 Hysteria2 协议`) {
+		t.Fatalf("panel should not show stale Xray/Hysteria2 unsupported warning")
+	}
+	for _, want := range []string{
+		`function formatCoreVersion(versionText)`,
+		`versionText.match(/(?:Xray\s+)?v?(\d+\.\d+\.\d+)/i)`,
+		`document.getElementById('xray-version').textContent = formatCoreVersion(data.version) || '-'`,
+		`document.getElementById('singbox-version').textContent = formatCoreVersion(data.version) || '-'`,
+	} {
+		if !strings.Contains(jsBody, want) {
+			t.Fatalf("app.js missing concise core version contract %q", want)
+		}
+	}
 
 	// Verify external script reference in HTML
 	if !strings.Contains(body, `static/app.js`) {
@@ -1235,10 +1248,14 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		"document.getElementById('server-memory').textContent",
 		"document.getElementById('server-disk').textContent",
 		"document.getElementById('server-uptime').textContent",
+		"function startOverviewResourceRefresh()",
+		"clearInterval(overviewResourceTimer)",
+		"overviewResourceTimer = setInterval(loadSystemResources, 5000)",
+		"if (sectionId !== 'overview') stopOverviewResourceRefresh();",
 		"async function loadOverviewServiceStatuses()",
 		"xrayStatusMetric.textContent = formatServiceStatus(xs)",
 		"document.getElementById('singbox-status-metric').textContent = formatServiceStatus(ss)",
-		"if (sectionId === 'overview') { loadStats(); loadOverviewServiceStatuses(); loadSystemResources(); }",
+		"if (sectionId === 'overview') { loadStats(); loadOverviewServiceStatuses(); loadSystemResources(); startOverviewResourceRefresh(); }",
 	} {
 		if !strings.Contains(jsBody, want) {
 			t.Fatalf("app.js missing overview stat/status contract %q", want)
@@ -1324,6 +1341,33 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 	} {
 		if !strings.Contains(jsBody, want) {
 			t.Fatalf("app.js missing mobile outbound card contract %q", want)
+		}
+	}
+
+	// Mobile SOCKS5 pool dialog should stack detail/list and keep action button sticky on phones.
+	for _, want := range []string{
+		`.socks5-pool-layout`,
+		`.socks5-pool-detail-card`,
+		`.socks5-pool-list-panel`,
+		`.socks5-pool-footer`,
+		`@media (max-width: 560px)`,
+		`.socks5-pool-layout { grid-template-columns:1fr; }`,
+		`.socks5-pool-detail-card { min-height:auto; }`,
+		`.socks5-pool-list { height:min(48vh, 360px); }`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing mobile SOCKS5 pool CSS contract %q", want)
+		}
+	}
+	for _, want := range []string{
+		`class="socks5-pool-layout"`,
+		`class="socks5-pool-detail-card"`,
+		`class="socks5-pool-list-panel"`,
+		`class="list muted socks5-pool-list"`,
+		`class="modal-footer socks5-pool-footer"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing mobile SOCKS5 pool markup contract %q", want)
 		}
 	}
 

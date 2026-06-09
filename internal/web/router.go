@@ -16,8 +16,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/imzyb/MiGate/internal/db"
@@ -1105,7 +1105,7 @@ func readMemoryUsage() (totalBytes, usedBytes int64, percent float64) {
 		return 0, 0, 0
 	}
 	used := total - available
-	return total, used, clampPercent(round1(float64(used)*100/float64(total)))
+	return total, used, clampPercent(round1(float64(used) * 100 / float64(total)))
 }
 
 func readDiskUsage(path string) (totalBytes, usedBytes int64, percent float64) {
@@ -1119,7 +1119,7 @@ func readDiskUsage(path string) (totalBytes, usedBytes int64, percent float64) {
 		return 0, 0, 0
 	}
 	used := total - free
-	return total, used, clampPercent(round1(float64(used)*100/float64(total)))
+	return total, used, clampPercent(round1(float64(used) * 100 / float64(total)))
 }
 
 func readUptimeSeconds() int64 {
@@ -2782,6 +2782,11 @@ const panelHTML = `<!doctype html>
     .modal-header .modal-title { margin:0; }
     .modal-close { width:32px; height:32px; min-height:32px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:var(--radius-sm); background:var(--surface); color:var(--fg); box-shadow:var(--shadow-sm); font-size:16px; line-height:1; }
     .modal-footer { display:flex; gap:10px; justify-content:flex-end; margin-top:var(--space-4); }
+    .socks5-pool-layout { display:grid; grid-template-columns:minmax(220px,280px) minmax(360px,1fr); gap:16px; align-items:stretch; }
+    .socks5-pool-detail-card { min-height:360px; border:1px solid var(--line); border-radius:var(--radius-lg); background:linear-gradient(135deg,var(--surface-subtle),var(--surface)); padding:14px; overflow:hidden; }
+    .socks5-pool-list-panel { display:flex; flex-direction:column; gap:12px; min-height:360px; min-width:0; }
+    .socks5-pool-list { height:260px; overflow-y:auto; overflow-x:hidden; padding:8px; }
+    .socks5-pool-footer { position:sticky; bottom:0; padding-top:var(--space-3); background:linear-gradient(180deg, transparent, var(--surface) 28%); }
     .modal-checkbox { display:flex; align-items:center; gap:8px; font-size:var(--text-sm); color:var(--fg); cursor:pointer; }
     .modal-checkbox input[type=checkbox] { width:16px; height:16px; accent-color:var(--accent); cursor:pointer; margin:0; }
     .modal-form { margin:0; grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -2815,7 +2820,7 @@ const panelHTML = `<!doctype html>
       .outbound-actions { width:100%; justify-content:flex-start; padding-left:30px; }
       .outbound-actions .icon-btn, .outbound-actions .danger-icon-btn { min-width:40px; min-height:40px; }
     }
-    @media (max-width: 560px) { .grid,.overview-grid,.protocols, form { grid-template-columns:1fr; } main { padding:calc(var(--space-5) + 56px) var(--space-3) var(--space-4); } .mobile-topbar { padding-left:var(--space-3); padding-right:var(--space-3); } .modal-content,#confirm-dialog { min-width:0; width:calc(100vw - 28px); max-width:calc(100vw - 28px); } .modal-form { grid-template-columns:1fr; } .form-actions,.modal-footer { flex-direction:column-reverse; align-items:stretch; } }
+    @media (max-width: 560px) { .grid,.overview-grid,.protocols, form { grid-template-columns:1fr; } main { padding:calc(var(--space-5) + 56px) var(--space-3) var(--space-4); } .mobile-topbar { padding-left:var(--space-3); padding-right:var(--space-3); } .modal-content,#confirm-dialog { min-width:0; width:calc(100vw - 28px); max-width:calc(100vw - 28px); } .modal-form { grid-template-columns:1fr; } .form-actions,.modal-footer { flex-direction:column-reverse; align-items:stretch; } .socks5-pool-layout { grid-template-columns:1fr; } .socks5-pool-detail-card { min-height:auto; } .socks5-pool-list-panel { min-height:auto; } .socks5-pool-list { height:min(48vh, 360px); } }
   </style>
 </head>
 <body>
@@ -3389,7 +3394,6 @@ const panelHTML = `<!doctype html>
           <div><strong>服务</strong>：<span id="xray-service">xray</span></div>
           <div><strong>配置路径</strong>：<span id="xray-config-path">-</span></div>
         </div>
-        <div id="xray-unsupported-warning" class="xray-warning muted" style="display:none;margin-top:12px;padding:12px 16px;border-radius:var(--radius-md);background:var(--surface-warning);color:var(--fg)">当前 Xray 版本不支持 Hysteria2 协议，需要使用 sing-box 等后端配合。</div>
         <div class="action-toolbar xray-toolbar">
           <div class="toolbar-copy">
             <strong>配置操作</strong>
@@ -3520,9 +3524,9 @@ const panelHTML = `<!doctype html>
           </div>
           <button class="modal-close" onclick="closeModal()">✕</button>
         </div>
-        <div style="display:grid;grid-template-columns:minmax(220px,280px) minmax(360px,1fr);gap:16px;align-items:stretch">
-          <div id="socks5-pool-detail" style="min-height:360px;border:1px solid var(--line);border-radius:var(--radius-lg);background:linear-gradient(135deg,var(--surface-subtle),var(--surface));padding:14px;overflow:hidden"></div>
-          <div style="display:flex;flex-direction:column;gap:12px;min-height:360px;min-width:0">
+        <div class="socks5-pool-layout">
+          <div id="socks5-pool-detail" class="socks5-pool-detail-card"></div>
+          <div class="socks5-pool-list-panel">
             <div class="field-group">
               <label class="field-label" for="socks5-pool-region">选择目标地区</label>
               <select id="socks5-pool-region" onchange="onSocks5PoolRegionChange()">
@@ -3531,11 +3535,11 @@ const panelHTML = `<!doctype html>
             </div>
             <div class="field-group" style="flex:1;min-height:0;min-width:0">
               <label class="field-label">可用 SOCKS5</label>
-              <div id="socks5-pool-list" class="list muted" style="height:260px;overflow-y:auto;overflow-x:hidden;padding:8px">请选择地区后显示对应 SOCKS5</div>
+              <div id="socks5-pool-list" class="list muted socks5-pool-list">请选择地区后显示对应 SOCKS5</div>
             </div>
           </div>
         </div>
-        <div class="modal-footer">
+        <div class="modal-footer socks5-pool-footer">
           <button class="secondary" onclick="closeModal()">取消</button>
           <button id="socks5-pool-confirm-btn" onclick="confirmSocks5PoolProxy()" class="btn-modal-primary">确定</button>
         </div>

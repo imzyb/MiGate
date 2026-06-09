@@ -280,6 +280,24 @@
       return minutes + '分钟';
     }
 
+    function formatCoreVersion(versionText) {
+      versionText = String(versionText || '').trim();
+      const match = versionText.match(/(?:Xray\s+)?v?(\d+\.\d+\.\d+)/i);
+      return match ? match[1] : versionText;
+    }
+
+    let overviewResourceTimer = null;
+
+    function startOverviewResourceRefresh() {
+      clearInterval(overviewResourceTimer);
+      overviewResourceTimer = setInterval(loadSystemResources, 5000);
+    }
+
+    function stopOverviewResourceRefresh() {
+      clearInterval(overviewResourceTimer);
+      overviewResourceTimer = null;
+    }
+
     async function loadSystemResources() {
       try {
         const resp = await fetch(apiPath('/api/system/resources'));
@@ -1152,7 +1170,8 @@ function openCreateRoutingRule() {
         a.classList.toggle('active', (sectionId === 'overview' && href === '#') || href === '#' + sectionId);
       });
       history.replaceState(null, '', sectionId === 'overview' ? panelPath('/') : panelPath('/#' + sectionId));
-      if (sectionId === 'overview') { loadStats(); loadOverviewServiceStatuses(); loadSystemResources(); }
+      if (sectionId !== 'overview') stopOverviewResourceRefresh();
+      if (sectionId === 'overview') { loadStats(); loadOverviewServiceStatuses(); loadSystemResources(); startOverviewResourceRefresh(); }
       if (sectionId === 'xray') fetchXrayStatus();
       if (sectionId === 'singbox') fetchSingboxStatus();
     }
@@ -1918,15 +1937,13 @@ function openCreateRoutingRule() {
         }
         document.getElementById('xray-status').textContent =
           data.status === 'running' ? '运行中' : (data.status === 'stopped' ? '已停止' : (data.status || '未知'));
-        document.getElementById('xray-version').textContent = data.version || '-';
+        document.getElementById('xray-version').textContent = formatCoreVersion(data.version) || '-';
         document.getElementById('xray-memory').textContent = data.memory_rss_bytes ? formatBytes(data.memory_rss_bytes) : '-';
         document.getElementById('xray-uptime').textContent = data.uptime || '-';
         document.getElementById('xray-connections').textContent = data.active_connections != null ? data.active_connections.toString() : '-';
         document.getElementById('xray-managed').textContent = data.managed ? '是' : '否';
         document.getElementById('xray-service').textContent = data.service || 'xray';
         document.getElementById('xray-config-path').textContent = data.config_path || '-';
-        // Hysteria2 is not supported by any current Xray version
-        document.getElementById('xray-unsupported-warning').style.display = 'block';
       } catch (e) {
         document.getElementById('xray-status').textContent = '连接失败';
         document.getElementById('xray-memory').textContent = '-';
@@ -2052,7 +2069,7 @@ const singboxLine = singboxResult ? (singboxResult.applied ? '\nSing-box: ✅ �
         }
         document.getElementById('singbox-status').textContent =
           data.status === 'running' ? '运行中' : (data.status === 'stopped' ? '已停止' : data.status);
-        document.getElementById('singbox-version').textContent = data.version || '-';
+        document.getElementById('singbox-version').textContent = formatCoreVersion(data.version) || '-';
         document.getElementById('singbox-memory').textContent = data.memory_rss_bytes ? formatBytes(data.memory_rss_bytes) : '-';
         document.getElementById('singbox-uptime').textContent = data.uptime || '-';
         document.getElementById('singbox-connections').textContent = data.active_connections != null ? data.active_connections.toString() : '-';
