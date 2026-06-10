@@ -98,10 +98,10 @@
             '<div class="resource-meta"><span>' + escapeHtml(inbound.protocol) + '</span><span>:' + inbound.port + '</span><span>' + escapeHtml(inbound.network || 'tcp') + ' / ' + escapeHtml(inbound.security || 'none') + '</span><span>' + ((inbound.clients || []).length) + ' 客户端</span></div>' +
           '</div>' +
           '<div class="resource-actions">' +
-            '<button class="icon-btn" onclick="toggleClientSection(' + inbound.id + ')" title="展开客户端">' + ((inbound.clients || []).length) + 'C</button>' +
-            '<button class="icon-btn" onclick="editInbound(' + inbound.id + ')" title="编辑">Edit</button>' +
-            '<button class="icon-btn" onclick="toggleInbound(' + inbound.id + ')" title="启用/禁用">' + (inbound.enabled ? 'ON' : 'OFF') + '</button>' +
-            '<button class="danger-icon-btn" onclick="deleteInbound(' + inbound.id + ')" title="删除">DEL</button>' +
+            '<button class="icon-btn" onclick="toggleClientSection(' + inbound.id + ')" title="展开客户端">客户端</button>' +
+            '<button class="icon-btn" onclick="editInbound(' + inbound.id + ')" title="编辑">编辑</button>' +
+            '<button class="icon-btn" onclick="toggleInbound(' + inbound.id + ')" title="启用/禁用">' + (inbound.enabled ? '禁用' : '启用') + '</button>' +
+            '<button class="danger-icon-btn" onclick="deleteInbound(' + inbound.id + ')" title="删除">删除</button>' +
           '</div>' +
         '</div>' +
         '<div id="client-section-' + inbound.id + '" class="client-subsection" style="display:none"></div>';
@@ -1315,29 +1315,35 @@ function openCreateRoutingRule() {
       document.body.appendChild(ta);
       ta.select();
       try {
-        return document.execCommand('copy');
+        return document.execCommand('copy') === true;
       } finally {
         document.body.removeChild(ta);
       }
     }
 
+    async function copyToClipboard(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      return copyTextFallback(text);
+    }
+
+    function showManualCopyDialog(text) {
+      const value = String(text || '');
+      window.prompt('复制失败，请手动复制下面的链接', value);
+    }
+
     async function copySubUrl(text) {
       try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(text);
-        } else if (!copyTextFallback(text)) {
-          throw new Error('copy fallback failed');
+        const copied = await copyToClipboard(text);
+        if (copied) {
+          showToast('已复制链接', 'success');
+          return;
         }
-        showToast('已复制链接', 'success');
-      } catch (e) {
-        try {
-          if (copyTextFallback(text)) {
-            showToast('已复制链接', 'success');
-            return;
-          }
-        } catch (_) {}
-        showToast('复制失败，请手动复制', 'error');
-      }
+      } catch (_) {}
+      showToast('复制失败，请手动复制', 'error');
+      showManualCopyDialog(text);
     }
 
     async function deleteInbound(id) {
