@@ -160,6 +160,33 @@ func TestPanelI18nEnglishLocaleDoesNotContainChineseCopy(t *testing.T) {
 	}
 }
 
+func TestPanelI18nEnglishRuntimeTranslatesStaticChineseCopy(t *testing.T) {
+	router := web.NewRouter()
+	page := httptest.NewRecorder()
+	router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("expected 200 for panel, got %d", page.Code)
+	}
+	body := page.Body.String()
+	for _, want := range []string{
+		`function applyStaticI18n()`,
+		`document.addEventListener('DOMContentLoaded', applyStaticI18n)`,
+		`"新增入站":"New inbound"`,
+		`"名称":"Name"`,
+		`"监听端口":"Listen port"`,
+		`"保存入站":"Save inbound"`,
+		`"编辑客户端":"Edit client"`,
+		`"面板端口":"Panel port"`,
+		`"导入 SOCKS5 地址池":"Import SOCKS5 pool"`,
+		`"新建路由规则":"New routing rule"`,
+		`"搜索入站...":"Search inbounds..."`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel missing static English i18n runtime contract %q", want)
+		}
+	}
+}
+
 func TestPanelWiresWebUIUpdateActionAndI18nMessages(t *testing.T) {
 	router := web.NewRouter()
 	page := httptest.NewRecorder()
