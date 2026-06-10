@@ -131,6 +131,35 @@ func TestUpdateAPIStartsInstallerUpdateWithoutBlockingResponse(t *testing.T) {
 	}
 }
 
+func TestPanelI18nEnglishLocaleDoesNotContainChineseCopy(t *testing.T) {
+	router := web.NewRouter()
+	page := httptest.NewRecorder()
+	router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("expected 200 for panel, got %d", page.Code)
+	}
+	body := page.Body.String()
+	marker := `},en:{`
+	start := strings.Index(body, marker)
+	if start == -1 {
+		t.Fatalf("panel i18n dictionary missing English locale")
+	}
+	english := body[start+len(marker):]
+	end := strings.Index(english, `}};`)
+	if end == -1 {
+		t.Fatalf("panel i18n dictionary has unexpected shape")
+	}
+	english = english[:end]
+	for _, allowed := range []string{`langToggle:"中文"`, `中文`} {
+		english = strings.ReplaceAll(english, allowed, "")
+	}
+	for _, r := range english {
+		if r >= '\u4e00' && r <= '\u9fff' {
+			t.Fatalf("English i18n locale must not contain Chinese copy, found %q", r)
+		}
+	}
+}
+
 func TestPanelWiresWebUIUpdateActionAndI18nMessages(t *testing.T) {
 	router := web.NewRouter()
 	page := httptest.NewRecorder()
