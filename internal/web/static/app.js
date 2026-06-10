@@ -1982,7 +1982,7 @@ function openCreateRoutingRule() {
           return;
         }
         document.getElementById('xray-status').textContent =
-          data.status === 'running' ? '运行中' : (data.status === 'stopped' ? '已停止' : (data.status === 'not_managed' ? '已安装 / 未托管' : (data.status || '未知')));
+          data.status === 'running' ? '运行中' : (data.status === 'stopped' ? '已停止' : (data.status === 'no_inbounds' ? '无入站' : (data.status === 'not_managed' ? '已安装 / 未托管' : (data.status || '未知'))));
         document.getElementById('xray-version').textContent = formatCoreVersion(data.version) || '-';
         document.getElementById('xray-memory').textContent = data.memory_rss_bytes ? formatBytes(data.memory_rss_bytes) : '-';
         document.getElementById('xray-uptime').textContent = data.uptime || '-';

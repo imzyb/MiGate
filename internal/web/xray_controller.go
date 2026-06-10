@@ -58,7 +58,9 @@ func (c *RealController) Status(ctx context.Context) XrayStatus {
 	version := c.Version(ctx)
 	if version != "" {
 		executed = append(executed, "xray version")
-		if status == "unknown" {
+		if hasNoXrayInbounds(ctx, c.store) {
+			status = "no_inbounds"
+		} else if status == "unknown" {
 			status = "not_managed"
 		}
 	}
@@ -217,6 +219,22 @@ func humanUptimeSinceSystemdTimestamp(ts string) string {
 		return fmt.Sprintf("%dm", m)
 	}
 	return "未知"
+}
+
+func hasNoXrayInbounds(ctx context.Context, store Store) bool {
+	if store == nil {
+		return false
+	}
+	inbounds, err := store.ListInbounds(ctx)
+	if err != nil {
+		return false
+	}
+	for _, inbound := range inbounds {
+		if inbound.Enabled && isXrayHandledProtocol(inbound.Protocol) {
+			return false
+		}
+	}
+	return true
 }
 
 func countXrayActiveConnections(ctx context.Context, store Store, run CmdRunner) int {

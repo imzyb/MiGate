@@ -1430,12 +1430,50 @@ func TestRealControllerStatusIncludesOperationalDetails(t *testing.T) {
 	}
 }
 
+func TestRealControllerStatusReportsNoInboundsWhenXrayIsInstalledButHasNoManagedListeners(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	mockRun := func(name string, args ...string) (string, error) {
+		cmd := name + " " + strings.Join(args, " ")
+		switch cmd {
+		case "systemctl is-active xray":
+			return "inactive\n", fmt.Errorf("inactive")
+		case "systemctl show xray --property=MemoryCurrent --property=MainPID --property=ActiveEnterTimestamp":
+			return "", nil
+		case "xray version":
+			return "Xray 26.3.27\nA unified platform for anti-censorship.", nil
+		case "ss -tn state established":
+			return "", nil
+		default:
+			return "", fmt.Errorf("unexpected command %s", cmd)
+		}
+	}
+
+	status := web.NewRealController(store, "/usr/local/migate", mockRun).Status(context.Background())
+	if !status.Installed {
+		t.Fatalf("expected xray binary to be detected as installed, got %+v", status)
+	}
+	if status.Status != "no_inbounds" {
+		t.Fatalf("empty inbound list should report no_inbounds instead of unknown/inactive: %+v", status)
+	}
+}
+
 func TestRealControllerStatusDoesNotReportUnknownWhenXrayBinaryIsInstalledButServiceIsUnmanaged(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
 	defer store.Close()
+	_, err = store.CreateInbound(context.Background(), db.CreateInboundParams{
+		Remark: "xray-vless", Protocol: "vless", Port: 8443, Network: "tcp", Security: "none",
+	})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
 
 	mockRun := func(name string, args ...string) (string, error) {
 		cmd := name + " " + strings.Join(args, " ")

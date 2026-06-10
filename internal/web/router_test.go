@@ -1051,6 +1051,7 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		`versionText.match(/(?:Xray\s+)?v?(\d+\.\d+\.\d+)/i)`,
 		`document.getElementById('xray-version').textContent = formatCoreVersion(data.version) || '-'`,
 		`document.getElementById('singbox-version').textContent = formatCoreVersion(data.version) || '-'`,
+		`data.status === 'no_inbounds' ? '无入站'`,
 		`data.status === 'not_managed' ? '已安装 / 未托管'`,
 	} {
 		if !strings.Contains(jsBody, want) {
