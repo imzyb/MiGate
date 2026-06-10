@@ -168,7 +168,7 @@ func TestCLIPrintsInteractiveMenuForBareCommand(t *testing.T) {
 	menu := out.String()
 	for _, want := range []string{
 		"MiGate CLI",
-		"用法:",
+		"Usage:",
 		"mg status",
 		"mg logs",
 		"mg restart",
@@ -176,7 +176,7 @@ func TestCLIPrintsInteractiveMenuForBareCommand(t *testing.T) {
 		"mg update",
 		"mg version",
 		"mg uninstall",
-		"服务模式:",
+		"Service mode:",
 		"migate serve --config /etc/migate/panel.json",
 	} {
 		if !strings.Contains(menu, want) {
@@ -195,7 +195,7 @@ func TestCLIStatusUsesSystemctlWithoutStartingServer(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("expected exit 0, got %d", exitCode)
 	}
-	if !strings.Contains(out.String(), "MiGate 面板: 运行中") || !strings.Contains(out.String(), "sing-box: 未运行") {
+	if !strings.Contains(out.String(), "MiGate Panel: running") || !strings.Contains(out.String(), "sing-box: stopped") {
 		t.Fatalf("unexpected status output: %s", out.String())
 	}
 	if len(runner.calls) != 2 {
@@ -263,6 +263,214 @@ func TestCLIUpdateReportsInstallerFailure(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "download failed") || !strings.Contains(stderr.String(), "update failed") {
 		t.Fatalf("expected failure output, stdout=%q stderr=%q", out.String(), stderr.String())
+	}
+}
+
+func TestCLIOperationsMenuListsExpandedCommands(t *testing.T) {
+	var out bytes.Buffer
+	exitCode := runCLI([]string{}, &out, &bytes.Buffer{}, &fakeRunner{})
+	if exitCode != 0 {
+		t.Fatalf("expected exit 0, got %d", exitCode)
+	}
+	menu := out.String()
+	for _, want := range []string{"mg doctor", "mg info", "mg reset-password", "mg url --public", "mg update --check", "mg logs -f", "mg restart all", "mg backup", "mg restore", "mg ports"} {
+		if !strings.Contains(menu, want) {
+			t.Fatalf("expanded CLI menu missing %q:\n%s", want, menu)
+		}
+	}
+}
+
+func TestCLIDoctorPrintsPanelRuntimeAndResourceChecks(t *testing.T) {
+	tmp := t.TempDir()
+	oldPath := defaultPanelConfigPath
+	defaultPanelConfigPath = filepath.Join(tmp, "panel.json")
+	defer func() { defaultPanelConfigPath = oldPath }()
+	config := `{"panel_port":9999,"web_base_path":"/migate","database_path":"` + filepath.Join(tmp, "migate.db") + `","xray_config_path":"` + filepath.Join(tmp, "xray.json") + `"}`
+	if err := os.WriteFile(defaultPanelConfigPath, []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "migate.db"), []byte("db"), 0o600); err != nil {
+		t.Fatalf("write db: %v", err)
+	}
+	runner := &fakeRunner{outputs: map[string]string{
+		"systemctl is-active migate":         "active\n",
+		"systemctl is-active migate-singbox": "inactive\n",
+		"xray version":                       "Xray 26.3.27\n",
+		"sing-box version":                   "sing-box version 1.13.13\n",
+		"ss -ltn":                            "LISTEN 0 4096 *:9999 *:*\n",
+		"free -m":                            "Mem: 900 400 500\nSwap: 512 0 512\n",
+		"df -h /":                            "/dev/sda1 50G 10G 40G 20% /\n",
+	}}
+	var out bytes.Buffer
+	exitCode := runCLI([]string{"doctor"}, &out, &bytes.Buffer{}, runner)
+	if exitCode != 0 {
+		t.Fatalf("expected exit 0, got %d", exitCode)
+	}
+	body := out.String()
+	for _, want := range []string{"MiGate Doctor", "MiGate Panel: running", "WebUI: http://SERVER_IP:9999/migate", "Xray: installed", "sing-box: installed", "Config: ok", "Database: ok", "Memory", "Disk"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestCLIInfoShowsPanelDetailsWithoutPassword(t *testing.T) {
+	tmp := t.TempDir()
+	oldPath := defaultPanelConfigPath
+	defaultPanelConfigPath = filepath.Join(tmp, "panel.json")
+	defer func() { defaultPanelConfigPath = oldPath }()
+	config := `{"panel_port":9999,"panel_username":"admin","panel_password":"secret","web_base_path":"/migate","database_path":"/usr/local/migate/migate.db"}`
+	if err := os.WriteFile(defaultPanelConfigPath, []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	old := Version
+	Version = "v1.2.3"
+	defer func() { Version = old }()
+	var out bytes.Buffer
+	exitCode := runCLI([]string{"info"}, &out, &bytes.Buffer{}, &fakeRunner{})
+	if exitCode != 0 {
+		t.Fatalf("expected exit 0, got %d", exitCode)
+	}
+	body := out.String()
+	for _, want := range []string{"MiGate Info", "Version: v1.2.3", "WebUI: http://SERVER_IP:9999/migate", "Username: admin", "Config: " + defaultPanelConfigPath, "Database: /usr/local/migate/migate.db", "mg reset-password"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("info output missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "secret") {
+		t.Fatalf("info leaked password: %s", body)
+	}
+}
+
+func TestCLIResetPasswordUpdatesConfigAndRestartsService(t *testing.T) {
+	tmp := t.TempDir()
+	oldPath := defaultPanelConfigPath
+	defaultPanelConfigPath = filepath.Join(tmp, "panel.json")
+	defer func() { defaultPanelConfigPath = oldPath }()
+	config := `{"panel_port":9999,"panel_username":"admin","panel_password":"old","web_base_path":"/migate"}`
+	if err := os.WriteFile(defaultPanelConfigPath, []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	runner := &fakeRunner{outputs: map[string]string{"systemctl restart migate": ""}}
+	var out bytes.Buffer
+	exitCode := runCLI([]string{"reset-password", "new-pass"}, &out, &bytes.Buffer{}, runner)
+	if exitCode != 0 {
+		t.Fatalf("expected exit 0, got %d", exitCode)
+	}
+	updated, err := readPanelConfig(defaultPanelConfigPath)
+	if err != nil {
+		t.Fatalf("read updated config: %v", err)
+	}
+	if updated.PanelPassword != "new-pass" {
+		t.Fatalf("password not updated: %+v", updated)
+	}
+	if !strings.Contains(out.String(), "Panel password updated") || len(runner.calls) != 1 || runner.calls[0] != "systemctl restart migate" {
+		t.Fatalf("unexpected reset output/calls: %q %+v", out.String(), runner.calls)
+	}
+}
+
+func TestCLIURLPublicUsesDetectedIPv4(t *testing.T) {
+	tmp := t.TempDir()
+	oldPath := defaultPanelConfigPath
+	defaultPanelConfigPath = filepath.Join(tmp, "panel.json")
+	defer func() { defaultPanelConfigPath = oldPath }()
+	if err := os.WriteFile(defaultPanelConfigPath, []byte(`{"panel_port":9999,"web_base_path":"/migate"}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	runner := &fakeRunner{outputs: map[string]string{"curl -fsS --max-time 3 https://api.ipify.org": "203.0.113.7"}}
+	var out bytes.Buffer
+	exitCode := runCLI([]string{"url", "--public"}, &out, &bytes.Buffer{}, runner)
+	if exitCode != 0 {
+		t.Fatalf("expected exit 0, got %d", exitCode)
+	}
+	if got := strings.TrimSpace(out.String()); got != "http://203.0.113.7:9999/migate" {
+		t.Fatalf("unexpected public url: %q", got)
+	}
+}
+
+func TestCLIUpdateCheckQueriesLatestRelease(t *testing.T) {
+	old := Version
+	Version = "v1.0.0"
+	defer func() { Version = old }()
+	runner := &fakeRunner{outputs: map[string]string{"/usr/local/bin/migate-install --check": "当前版本: v1.0.0\n最新版本: v1.0.1\n可更新: 是\n"}}
+	var out bytes.Buffer
+	exitCode := runCLI([]string{"update", "--check"}, &out, &bytes.Buffer{}, runner)
+	if exitCode != 0 {
+		t.Fatalf("expected exit 0, got %d", exitCode)
+	}
+	if !strings.Contains(out.String(), "可更新") || runner.calls[0] != "/usr/local/bin/migate-install --check" {
+		t.Fatalf("unexpected update check: %q %+v", out.String(), runner.calls)
+	}
+}
+
+func TestCLILogsFollowAndRestartAllUseExpectedServices(t *testing.T) {
+	runner := &fakeRunner{outputs: map[string]string{
+		"journalctl -u migate -n 80 -f":    "following\n",
+		"systemctl restart migate":         "",
+		"systemctl restart migate-singbox": "",
+	}}
+	if code := runCLI([]string{"logs", "-f"}, &bytes.Buffer{}, &bytes.Buffer{}, runner); code != 0 {
+		t.Fatalf("logs -f exit %d", code)
+	}
+	if code := runCLI([]string{"restart", "all"}, &bytes.Buffer{}, &bytes.Buffer{}, runner); code != 0 {
+		t.Fatalf("restart all exit %d", code)
+	}
+	want := []string{"journalctl -u migate -n 80 -f", "systemctl restart migate", "systemctl restart migate-singbox"}
+	if strings.Join(runner.calls, "|") != strings.Join(want, "|") {
+		t.Fatalf("unexpected calls: %+v", runner.calls)
+	}
+}
+
+func TestCLIBackupAndRestoreUseTarWithConfigAndDataPaths(t *testing.T) {
+	tmp := t.TempDir()
+	oldPath := defaultPanelConfigPath
+	defaultPanelConfigPath = filepath.Join(tmp, "panel.json")
+	defer func() { defaultPanelConfigPath = oldPath }()
+	config := `{"database_path":"/usr/local/migate/migate.db","xray_config_path":"/usr/local/migate/xray.json"}`
+	if err := os.WriteFile(defaultPanelConfigPath, []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	runner := &fakeRunner{outputs: map[string]string{
+		"tar -czf /tmp/migate-backup.tar.gz " + defaultPanelConfigPath + " /usr/local/migate/migate.db /usr/local/migate/xray.json /etc/sing-box/config.json": "",
+		"tar -xzf /tmp/migate-backup.tar.gz -C /": "",
+		"systemctl restart migate":                "",
+	}}
+	if code := runCLI([]string{"backup", "/tmp/migate-backup.tar.gz"}, &bytes.Buffer{}, &bytes.Buffer{}, runner); code != 0 {
+		t.Fatalf("backup exit %d", code)
+	}
+	if code := runCLI([]string{"restore", "/tmp/migate-backup.tar.gz"}, &bytes.Buffer{}, &bytes.Buffer{}, runner); code != 0 {
+		t.Fatalf("restore exit %d", code)
+	}
+	if len(runner.calls) != 3 {
+		t.Fatalf("unexpected backup/restore calls: %+v", runner.calls)
+	}
+}
+
+func TestCLIPortsShowsPanelAndListeningPorts(t *testing.T) {
+	tmp := t.TempDir()
+	oldPath := defaultPanelConfigPath
+	defaultPanelConfigPath = filepath.Join(tmp, "panel.json")
+	defer func() { defaultPanelConfigPath = oldPath }()
+	if err := os.WriteFile(defaultPanelConfigPath, []byte(`{"panel_port":9999,"web_base_path":"/migate"}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	runner := &fakeRunner{outputs: map[string]string{"ss -ltn": "LISTEN 0 4096 *:9999 *:*\nLISTEN 0 4096 *:443 *:*\n"}}
+	var out bytes.Buffer
+	if code := runCLI([]string{"ports"}, &out, &bytes.Buffer{}, runner); code != 0 {
+		t.Fatalf("ports exit %d", code)
+	}
+	body := out.String()
+	for _, want := range []string{"9999", "panel", "listening"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("ports output missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestCLIPanelURLNormalizesBasePath(t *testing.T) {
+	cfg := panelConfig{PanelPort: 9999, WebPath: "migate"}
+	if got := panelURL(cfg, "SERVER_IP"); got != "http://SERVER_IP:9999/migate" {
+		t.Fatalf("unexpected normalized url: %q", got)
 	}
 }
 

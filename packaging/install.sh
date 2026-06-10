@@ -4,6 +4,7 @@ set -euo pipefail
 REPO="${MIGATE_REPO:-imzyb/MiGate}"
 VERSION="${MIGATE_VERSION:-latest}"
 UPDATE_ONLY=0
+CHECK_ONLY=0
 INSTALL_DIR="${MIGATE_INSTALL_DIR:-/usr/local/migate}"
 CONFIG_DIR="${MIGATE_CONFIG_DIR:-/etc/migate}"
 CONFIG_PATH="${MIGATE_CONFIG_PATH:-/etc/migate/panel.json}"
@@ -51,13 +52,17 @@ parse_args() {
         UPDATE_ONLY=1
         shift
         ;;
+      --check)
+        CHECK_ONLY=1
+        shift
+        ;;
       --version)
         [ "$#" -ge 2 ] || { echo "--version requires a value" >&2; exit 2; }
         VERSION="$2"
         shift 2
         ;;
       -h|--help)
-        echo "Usage: install.sh [--update] [--version vX.Y.Z]"
+        echo "Usage: install.sh [--update] [--check] [--version vX.Y.Z]"
         exit 0
         ;;
       *)
@@ -101,6 +106,21 @@ install_migate_binary_from_tmp() {
   if [ -f "$TMP/packaging/uninstall.sh" ]; then
     cp "$TMP/packaging/uninstall.sh" /usr/local/bin/migate-uninstall
     chmod +x /usr/local/bin/migate-uninstall
+  fi
+}
+
+check_update() {
+  latest="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')"
+  current="$(/usr/local/bin/migate version 2>/dev/null | awk '{print $NF}')"
+  [ -n "$current" ] || current="unknown"
+  [ -n "$latest" ] || latest="unknown"
+  echo "Current version: ${current}"
+  echo "Latest version: ${latest}"
+  if [ "$current" != "$latest" ] && [ "$latest" != "unknown" ]; then
+    echo "Update available: yes"
+    echo "Run: mg update"
+  else
+    echo "Update available: no"
   fi
 }
 
@@ -235,6 +255,10 @@ UNIT
 
 main() {
   parse_args "$@"
+  if [ "$CHECK_ONLY" = "1" ]; then
+    check_update
+    return
+  fi
   if [ "$UPDATE_ONLY" = "1" ]; then
     update_migate
     return

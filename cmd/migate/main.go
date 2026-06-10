@@ -26,6 +26,8 @@ import (
 // Version is set via ldflags at build time.
 var Version = "dev"
 
+var defaultPanelConfigPath = "/etc/migate/panel.json"
+
 type commandMode int
 
 const (
@@ -148,20 +150,28 @@ func runCLI(args []string, stdout, stderr io.Writer, runner commandRunner) int {
 		return 0
 	case "status":
 		return cliStatus(stdout, stderr, runner)
-	case "start", "stop", "restart":
+	case "doctor":
+		return cliDoctor(stdout, stderr, runner)
+	case "info":
+		return cliInfo(stdout, stderr)
+	case "reset-password":
+		return cliResetPassword(stdout, stderr, runner, args[1:])
+	case "start", "stop":
 		return cliSystemctl(stderr, runner, args[0], "migate")
+	case "restart":
+		return cliRestart(stderr, runner, args[1:])
 	case "logs":
-		out, err := runner.Run("journalctl", "-u", "migate", "-n", "80", "--no-pager")
-		fmt.Fprint(stdout, out)
-		if err != nil {
-			fmt.Fprintf(stderr, "logs failed: %v\n", err)
-			return 1
-		}
-		return 0
+		return cliLogs(stdout, stderr, runner, args[1:])
 	case "url":
-		return cliURL(stdout, stderr)
+		return cliURL(stdout, stderr, runner, args[1:])
 	case "update":
 		return cliUpdate(stdout, stderr, runner, args[1:])
+	case "backup":
+		return cliBackup(stdout, stderr, runner, args[1:])
+	case "restore":
+		return cliRestore(stdout, stderr, runner, args[1:])
+	case "ports":
+		return cliPorts(stdout, stderr, runner)
 	case "uninstall":
 		out, err := runner.Run("/usr/local/bin/migate-uninstall", args[1:]...)
 		fmt.Fprint(stdout, out)
@@ -180,23 +190,34 @@ func runCLI(args []string, stdout, stderr io.Writer, runner commandRunner) int {
 func printCLIMenu(w io.Writer) {
 	fmt.Fprint(w, `MiGate CLI
 
-用法:
-  mg <命令>
-  migate <命令>
+Usage:
+  mg <command>
+  migate <command>
 
-常用命令:
-  mg status       查看服务状态
-  mg start        启动 MiGate
-  mg stop         停止 MiGate
-  mg restart      重启 MiGate
-  mg logs         查看最近日志
-  mg url          显示 WebUI 地址
-  mg update       更新到最新版本
-  mg update vX.Y.Z 更新到指定版本
-  mg version      显示当前版本
-  mg uninstall    卸载 MiGate
+Common commands:
+  mg status          Show service status
+  mg doctor          Run local diagnostics
+  mg info            Show panel information
+  mg url             Show WebUI URL
+  mg url --public    Show WebUI URL with detected public IP
+  mg reset-password [password]
+                     Reset panel password and restart service
+  mg start           Start MiGate panel
+  mg stop            Stop MiGate panel
+  mg restart         Restart MiGate panel
+  mg restart all     Restart MiGate panel and sing-box
+  mg logs            Show recent logs
+  mg logs -f         Follow MiGate logs
+  mg update          Update to latest release
+  mg update vX.Y.Z   Update to a specific release
+  mg update --check  Check latest release only
+  mg version         Show current version
+  mg ports           Show configured/listening ports
+  mg backup [file]   Backup config and runtime files
+  mg restore <file>  Restore backup and restart service
+  mg uninstall       Run MiGate uninstaller
 
-服务模式:
+Service mode:
   migate serve --config /etc/migate/panel.json
 
 `)
@@ -205,11 +226,14 @@ func printCLIMenu(w io.Writer) {
 func cliUpdate(stdout, stderr io.Writer, runner commandRunner, args []string) int {
 	updateArgs := []string{"--update"}
 	if len(args) > 0 {
-		if len(args) > 1 {
-			fmt.Fprintln(stderr, "usage: mg update [version]")
+		if len(args) == 1 && args[0] == "--check" {
+			updateArgs = []string{"--check"}
+		} else if len(args) == 1 {
+			updateArgs = append(updateArgs, "--version", args[0])
+		} else {
+			fmt.Fprintln(stderr, "usage: mg update [version|--check]")
 			return 2
 		}
-		updateArgs = append(updateArgs, "--version", args[0])
 	}
 	out, err := runner.Run("/usr/local/bin/migate-install", updateArgs...)
 	fmt.Fprint(stdout, out)
@@ -222,14 +246,7 @@ func cliUpdate(stdout, stderr io.Writer, runner commandRunner, args []string) in
 
 func cliStatus(stdout, stderr io.Writer, runner commandRunner) int {
 	code := 0
-	services := []struct {
-		name  string
-		label string
-	}{
-		{name: "migate", label: "MiGate 面板"},
-		{name: "migate-singbox", label: "sing-box"},
-	}
-	for _, svc := range services {
+	for _, svc := range managedServices() {
 		out, err := runner.Run("systemctl", "is-active", svc.name)
 		status := strings.TrimSpace(out)
 		if status == "" {
@@ -244,21 +261,118 @@ func cliStatus(stdout, stderr io.Writer, runner commandRunner) int {
 	return code
 }
 
-func localizedServiceStatus(status string) string {
-	switch status {
-	case "active":
-		return "运行中"
-	case "inactive":
-		return "未运行"
-	case "failed":
-		return "异常"
-	case "activating":
-		return "启动中"
-	case "deactivating":
-		return "停止中"
-	default:
-		return "未知"
+func cliDoctor(stdout, stderr io.Writer, runner commandRunner) int {
+	fmt.Fprintln(stdout, "MiGate Doctor")
+	_ = cliStatus(stdout, stderr, runner)
+	cfg, err := readPanelConfig(defaultPanelConfigPath)
+	if err != nil {
+		fmt.Fprintf(stdout, "Config: missing (%v)\n", err)
+	} else {
+		fmt.Fprintln(stdout, "Config: ok")
+		fmt.Fprintf(stdout, "WebUI: %s\n", panelURL(cfg, "SERVER_IP"))
+		if cfg.DatabasePath != "" {
+			if _, err := os.Stat(cfg.DatabasePath); err == nil {
+				fmt.Fprintln(stdout, "Database: ok")
+			} else {
+				fmt.Fprintf(stdout, "Database: missing (%s)\n", cfg.DatabasePath)
+			}
+		}
 	}
+	printBinaryStatus(stdout, runner, "Xray", "xray")
+	printBinaryStatus(stdout, runner, "sing-box", "sing-box")
+	if out, err := runner.Run("ss", "-ltn"); err == nil && cfg.PanelPort > 0 {
+		fmt.Fprintf(stdout, "Panel port %d: %s\n", cfg.PanelPort, listeningStatus(out, cfg.PanelPort))
+	}
+	if out, err := runner.Run("free", "-m"); err == nil {
+		fmt.Fprintf(stdout, "Memory:\n%s", out)
+	}
+	if out, err := runner.Run("df", "-h", "/"); err == nil {
+		fmt.Fprintf(stdout, "Disk:\n%s", out)
+	}
+	return 0
+}
+
+func cliInfo(stdout, stderr io.Writer) int {
+	cfg, err := readPanelConfig(defaultPanelConfigPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "read %s: %v\n", defaultPanelConfigPath, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "MiGate Info")
+	fmt.Fprintf(stdout, "Version: %s\n", Version)
+	fmt.Fprintf(stdout, "WebUI: %s\n", panelURL(cfg, "SERVER_IP"))
+	if cfg.PanelUsername != "" {
+		fmt.Fprintf(stdout, "Username: %s\n", cfg.PanelUsername)
+	}
+	fmt.Fprintf(stdout, "Config: %s\n", defaultPanelConfigPath)
+	if cfg.DatabasePath != "" {
+		fmt.Fprintf(stdout, "Database: %s\n", cfg.DatabasePath)
+	}
+	fmt.Fprintln(stdout, "Password: hidden (use mg reset-password)")
+	return 0
+}
+
+func cliResetPassword(stdout, stderr io.Writer, runner commandRunner, args []string) int {
+	if len(args) > 1 {
+		fmt.Fprintln(stderr, "usage: mg reset-password [password]")
+		return 2
+	}
+	cfg, err := readPanelConfig(defaultPanelConfigPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "read %s: %v\n", defaultPanelConfigPath, err)
+		return 1
+	}
+	password := ""
+	if len(args) == 1 {
+		password = args[0]
+	} else {
+		password = generatedPassword()
+	}
+	cfg.PanelPassword = password
+	if err := writePanelConfig(defaultPanelConfigPath, cfg); err != nil {
+		fmt.Fprintf(stderr, "write %s: %v\n", defaultPanelConfigPath, err)
+		return 1
+	}
+	if code := cliSystemctl(stderr, runner, "restart", "migate"); code != 0 {
+		return code
+	}
+	fmt.Fprintf(stdout, "Panel password updated: %s\n", password)
+	return 0
+}
+
+func cliLogs(stdout, stderr io.Writer, runner commandRunner, args []string) int {
+	logArgs := []string{"-u", "migate", "-n", "80"}
+	if len(args) == 1 && args[0] == "-f" {
+		logArgs = append(logArgs, "-f")
+	} else if len(args) == 0 {
+		logArgs = append(logArgs, "--no-pager")
+	} else {
+		fmt.Fprintln(stderr, "usage: mg logs [-f]")
+		return 2
+	}
+	out, err := runner.Run("journalctl", logArgs...)
+	fmt.Fprint(stdout, out)
+	if err != nil {
+		fmt.Fprintf(stderr, "logs failed: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func cliRestart(stderr io.Writer, runner commandRunner, args []string) int {
+	if len(args) == 0 {
+		return cliSystemctl(stderr, runner, "restart", "migate")
+	}
+	if len(args) == 1 && args[0] == "all" {
+		for _, svc := range managedServices() {
+			if code := cliSystemctl(stderr, runner, "restart", svc.name); code != 0 {
+				return code
+			}
+		}
+		return 0
+	}
+	fmt.Fprintln(stderr, "usage: mg restart [all]")
+	return 2
 }
 
 func cliSystemctl(stderr io.Writer, runner commandRunner, action, service string) int {
@@ -269,22 +383,165 @@ func cliSystemctl(stderr io.Writer, runner commandRunner, action, service string
 	return 0
 }
 
-func cliURL(stdout, stderr io.Writer) int {
-	cfg, err := readPanelConfig("/etc/migate/panel.json")
+func cliURL(stdout, stderr io.Writer, runner commandRunner, args []string) int {
+	cfg, err := readPanelConfig(defaultPanelConfigPath)
 	if err != nil {
-		fmt.Fprintf(stderr, "read /etc/migate/panel.json: %v\n", err)
+		fmt.Fprintf(stderr, "read %s: %v\n", defaultPanelConfigPath, err)
+		return 1
+	}
+	host := "SERVER_IP"
+	if len(args) == 1 && args[0] == "--public" {
+		out, err := runner.Run("curl", "-fsS", "--max-time", "3", "https://api.ipify.org")
+		if err != nil {
+			fmt.Fprintf(stderr, "detect public IP failed: %v\n", err)
+			return 1
+		}
+		host = strings.TrimSpace(out)
+	} else if len(args) > 0 {
+		fmt.Fprintln(stderr, "usage: mg url [--public]")
+		return 2
+	}
+	fmt.Fprintf(stdout, "%s\n", panelURL(cfg, host))
+	return 0
+}
+
+func cliBackup(stdout, stderr io.Writer, runner commandRunner, args []string) int {
+	path := defaultBackupPath()
+	if len(args) == 1 {
+		path = args[0]
+	} else if len(args) > 1 {
+		fmt.Fprintln(stderr, "usage: mg backup [file]")
+		return 2
+	}
+	files := backupFiles()
+	out, err := runner.Run("tar", append([]string{"-czf", path}, files...)...)
+	fmt.Fprint(stdout, out)
+	if err != nil {
+		fmt.Fprintf(stderr, "backup failed: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Backup saved: %s\n", path)
+	return 0
+}
+
+func cliRestore(stdout, stderr io.Writer, runner commandRunner, args []string) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "usage: mg restore <file>")
+		return 2
+	}
+	out, err := runner.Run("tar", "-xzf", args[0], "-C", "/")
+	fmt.Fprint(stdout, out)
+	if err != nil {
+		fmt.Fprintf(stderr, "restore failed: %v\n", err)
+		return 1
+	}
+	if code := cliSystemctl(stderr, runner, "restart", "migate"); code != 0 {
+		return code
+	}
+	fmt.Fprintln(stdout, "Restore completed")
+	return 0
+}
+
+func cliPorts(stdout, stderr io.Writer, runner commandRunner) int {
+	cfg, err := readPanelConfig(defaultPanelConfigPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "read %s: %v\n", defaultPanelConfigPath, err)
+		return 1
+	}
+	out, err := runner.Run("ss", "-ltn")
+	if err != nil {
+		fmt.Fprintf(stderr, "ports failed: %v\n", err)
 		return 1
 	}
 	port := cfg.PanelPort
 	if port == 0 {
 		port = 9999
 	}
-	path := cfg.WebPath
-	if path == "" {
-		path = "/"
-	}
-	fmt.Fprintf(stdout, "http://SERVER_IP:%d%s\n", port, path)
+	fmt.Fprintln(stdout, "MiGate Ports")
+	fmt.Fprintf(stdout, "%d panel %s\n", port, listeningStatus(out, port))
 	return 0
+}
+
+func localizedServiceStatus(status string) string {
+	switch status {
+	case "active":
+		return "running"
+	case "inactive":
+		return "stopped"
+	case "failed":
+		return "failed"
+	case "activating":
+		return "starting"
+	case "deactivating":
+		return "stopping"
+	default:
+		return "unknown"
+	}
+}
+
+func managedServices() []struct{ name, label string } {
+	return []struct{ name, label string }{{name: "migate", label: "MiGate Panel"}, {name: "migate-singbox", label: "sing-box"}}
+}
+
+func panelURL(cfg panelConfig, host string) string {
+	port := cfg.PanelPort
+	if port == 0 {
+		port = 9999
+	}
+	path := cfg.WebPath
+	if path == "" || path == "/" {
+		path = "/"
+	} else if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return fmt.Sprintf("http://%s:%d%s", host, port, path)
+}
+
+func printBinaryStatus(stdout io.Writer, runner commandRunner, label, command string) {
+	if out, err := runner.Run(command, "version"); err == nil && strings.TrimSpace(out) != "" {
+		fmt.Fprintf(stdout, "%s: installed\n", label)
+	} else {
+		fmt.Fprintf(stdout, "%s: not installed\n", label)
+	}
+}
+
+func listeningStatus(ssOutput string, port int) string {
+	needle := fmt.Sprintf(":%d", port)
+	if strings.Contains(ssOutput, needle) {
+		return "listening"
+	}
+	return "not listening"
+}
+
+func generatedPassword() string {
+	return fmt.Sprintf("migate-%d", time.Now().Unix())
+}
+
+func defaultBackupPath() string {
+	return "/root/migate-backup-" + time.Now().Format("20060102-150405") + ".tar.gz"
+}
+
+func backupFiles() []string {
+	files := []string{defaultPanelConfigPath}
+	if cfg, err := readPanelConfig(defaultPanelConfigPath); err == nil {
+		if cfg.DatabasePath != "" {
+			files = append(files, cfg.DatabasePath)
+		}
+		if cfg.XrayConfigPath != "" {
+			files = append(files, cfg.XrayConfigPath)
+		}
+	}
+	files = append(files, "/etc/sing-box/config.json")
+	return files
+}
+
+func writePanelConfig(path string, cfg panelConfig) error {
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	return os.WriteFile(path, b, 0o600)
 }
 
 func routerFromConfig(path string) (http.Handler, func(), error) {

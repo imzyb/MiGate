@@ -174,8 +174,11 @@ func TestInstallerSupportsNonInteractiveUpdateMode(t *testing.T) {
 	script := read(t, "packaging", "install.sh")
 	for _, want := range []string{
 		"UPDATE_ONLY=0",
+		"CHECK_ONLY=0",
 		"--update)",
+		"--check)",
 		"--version)",
+		"check_update()",
 		"update_migate()",
 		"download_release_asset",
 		"install_migate_binary_from_tmp",
