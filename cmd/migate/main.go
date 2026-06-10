@@ -28,6 +28,128 @@ var Version = "dev"
 
 var defaultPanelConfigPath = "/etc/migate/panel.json"
 
+type lang string
+
+const (
+	langZh lang = "zh"
+	langEn lang = "en"
+)
+
+func detectLang(args []string) (lang, []string) {
+	for i, arg := range args {
+		if arg == "--lang" && i+1 < len(args) {
+			rest := append([]string{}, args[:i]...)
+			rest = append(rest, args[i+2:]...)
+			return lang(args[i+1]), rest
+		}
+	}
+	if v := os.Getenv("MIGATE_LANG"); v != "" {
+		return lang(v), args
+	}
+	return langZh, args
+}
+
+func (l lang) valid() bool {
+	return l == langZh || l == langEn
+}
+
+type messages struct {
+	cliMenuHeader             string
+	cliMenuUsage              string
+	cliMenuCommonCommands     string
+	cliMenuServiceMode        string
+	statusPanelRunning        string
+	statusPanelStopped        string
+	statusSingboxRunning      string
+	statusSingboxStopped      string
+	doctorHeader              string
+	doctorConfigOk            string
+	doctorDatabaseOk          string
+	doctorXrayInstalled       string
+	doctorXrayNotInstalled    string
+	doctorSingboxInstalled    string
+	doctorSingboxNotInstalled string
+	doctorMemory              string
+	doctorDisk                string
+	infoHeader                string
+	infoVersion               string
+	infoUsername              string
+	infoConfig                string
+	infoDatabase              string
+	infoPasswordHidden        string
+	resetPasswordUpdated      string
+	portsHeader               string
+	portsPanel                string
+	unsupportedLanguage       string
+}
+
+var msgZh = messages{
+	cliMenuHeader:             "MiGate CLI",
+	cliMenuUsage:              "用法:",
+	cliMenuCommonCommands:     "常用命令:",
+	cliMenuServiceMode:        "服务模式:",
+	statusPanelRunning:        "MiGate 面板: 运行中",
+	statusPanelStopped:        "MiGate 面板: 已停止",
+	statusSingboxRunning:      "sing-box: 运行中",
+	statusSingboxStopped:      "sing-box: 已停止",
+	doctorHeader:              "MiGate 诊断",
+	doctorConfigOk:            "配置文件: 正常",
+	doctorDatabaseOk:          "数据库: 正常",
+	doctorXrayInstalled:       "Xray: 已安装",
+	doctorXrayNotInstalled:    "Xray: 未安装",
+	doctorSingboxInstalled:    "sing-box: 已安装",
+	doctorSingboxNotInstalled: "sing-box: 未安装",
+	doctorMemory:              "内存:",
+	doctorDisk:                "磁盘:",
+	infoHeader:                "MiGate 信息",
+	infoVersion:               "版本:",
+	infoUsername:              "用户名:",
+	infoConfig:                "配置文件:",
+	infoDatabase:              "数据库:",
+	infoPasswordHidden:        "密码: 隐藏 (使用 mg reset-password)",
+	resetPasswordUpdated:      "面板密码已更新:",
+	portsHeader:               "MiGate 端口",
+	portsPanel:                "面板",
+	unsupportedLanguage:       "不支持的语言 %q，仅支持: zh, en",
+}
+
+var msgEn = messages{
+	cliMenuHeader:             "MiGate CLI",
+	cliMenuUsage:              "Usage:",
+	cliMenuCommonCommands:     "Common commands:",
+	cliMenuServiceMode:        "Service mode:",
+	statusPanelRunning:        "MiGate Panel: running",
+	statusPanelStopped:        "MiGate Panel: stopped",
+	statusSingboxRunning:      "sing-box: running",
+	statusSingboxStopped:      "sing-box: stopped",
+	doctorHeader:              "MiGate Doctor",
+	doctorConfigOk:            "Config: ok",
+	doctorDatabaseOk:          "Database: ok",
+	doctorXrayInstalled:       "Xray: installed",
+	doctorXrayNotInstalled:    "Xray: not installed",
+	doctorSingboxInstalled:    "sing-box: installed",
+	doctorSingboxNotInstalled: "sing-box: not installed",
+	doctorMemory:              "Memory:",
+	doctorDisk:                "Disk:",
+	infoHeader:                "MiGate Info",
+	infoVersion:               "Version:",
+	infoUsername:              "Username:",
+	infoConfig:                "Config:",
+	infoDatabase:              "Database:",
+	infoPasswordHidden:        "Password: hidden (use mg reset-password)",
+	resetPasswordUpdated:      "Panel password updated:",
+	portsHeader:               "MiGate Ports",
+	portsPanel:                "panel",
+	unsupportedLanguage:       "unsupported language %q, supported: zh, en",
+}
+
+func msg(l lang) messages {
+	if l == langEn {
+		return msgEn
+	}
+	return msgZh
+}
+
 type commandMode int
 
 const (
@@ -58,8 +180,11 @@ type panelConfig struct {
 
 func main() {
 	args := os.Args[1:]
+	// Strip --lang before mode detection so it doesn't interfere with serve flags
+	_, args = detectLang(args)
 	if detectCommandMode(args) == modeCLI {
-		os.Exit(runCLI(args, os.Stdout, os.Stderr, osRunner{}))
+		// Re-parse with original args to get language
+		os.Exit(runCLI(os.Args[1:], os.Stdout, os.Stderr, osRunner{}))
 	}
 	if len(args) > 0 && args[0] == "serve" {
 		args = args[1:]
@@ -140,8 +265,15 @@ func runServer(args []string) int {
 }
 
 func runCLI(args []string, stdout, stderr io.Writer, runner commandRunner) int {
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		printCLIMenu(stdout)
+	language, args := detectLang(args)
+	if !language.valid() {
+		fmt.Fprintf(stderr, msgEn.unsupportedLanguage+"\n", language)
+		return 2
+	}
+	m := msg(language)
+
+	if len(args) == 0 {
+		printCLIMenu(stdout, m)
 		return 0
 	}
 	switch args[0] {
@@ -149,13 +281,13 @@ func runCLI(args []string, stdout, stderr io.Writer, runner commandRunner) int {
 		fmt.Fprintf(stdout, "MiGate version: %s\n", Version)
 		return 0
 	case "status":
-		return cliStatus(stdout, stderr, runner)
+		return cliStatus(stdout, stderr, runner, m)
 	case "doctor":
-		return cliDoctor(stdout, stderr, runner)
+		return cliDoctor(stdout, stderr, runner, m)
 	case "info":
-		return cliInfo(stdout, stderr)
+		return cliInfo(stdout, stderr, m)
 	case "reset-password":
-		return cliResetPassword(stdout, stderr, runner, args[1:])
+		return cliResetPassword(stdout, stderr, runner, m, args[1:])
 	case "start", "stop":
 		return cliSystemctl(stderr, runner, args[0], "migate")
 	case "restart":
@@ -171,7 +303,7 @@ func runCLI(args []string, stdout, stderr io.Writer, runner commandRunner) int {
 	case "restore":
 		return cliRestore(stdout, stderr, runner, args[1:])
 	case "ports":
-		return cliPorts(stdout, stderr, runner)
+		return cliPorts(stdout, stderr, runner, m)
 	case "uninstall":
 		out, err := runner.Run("/usr/local/bin/migate-uninstall", args[1:]...)
 		fmt.Fprint(stdout, out)
@@ -182,19 +314,19 @@ func runCLI(args []string, stdout, stderr io.Writer, runner commandRunner) int {
 		return 0
 	default:
 		fmt.Fprintf(stderr, "unknown command: %s\n\n", args[0])
-		printCLIMenu(stderr)
+		printCLIMenu(stderr, m)
 		return 2
 	}
 }
 
-func printCLIMenu(w io.Writer) {
-	fmt.Fprint(w, `MiGate CLI
+func printCLIMenu(w io.Writer, m messages) {
+	fmt.Fprintf(w, `%s
 
-Usage:
+%s
   mg <command>
   migate <command>
 
-Common commands:
+%s
   mg status          Show service status
   mg doctor          Run local diagnostics
   mg info            Show panel information
@@ -217,10 +349,10 @@ Common commands:
   mg restore <file>  Restore backup and restart service
   mg uninstall       Run MiGate uninstaller
 
-Service mode:
+%s
   migate serve --config /etc/migate/panel.json
 
-`)
+`, m.cliMenuHeader, m.cliMenuUsage, m.cliMenuCommonCommands, m.cliMenuServiceMode)
 }
 
 func cliUpdate(stdout, stderr io.Writer, runner commandRunner, args []string) int {
@@ -244,16 +376,26 @@ func cliUpdate(stdout, stderr io.Writer, runner commandRunner, args []string) in
 	return 0
 }
 
-func cliStatus(stdout, stderr io.Writer, runner commandRunner) int {
+func cliStatus(stdout, stderr io.Writer, runner commandRunner, m messages) int {
 	code := 0
-	for _, svc := range managedServices() {
+	services := []struct {
+		name    string
+		label   string
+		running string
+		stopped string
+	}{
+		{name: "migate", label: "MiGate", running: m.statusPanelRunning, stopped: m.statusPanelStopped},
+		{name: "migate-singbox", label: "sing-box", running: m.statusSingboxRunning, stopped: m.statusSingboxStopped},
+	}
+	for _, svc := range services {
 		out, err := runner.Run("systemctl", "is-active", svc.name)
 		status := strings.TrimSpace(out)
-		if status == "" {
-			status = "unknown"
+		if status == "active" {
+			fmt.Fprintln(stdout, svc.running)
+		} else {
+			fmt.Fprintln(stdout, svc.stopped)
 		}
-		fmt.Fprintf(stdout, "%s: %s\n", svc.label, localizedServiceStatus(status))
-		if err != nil && status == "unknown" {
+		if err != nil && status == "" {
 			fmt.Fprintf(stderr, "%s status check failed: %v\n", svc.name, err)
 			code = 1
 		}
@@ -261,58 +403,58 @@ func cliStatus(stdout, stderr io.Writer, runner commandRunner) int {
 	return code
 }
 
-func cliDoctor(stdout, stderr io.Writer, runner commandRunner) int {
-	fmt.Fprintln(stdout, "MiGate Doctor")
-	_ = cliStatus(stdout, stderr, runner)
+func cliDoctor(stdout, stderr io.Writer, runner commandRunner, m messages) int {
+	fmt.Fprintln(stdout, m.doctorHeader)
+	_ = cliStatus(stdout, stderr, runner, m)
 	cfg, err := readPanelConfig(defaultPanelConfigPath)
 	if err != nil {
 		fmt.Fprintf(stdout, "Config: missing (%v)\n", err)
 	} else {
-		fmt.Fprintln(stdout, "Config: ok")
+		fmt.Fprintln(stdout, m.doctorConfigOk)
 		fmt.Fprintf(stdout, "WebUI: %s\n", panelURL(cfg, "SERVER_IP"))
 		if cfg.DatabasePath != "" {
 			if _, err := os.Stat(cfg.DatabasePath); err == nil {
-				fmt.Fprintln(stdout, "Database: ok")
+				fmt.Fprintln(stdout, m.doctorDatabaseOk)
 			} else {
 				fmt.Fprintf(stdout, "Database: missing (%s)\n", cfg.DatabasePath)
 			}
 		}
 	}
-	printBinaryStatus(stdout, runner, "Xray", "xray")
-	printBinaryStatus(stdout, runner, "sing-box", "sing-box")
+	printBinaryStatus(stdout, runner, "Xray", "xray", m)
+	printBinaryStatus(stdout, runner, "sing-box", "sing-box", m)
 	if out, err := runner.Run("ss", "-ltn"); err == nil && cfg.PanelPort > 0 {
 		fmt.Fprintf(stdout, "Panel port %d: %s\n", cfg.PanelPort, listeningStatus(out, cfg.PanelPort))
 	}
 	if out, err := runner.Run("free", "-m"); err == nil {
-		fmt.Fprintf(stdout, "Memory:\n%s", out)
+		fmt.Fprintf(stdout, "%s\n%s", m.doctorMemory, out)
 	}
 	if out, err := runner.Run("df", "-h", "/"); err == nil {
-		fmt.Fprintf(stdout, "Disk:\n%s", out)
+		fmt.Fprintf(stdout, "%s\n%s", m.doctorDisk, out)
 	}
 	return 0
 }
 
-func cliInfo(stdout, stderr io.Writer) int {
+func cliInfo(stdout, stderr io.Writer, m messages) int {
 	cfg, err := readPanelConfig(defaultPanelConfigPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "read %s: %v\n", defaultPanelConfigPath, err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "MiGate Info")
-	fmt.Fprintf(stdout, "Version: %s\n", Version)
+	fmt.Fprintln(stdout, m.infoHeader)
+	fmt.Fprintf(stdout, "%s %s\n", m.infoVersion, Version)
 	fmt.Fprintf(stdout, "WebUI: %s\n", panelURL(cfg, "SERVER_IP"))
 	if cfg.PanelUsername != "" {
-		fmt.Fprintf(stdout, "Username: %s\n", cfg.PanelUsername)
+		fmt.Fprintf(stdout, "%s %s\n", m.infoUsername, cfg.PanelUsername)
 	}
-	fmt.Fprintf(stdout, "Config: %s\n", defaultPanelConfigPath)
+	fmt.Fprintf(stdout, "%s %s\n", m.infoConfig, defaultPanelConfigPath)
 	if cfg.DatabasePath != "" {
-		fmt.Fprintf(stdout, "Database: %s\n", cfg.DatabasePath)
+		fmt.Fprintf(stdout, "%s %s\n", m.infoDatabase, cfg.DatabasePath)
 	}
-	fmt.Fprintln(stdout, "Password: hidden (use mg reset-password)")
+	fmt.Fprintln(stdout, m.infoPasswordHidden)
 	return 0
 }
 
-func cliResetPassword(stdout, stderr io.Writer, runner commandRunner, args []string) int {
+func cliResetPassword(stdout, stderr io.Writer, runner commandRunner, m messages, args []string) int {
 	if len(args) > 1 {
 		fmt.Fprintln(stderr, "usage: mg reset-password [password]")
 		return 2
@@ -336,7 +478,7 @@ func cliResetPassword(stdout, stderr io.Writer, runner commandRunner, args []str
 	if code := cliSystemctl(stderr, runner, "restart", "migate"); code != 0 {
 		return code
 	}
-	fmt.Fprintf(stdout, "Panel password updated: %s\n", password)
+	fmt.Fprintf(stdout, "%s %s\n", m.resetPasswordUpdated, password)
 	return 0
 }
 
@@ -442,7 +584,7 @@ func cliRestore(stdout, stderr io.Writer, runner commandRunner, args []string) i
 	return 0
 }
 
-func cliPorts(stdout, stderr io.Writer, runner commandRunner) int {
+func cliPorts(stdout, stderr io.Writer, runner commandRunner, m messages) int {
 	cfg, err := readPanelConfig(defaultPanelConfigPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "read %s: %v\n", defaultPanelConfigPath, err)
@@ -457,8 +599,8 @@ func cliPorts(stdout, stderr io.Writer, runner commandRunner) int {
 	if port == 0 {
 		port = 9999
 	}
-	fmt.Fprintln(stdout, "MiGate Ports")
-	fmt.Fprintf(stdout, "%d panel %s\n", port, listeningStatus(out, port))
+	fmt.Fprintln(stdout, m.portsHeader)
+	fmt.Fprintf(stdout, "%d %s %s\n", port, m.portsPanel, listeningStatus(out, port))
 	return 0
 }
 
@@ -497,11 +639,19 @@ func panelURL(cfg panelConfig, host string) string {
 	return fmt.Sprintf("http://%s:%d%s", host, port, path)
 }
 
-func printBinaryStatus(stdout io.Writer, runner commandRunner, label, command string) {
+func printBinaryStatus(stdout io.Writer, runner commandRunner, label, command string, m messages) {
 	if out, err := runner.Run(command, "version"); err == nil && strings.TrimSpace(out) != "" {
-		fmt.Fprintf(stdout, "%s: installed\n", label)
+		if label == "Xray" {
+			fmt.Fprintln(stdout, m.doctorXrayInstalled)
+		} else {
+			fmt.Fprintln(stdout, m.doctorSingboxInstalled)
+		}
 	} else {
-		fmt.Fprintf(stdout, "%s: not installed\n", label)
+		if label == "Xray" {
+			fmt.Fprintln(stdout, m.doctorXrayNotInstalled)
+		} else {
+			fmt.Fprintln(stdout, m.doctorSingboxNotInstalled)
+		}
 	}
 }
 

@@ -168,7 +168,7 @@ func TestCLIPrintsInteractiveMenuForBareCommand(t *testing.T) {
 	menu := out.String()
 	for _, want := range []string{
 		"MiGate CLI",
-		"Usage:",
+		"用法:",
 		"mg status",
 		"mg logs",
 		"mg restart",
@@ -176,7 +176,7 @@ func TestCLIPrintsInteractiveMenuForBareCommand(t *testing.T) {
 		"mg update",
 		"mg version",
 		"mg uninstall",
-		"Service mode:",
+		"服务模式:",
 		"migate serve --config /etc/migate/panel.json",
 	} {
 		if !strings.Contains(menu, want) {
@@ -195,7 +195,7 @@ func TestCLIStatusUsesSystemctlWithoutStartingServer(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("expected exit 0, got %d", exitCode)
 	}
-	if !strings.Contains(out.String(), "MiGate Panel: running") || !strings.Contains(out.String(), "sing-box: stopped") {
+	if !strings.Contains(out.String(), "MiGate 面板: 运行中") || !strings.Contains(out.String(), "sing-box: 已停止") {
 		t.Fatalf("unexpected status output: %s", out.String())
 	}
 	if len(runner.calls) != 2 {
@@ -266,6 +266,44 @@ func TestCLIUpdateReportsInstallerFailure(t *testing.T) {
 	}
 }
 
+func TestCLIEnglishLanguageFlagSwitchesOutput(t *testing.T) {
+	runner := &fakeRunner{outputs: map[string]string{
+		"systemctl is-active migate":         "active\n",
+		"systemctl is-active migate-singbox": "inactive\n",
+	}}
+	var out bytes.Buffer
+	exitCode := runCLI([]string{"--lang", "en", "status"}, &out, &bytes.Buffer{}, runner)
+	if exitCode != 0 {
+		t.Fatalf("expected exit 0, got %d", exitCode)
+	}
+	if !strings.Contains(out.String(), "MiGate Panel: running") || !strings.Contains(out.String(), "sing-box: stopped") {
+		t.Fatalf("expected English status output, got: %s", out.String())
+	}
+}
+
+func TestCLIEnglishLanguageEnvironmentSwitchesOutput(t *testing.T) {
+	t.Setenv("MIGATE_LANG", "en")
+	var out bytes.Buffer
+	exitCode := runCLI([]string{}, &out, &bytes.Buffer{}, &fakeRunner{})
+	if exitCode != 0 {
+		t.Fatalf("expected exit 0, got %d", exitCode)
+	}
+	if !strings.Contains(out.String(), "Usage:") || !strings.Contains(out.String(), "Common commands:") {
+		t.Fatalf("expected English menu from MIGATE_LANG=en, got:\n%s", out.String())
+	}
+}
+
+func TestCLIRejectsUnsupportedLanguage(t *testing.T) {
+	var stderr bytes.Buffer
+	exitCode := runCLI([]string{"--lang", "ja", "status"}, &bytes.Buffer{}, &stderr, &fakeRunner{})
+	if exitCode != 2 {
+		t.Fatalf("expected exit 2, got %d", exitCode)
+	}
+	if !strings.Contains(stderr.String(), "unsupported language") || !strings.Contains(stderr.String(), "zh, en") {
+		t.Fatalf("unexpected unsupported language error: %q", stderr.String())
+	}
+}
+
 func TestCLIOperationsMenuListsExpandedCommands(t *testing.T) {
 	var out bytes.Buffer
 	exitCode := runCLI([]string{}, &out, &bytes.Buffer{}, &fakeRunner{})
@@ -307,7 +345,7 @@ func TestCLIDoctorPrintsPanelRuntimeAndResourceChecks(t *testing.T) {
 		t.Fatalf("expected exit 0, got %d", exitCode)
 	}
 	body := out.String()
-	for _, want := range []string{"MiGate Doctor", "MiGate Panel: running", "WebUI: http://SERVER_IP:9999/migate", "Xray: installed", "sing-box: installed", "Config: ok", "Database: ok", "Memory", "Disk"} {
+	for _, want := range []string{"MiGate 诊断", "MiGate 面板: 运行中", "WebUI: http://SERVER_IP:9999/migate", "Xray: 已安装", "sing-box: 已安装", "配置文件: 正常", "数据库: 正常", "内存", "磁盘"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, body)
 		}
@@ -332,7 +370,7 @@ func TestCLIInfoShowsPanelDetailsWithoutPassword(t *testing.T) {
 		t.Fatalf("expected exit 0, got %d", exitCode)
 	}
 	body := out.String()
-	for _, want := range []string{"MiGate Info", "Version: v1.2.3", "WebUI: http://SERVER_IP:9999/migate", "Username: admin", "Config: " + defaultPanelConfigPath, "Database: /usr/local/migate/migate.db", "mg reset-password"} {
+	for _, want := range []string{"MiGate 信息", "版本: v1.2.3", "WebUI: http://SERVER_IP:9999/migate", "用户名: admin", "配置文件: " + defaultPanelConfigPath, "数据库: /usr/local/migate/migate.db", "mg reset-password"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("info output missing %q:\n%s", want, body)
 		}
@@ -364,7 +402,7 @@ func TestCLIResetPasswordUpdatesConfigAndRestartsService(t *testing.T) {
 	if updated.PanelPassword != "new-pass" {
 		t.Fatalf("password not updated: %+v", updated)
 	}
-	if !strings.Contains(out.String(), "Panel password updated") || len(runner.calls) != 1 || runner.calls[0] != "systemctl restart migate" {
+	if !strings.Contains(out.String(), "面板密码已更新") || len(runner.calls) != 1 || runner.calls[0] != "systemctl restart migate" {
 		t.Fatalf("unexpected reset output/calls: %q %+v", out.String(), runner.calls)
 	}
 }
@@ -460,7 +498,7 @@ func TestCLIPortsShowsPanelAndListeningPorts(t *testing.T) {
 		t.Fatalf("ports exit %d", code)
 	}
 	body := out.String()
-	for _, want := range []string{"9999", "panel", "listening"} {
+	for _, want := range []string{"9999", "面板", "listening"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("ports output missing %q:\n%s", want, body)
 		}
