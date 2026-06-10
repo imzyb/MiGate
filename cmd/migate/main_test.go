@@ -168,11 +168,15 @@ func TestCLIPrintsInteractiveMenuForBareCommand(t *testing.T) {
 	menu := out.String()
 	for _, want := range []string{
 		"MiGate CLI",
+		"用法:",
 		"mg status",
 		"mg logs",
 		"mg restart",
 		"mg url",
+		"mg update",
+		"mg version",
 		"mg uninstall",
+		"服务模式:",
 		"migate serve --config /etc/migate/panel.json",
 	} {
 		if !strings.Contains(menu, want) {
@@ -191,11 +195,74 @@ func TestCLIStatusUsesSystemctlWithoutStartingServer(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("expected exit 0, got %d", exitCode)
 	}
-	if !strings.Contains(out.String(), "migate: active") || !strings.Contains(out.String(), "migate-singbox: inactive") {
+	if !strings.Contains(out.String(), "MiGate 面板: 运行中") || !strings.Contains(out.String(), "sing-box: 未运行") {
 		t.Fatalf("unexpected status output: %s", out.String())
 	}
 	if len(runner.calls) != 2 {
 		t.Fatalf("expected 2 systemctl calls, got %+v", runner.calls)
+	}
+}
+
+func TestCLIVersionPrintsCurrentVersion(t *testing.T) {
+	old := Version
+	Version = "v9.9.9"
+	defer func() { Version = old }()
+	var out bytes.Buffer
+	exitCode := runCLI([]string{"version"}, &out, &bytes.Buffer{}, &fakeRunner{})
+	if exitCode != 0 {
+		t.Fatalf("expected exit 0, got %d", exitCode)
+	}
+	if got := out.String(); !strings.Contains(got, "MiGate version: v9.9.9") {
+		t.Fatalf("unexpected version output: %q", got)
+	}
+}
+
+func TestCLIUpdateDelegatesToInstallerUpdateMode(t *testing.T) {
+	runner := &fakeRunner{outputs: map[string]string{
+		"/usr/local/bin/migate-install --update": "MiGate updated\n",
+	}}
+	var out bytes.Buffer
+	exitCode := runCLI([]string{"update"}, &out, &bytes.Buffer{}, runner)
+	if exitCode != 0 {
+		t.Fatalf("expected exit 0, got %d", exitCode)
+	}
+	if got := out.String(); !strings.Contains(got, "MiGate updated") {
+		t.Fatalf("expected update output, got %q", got)
+	}
+	if len(runner.calls) != 1 || runner.calls[0] != "/usr/local/bin/migate-install --update" {
+		t.Fatalf("unexpected update calls: %+v", runner.calls)
+	}
+}
+
+func TestCLIUpdateForwardsOptionalVersion(t *testing.T) {
+	runner := &fakeRunner{outputs: map[string]string{
+		"/usr/local/bin/migate-install --update --version v1.0.6": "MiGate updated to v1.0.6\n",
+	}}
+	var out bytes.Buffer
+	exitCode := runCLI([]string{"update", "v1.0.6"}, &out, &bytes.Buffer{}, runner)
+	if exitCode != 0 {
+		t.Fatalf("expected exit 0, got %d", exitCode)
+	}
+	if got := out.String(); !strings.Contains(got, "v1.0.6") {
+		t.Fatalf("expected versioned update output, got %q", got)
+	}
+	if len(runner.calls) != 1 || runner.calls[0] != "/usr/local/bin/migate-install --update --version v1.0.6" {
+		t.Fatalf("unexpected update calls: %+v", runner.calls)
+	}
+}
+
+func TestCLIUpdateReportsInstallerFailure(t *testing.T) {
+	runner := &fakeRunner{
+		outputs: map[string]string{"/usr/local/bin/migate-install --update": "download failed\n"},
+		errors:  map[string]error{"/usr/local/bin/migate-install --update": errors.New("exit status 1")},
+	}
+	var out, stderr bytes.Buffer
+	exitCode := runCLI([]string{"update"}, &out, &stderr, runner)
+	if exitCode != 1 {
+		t.Fatalf("expected exit 1, got %d", exitCode)
+	}
+	if !strings.Contains(out.String(), "download failed") || !strings.Contains(stderr.String(), "update failed") {
+		t.Fatalf("expected failure output, stdout=%q stderr=%q", out.String(), stderr.String())
 	}
 }
 

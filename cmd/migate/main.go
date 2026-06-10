@@ -143,6 +143,9 @@ func runCLI(args []string, stdout, stderr io.Writer, runner commandRunner) int {
 		return 0
 	}
 	switch args[0] {
+	case "version":
+		fmt.Fprintf(stdout, "MiGate version: %s\n", Version)
+		return 0
 	case "status":
 		return cliStatus(stdout, stderr, runner)
 	case "start", "stop", "restart":
@@ -157,6 +160,8 @@ func runCLI(args []string, stdout, stderr io.Writer, runner commandRunner) int {
 		return 0
 	case "url":
 		return cliURL(stdout, stderr)
+	case "update":
+		return cliUpdate(stdout, stderr, runner, args[1:])
 	case "uninstall":
 		out, err := runner.Run("/usr/local/bin/migate-uninstall", args[1:]...)
 		fmt.Fprint(stdout, out)
@@ -175,40 +180,85 @@ func runCLI(args []string, stdout, stderr io.Writer, runner commandRunner) int {
 func printCLIMenu(w io.Writer) {
 	fmt.Fprint(w, `MiGate CLI
 
-Usage:
-  mg <command>
-  migate <command>
+用法:
+  mg <命令>
+  migate <命令>
 
-Commands:
-  mg status      Show MiGate service status
-  mg start       Start MiGate service
-  mg stop        Stop MiGate service
-  mg restart     Restart MiGate service
-  mg logs        Show recent MiGate logs
-  mg url         Show WebUI URL from /etc/migate/panel.json
-  mg uninstall   Run MiGate uninstaller
+常用命令:
+  mg status       查看服务状态
+  mg start        启动 MiGate
+  mg stop         停止 MiGate
+  mg restart      重启 MiGate
+  mg logs         查看最近日志
+  mg url          显示 WebUI 地址
+  mg update       更新到最新版本
+  mg update vX.Y.Z 更新到指定版本
+  mg version      显示当前版本
+  mg uninstall    卸载 MiGate
 
-Service mode:
+服务模式:
   migate serve --config /etc/migate/panel.json
 
 `)
 }
 
+func cliUpdate(stdout, stderr io.Writer, runner commandRunner, args []string) int {
+	updateArgs := []string{"--update"}
+	if len(args) > 0 {
+		if len(args) > 1 {
+			fmt.Fprintln(stderr, "usage: mg update [version]")
+			return 2
+		}
+		updateArgs = append(updateArgs, "--version", args[0])
+	}
+	out, err := runner.Run("/usr/local/bin/migate-install", updateArgs...)
+	fmt.Fprint(stdout, out)
+	if err != nil {
+		fmt.Fprintf(stderr, "update failed: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 func cliStatus(stdout, stderr io.Writer, runner commandRunner) int {
 	code := 0
-	for _, svc := range []string{"migate", "migate-singbox"} {
-		out, err := runner.Run("systemctl", "is-active", svc)
+	services := []struct {
+		name  string
+		label string
+	}{
+		{name: "migate", label: "MiGate 面板"},
+		{name: "migate-singbox", label: "sing-box"},
+	}
+	for _, svc := range services {
+		out, err := runner.Run("systemctl", "is-active", svc.name)
 		status := strings.TrimSpace(out)
 		if status == "" {
 			status = "unknown"
 		}
-		fmt.Fprintf(stdout, "%s: %s\n", svc, status)
+		fmt.Fprintf(stdout, "%s: %s\n", svc.label, localizedServiceStatus(status))
 		if err != nil && status == "unknown" {
-			fmt.Fprintf(stderr, "%s status check failed: %v\n", svc, err)
+			fmt.Fprintf(stderr, "%s status check failed: %v\n", svc.name, err)
 			code = 1
 		}
 	}
 	return code
+}
+
+func localizedServiceStatus(status string) string {
+	switch status {
+	case "active":
+		return "运行中"
+	case "inactive":
+		return "未运行"
+	case "failed":
+		return "异常"
+	case "activating":
+		return "启动中"
+	case "deactivating":
+		return "停止中"
+	default:
+		return "未知"
+	}
 }
 
 func cliSystemctl(stderr io.Writer, runner commandRunner, action, service string) int {

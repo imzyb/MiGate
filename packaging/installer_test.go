@@ -151,8 +151,9 @@ func TestInstallerDownloadsReleaseAssetAndVerifiesChecksum(t *testing.T) {
 	script := read(t, "packaging", "install.sh")
 	for _, want := range []string{
 		"MIGATE_VERSION:-latest",
+		"release_base_url()",
 		"releases/latest/download",
-		"releases/download/${VERSION}",
+		"releases/download/%s",
 		"CHECKSUM_URL",
 		"checksums.txt",
 		"curl -fL \"$CHECKSUM_URL\"",
@@ -166,6 +167,27 @@ func TestInstallerDownloadsReleaseAssetAndVerifiesChecksum(t *testing.T) {
 	}
 	if strings.Index(script, "sha256sum -c") > strings.Index(script, "tar -xzf \"$TMP/migate-linux-${ARCH}.tar.gz\"") {
 		t.Fatalf("installer must verify checksum before extracting MiGate release archive")
+	}
+}
+
+func TestInstallerSupportsNonInteractiveUpdateMode(t *testing.T) {
+	script := read(t, "packaging", "install.sh")
+	for _, want := range []string{
+		"UPDATE_ONLY=0",
+		"--update)",
+		"--version)",
+		"update_migate()",
+		"download_release_asset",
+		"install_migate_binary_from_tmp",
+		"systemctl restart migate",
+		"MiGate updated",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("installer update contract missing %q", want)
+		}
+	}
+	if strings.Index(script, "update_migate()") > strings.Index(script, "main()") {
+		t.Fatalf("update_migate must be defined before main dispatch")
 	}
 }
 

@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO="${MIGATE_REPO:-imzyb/MiGate}"
 VERSION="${MIGATE_VERSION:-latest}"
+UPDATE_ONLY=0
 INSTALL_DIR="${MIGATE_INSTALL_DIR:-/usr/local/migate}"
 CONFIG_DIR="${MIGATE_CONFIG_DIR:-/etc/migate}"
 CONFIG_PATH="${MIGATE_CONFIG_PATH:-/etc/migate/panel.json}"
@@ -41,6 +42,82 @@ normalize_web_base_path() {
   path="/${path#/}"
   path="${path%/}"
   printf '%s' "$path"
+}
+
+parse_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --update)
+        UPDATE_ONLY=1
+        shift
+        ;;
+      --version)
+        [ "$#" -ge 2 ] || { echo "--version requires a value" >&2; exit 2; }
+        VERSION="$2"
+        shift 2
+        ;;
+      -h|--help)
+        echo "Usage: install.sh [--update] [--version vX.Y.Z]"
+        exit 0
+        ;;
+      *)
+        echo "unknown argument: $1" >&2
+        exit 2
+        ;;
+    esac
+  done
+}
+
+release_base_url() {
+  if [ "$VERSION" = "latest" ]; then
+    printf 'https://github.com/%s/releases/latest/download' "$REPO"
+  else
+    printf 'https://github.com/%s/releases/download/%s' "$REPO" "$VERSION"
+  fi
+}
+
+download_release_asset() {
+  BASE_URL="$(release_base_url)"
+  URL="${BASE_URL}/${ARTIFACT}"
+  CHECKSUM_URL="${BASE_URL}/checksums.txt"
+
+  echo "Downloading ${URL}"
+  curl -fL "$URL" -o "$TMP/${ARTIFACT}"
+  curl -fL "$CHECKSUM_URL" -o "$TMP/checksums.txt"
+  grep "migate-linux-${ARCH}.tar.gz" "$TMP/checksums.txt" > "$TMP/${ARTIFACT}.sha256"
+  (cd "$TMP" && sha256sum -c "${ARTIFACT}.sha256")
+  tar -xzf "$TMP/migate-linux-${ARCH}.tar.gz" -C "$TMP"
+}
+
+install_migate_binary_from_tmp() {
+  mkdir -p "$INSTALL_DIR"
+  cp "$TMP/migate" /usr/local/bin/migate
+  chmod +x /usr/local/bin/migate
+  ln -sf /usr/local/bin/migate /usr/local/bin/mg
+  if [ -f "$TMP/packaging/install.sh" ]; then
+    cp "$TMP/packaging/install.sh" /usr/local/bin/migate-install
+    chmod +x /usr/local/bin/migate-install
+  fi
+  if [ -f "$TMP/packaging/uninstall.sh" ]; then
+    cp "$TMP/packaging/uninstall.sh" /usr/local/bin/migate-uninstall
+    chmod +x /usr/local/bin/migate-uninstall
+  fi
+}
+
+update_migate() {
+  require_root
+  ARCH="$(arch)"
+  ARTIFACT="migate-linux-${ARCH}.tar.gz"
+  TMP="$(mktemp -d)"
+  trap 'rm -rf "$TMP"' EXIT
+
+  echo "MiGate updater"
+  download_release_asset
+  systemctl stop migate 2>/dev/null || true
+  install_migate_binary_from_tmp
+  systemctl daemon-reload 2>/dev/null || true
+  systemctl restart migate
+  echo "MiGate updated"
 }
 
 write_config() {
@@ -157,6 +234,12 @@ UNIT
 }
 
 main() {
+  parse_args "$@"
+  if [ "$UPDATE_ONLY" = "1" ]; then
+    update_migate
+    return
+  fi
+
   require_root
   ARCH="$(arch)"
   ARTIFACT="migate-linux-${ARCH}.tar.gz"
@@ -178,28 +261,10 @@ main() {
   web_base_path="${web_base_path:-/panel}"
   web_base_path="$(normalize_web_base_path "$web_base_path")"
 
-  if [ "$VERSION" = "latest" ]; then
-    BASE_URL="https://github.com/${REPO}/releases/latest/download"
-  else
-    BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
-  fi
-  URL="${BASE_URL}/${ARTIFACT}"
-  CHECKSUM_URL="${BASE_URL}/checksums.txt"
-
-  echo "Downloading ${URL}"
-  curl -fL "$URL" -o "$TMP/${ARTIFACT}"
-  curl -fL "$CHECKSUM_URL" -o "$TMP/checksums.txt"
-  grep "migate-linux-${ARCH}.tar.gz" "$TMP/checksums.txt" > "$TMP/${ARTIFACT}.sha256"
-  (cd "$TMP" && sha256sum -c "${ARTIFACT}.sha256")
+  download_release_asset
 
   systemctl stop migate 2>/dev/null || true
-  mkdir -p "$INSTALL_DIR"
-  tar -xzf "$TMP/migate-linux-${ARCH}.tar.gz" -C "$TMP"
-  cp "$TMP/migate" /usr/local/bin/migate
-  chmod +x /usr/local/bin/migate
-  ln -sf /usr/local/bin/migate /usr/local/bin/mg
-  cp "$TMP/packaging/uninstall.sh" /usr/local/bin/migate-uninstall
-  chmod +x /usr/local/bin/migate-uninstall
+  install_migate_binary_from_tmp
   write_config "$panel_port" "$panel_username" "$panel_password" "$web_base_path"
 
   cp "$TMP/packaging/migate.service" "$SERVICE_PATH"
