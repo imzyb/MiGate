@@ -265,6 +265,22 @@ func TestOverviewPageAutoRefreshesResourcesWhenVisible(t *testing.T) {
 	}
 }
 
+func TestOverviewPageUsesCompactMetricCardsForBusinessStatus(t *testing.T) {
+	router := web.NewRouter()
+	page := httptest.NewRecorder()
+	router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("expected 200 for panel, got %d", page.Code)
+	}
+	body := page.Body.String()
+	if !strings.Contains(body, `class="compact-metric-card"`) {
+		t.Fatalf("overview page missing compact-metric-card class for business status metrics")
+	}
+	if !regexp.MustCompile(`<div class="compact-metric-card"[^>]*><div>[^<]+</div><div[^>]*class="metric"`).MatchString(body) {
+		t.Fatalf("compact-metric-card should contain title + metric structure")
+	}
+}
+
 func TestAppJSDynamicCopyUsesI18nKeys(t *testing.T) {
 	jsBody := readAppJS(t)
 	inString := false

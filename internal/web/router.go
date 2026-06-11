@@ -2732,6 +2732,9 @@ const panelHTML = `<!doctype html>
     .type-pill.type-home { background:color-mix(in srgb, #2e7d32 15%, transparent); color:var(--green, #2e7d32); }
     .type-pill.type-biz { background:color-mix(in srgb, #1565c0 15%, transparent); color:var(--blue, #1565c0); }
     .panel, .card { background:var(--surface); border-radius:var(--radius-lg); box-shadow:var(--shadow-md); padding:var(--panel-padding); }
+    .compact-metric-card { background:var(--surface); border-radius:var(--radius-md); box-shadow:var(--shadow-sm); padding:12px 14px; }
+    .compact-metric-card .metric { font-size:22px; margin-top:6px; }
+    .compact-metric-card p { font-size:12px; margin-top:4px; }
     .metric { font-size:30px; font-weight:600; line-height:1.05; letter-spacing:-0.96px; margin-top:10px; color:var(--fg); }
     .section-heading, .section-title { font-size:24px; line-height:1.2; letter-spacing:-0.96px; font-weight:600; margin:0 0 var(--space-3); color:var(--fg); }
     .protocols { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--space-3); }
@@ -3379,13 +3382,13 @@ document.addEventListener('DOMContentLoaded', applyStaticI18n)
         <div class="overview-section" aria-label="业务状态">
           <div class="overview-section-title"><script>document.write(t('businessStatus'))</script></div>
         </div>
-        <div class="card panel"><div><script>document.write(t('inbounds'))</script></div><div id="inbound-count" class="metric">0</div><p>VLESS / VMess / Trojan / Shadowsocks</p></div>
-        <div class="card panel"><div><script>document.write(t('clients'))</script></div><div id="client-count" class="metric">0</div><p><script>document.write(t('active'))</script> / <script>document.write(t('total'))</script></p></div>
-        <div class="card panel"><div><script>document.write(t('totalTraffic'))</script></div><div id="total-traffic" class="metric">0 B</div><p>所有客户端上行+下行累计</p></div>
-        <div class="card panel"><div><script>document.write(t('outbound'))</script></div><div id="outbound-stats" class="metric">0</div><p>已启用 / 总计</p></div>
-        <div class="card panel"><div><script>document.write(t('routingRules'))</script></div><div id="routing-stats" class="metric">0</div><p>已启用 / 总计</p></div>
-        <div class="card panel"><div>Xray</div><div id="xray-status-metric" class="metric"><script>document.write(t('checking'))</script></div><p><script>document.write(t('runningStatus'))</script></p></div>
-        <div class="card panel"><div>Sing-box</div><div id="singbox-status-metric" class="metric"><script>document.write(t('checking'))</script></div><p>Hysteria2 / TUIC / ShadowTLS</p></div>
+        <div class="compact-metric-card"><div><script>document.write(t('inbounds'))</script></div><div id="inbound-count" class="metric">0</div><p>VLESS / VMess / Trojan / Shadowsocks</p></div>
+        <div class="compact-metric-card"><div><script>document.write(t('clients'))</script></div><div id="client-count" class="metric">0</div><p><script>document.write(t('active'))</script> / <script>document.write(t('total'))</script></p></div>
+        <div class="compact-metric-card"><div><script>document.write(t('totalTraffic'))</script></div><div id="total-traffic" class="metric">0 B</div><p>所有客户端上行+下行累计</p></div>
+        <div class="compact-metric-card"><div><script>document.write(t('outbound'))</script></div><div id="outbound-stats" class="metric">0</div><p>已启用 / 总计</p></div>
+        <div class="compact-metric-card"><div><script>document.write(t('routingRules'))</script></div><div id="routing-stats" class="metric">0</div><p>已启用 / 总计</p></div>
+        <div class="compact-metric-card"><div>Xray</div><div id="xray-status-metric" class="metric"><script>document.write(t('checking'))</script></div><p><script>document.write(t('runningStatus'))</script></p></div>
+        <div class="compact-metric-card"><div>Sing-box</div><div id="singbox-status-metric" class="metric"><script>document.write(t('checking'))</script></div><p>Hysteria2 / TUIC / ShadowTLS</p></div>
         <div class="overview-insights">
           <div class="overview-card">
             <div class="overview-card-title"><script>document.write(t('runningOverview'))</script></div>
