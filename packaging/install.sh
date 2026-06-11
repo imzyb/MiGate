@@ -226,7 +226,11 @@ install_singbox() {
     esac
     sb_version="${SINGBOX_VERSION:-1.13.13}"
     sb_url="https://github.com/SagerNet/sing-box/releases/download/v${sb_version}/sing-box-${sb_version}-linux-${sb_asset_arch}.tar.gz"
+    sb_checksums_url="https://github.com/SagerNet/sing-box/releases/download/v${sb_version}/sing-box-${sb_version}-checksums.txt"
     curl -fL "$sb_url" -o "$tmp_sb/sing-box.tar.gz"
+    curl -fL "$sb_checksums_url" -o "$tmp_sb/checksums.txt"
+    grep "sing-box-${sb_version}-linux-${sb_asset_arch}.tar.gz" "$tmp_sb/checksums.txt" > "$tmp_sb/sing-box.tar.gz.sha256"
+    (cd "$tmp_sb" && sha256sum -c "sing-box.tar.gz.sha256")
     tar -xzf "$tmp_sb/sing-box.tar.gz" -C "$tmp_sb"
     cp "$tmp_sb"/sing-box-*/sing-box /usr/local/bin/sing-box
     chmod +x /usr/local/bin/sing-box

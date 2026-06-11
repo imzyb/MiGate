@@ -218,32 +218,30 @@ func runServer(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
+	if strings.TrimSpace(configPath) == "" {
+		fmt.Fprintln(os.Stderr, "serve mode requires --config with panel credentials")
+		return 1
+	}
 
-	router := web.NewRouter()
-	cleanup := func() {}
-	if configPath != "" {
-		cfg, err := readPanelConfig(configPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "read config %s: %v\n", configPath, err)
-			return 1
-		}
-		if cfg.PanelPort > 0 {
-			port = cfg.PanelPort
-		}
-		configuredRouter, configuredCleanup, err := routerFromConfig(configPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "build router from config %s: %v\n", configPath, err)
-			return 1
-		}
-		router = configuredRouter
-		cleanup = configuredCleanup
+	cfg, err := readPanelConfig(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read config %s: %v\n", configPath, err)
+		return 1
+	}
+	if cfg.PanelPort > 0 {
+		port = cfg.PanelPort
+	}
+	configuredRouter, cleanup, err := routerFromConfig(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "build router from config %s: %v\n", configPath, err)
+		return 1
 	}
 	defer cleanup()
 
 	addr := fmt.Sprintf("%s:%d", host, port)
 	log.Printf("MiGate listening on %s", addr)
 
-	srv := &http.Server{Addr: addr, Handler: router}
+	srv := &http.Server{Addr: addr, Handler: configuredRouter}
 
 	// Graceful shutdown on SIGINT/SIGTERM
 	go func() {
@@ -699,8 +697,11 @@ func routerFromConfig(path string) (http.Handler, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	if strings.TrimSpace(cfg.PanelUsername) == "" || strings.TrimSpace(cfg.PanelPassword) == "" {
+		return nil, nil, fmt.Errorf("panel_username and panel_password are required")
+	}
 	if cfg.DatabasePath == "" {
-		return web.NewRouter(), func() {}, nil
+		return web.NewRouter(web.WithAuth(cfg.PanelUsername, cfg.PanelPassword), web.WithVersion(Version), web.WithConfigDir(filepath.Dir(path))), func() {}, nil
 	}
 	store, err := db.Open(context.Background(), cfg.DatabasePath)
 	if err != nil {

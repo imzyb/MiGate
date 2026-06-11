@@ -18,7 +18,7 @@ func TestRouterFromPanelConfigOpensConfiguredDatabaseStore(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "panel.json")
 	databasePath := filepath.Join(tmp, "migate.db")
-	config := `{"panel_port":9999,"web_base_path":"/","database_path":"` + databasePath + `"}`
+	config := `{"panel_port":9999,"panel_username":"admin","panel_password":"secret","web_base_path":"/","database_path":"` + databasePath + `"}`
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -29,10 +29,29 @@ func TestRouterFromPanelConfigOpensConfiguredDatabaseStore(t *testing.T) {
 	}
 	defer cleanup()
 
+	loginResp := httptest.NewRecorder()
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewReader([]byte(`{"username":"admin","password":"secret"}`)))
+	loginReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(loginResp, loginReq)
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d: %s", loginResp.Code, loginResp.Body.String())
+	}
+	var sessionCookie *http.Cookie
+	for _, c := range loginResp.Result().Cookies() {
+		if c.Name == "migate_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("login should set session cookie")
+	}
+
 	payload := []byte(`{"remark":"真机入口","protocol":"vless","port":8443,"network":"tcp","security":"reality"}`)
 	response := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/inbounds", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(sessionCookie)
 	router.ServeHTTP(response, req)
 
 	if response.Code != http.StatusCreated {
@@ -136,7 +155,7 @@ func TestRouterFromPanelConfigMountsConfiguredWebBasePath(t *testing.T) {
 	}
 }
 
-func TestRouterFromPanelConfigSkipsAuthWhenNoCredentials(t *testing.T) {
+func TestRouterFromPanelConfigRejectsMissingCredentials(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "panel_noauth.json")
 	config := `{"panel_port":9999,"database_path":"` + filepath.Join(tmp, "migate.db") + `"}`
@@ -144,18 +163,12 @@ func TestRouterFromPanelConfigSkipsAuthWhenNoCredentials(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	router, cleanup, err := routerFromConfig(configPath)
-	if err != nil {
-		t.Fatalf("router from config: %v", err)
+	_, cleanup, err := routerFromConfig(configPath)
+	if cleanup != nil {
+		defer cleanup()
 	}
-	defer cleanup()
-
-	// Without cookie -> 200 (auth is off)
-	response := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	router.ServeHTTP(response, req)
-	if response.Code != http.StatusOK {
-		t.Fatalf("expected 200 (no auth) when credentials absent, got %d", response.Code)
+	if err == nil || !strings.Contains(err.Error(), "panel_username and panel_password are required") {
+		t.Fatalf("expected missing credentials error, got %v", err)
 	}
 }
 
@@ -182,6 +195,28 @@ func TestCLIPrintsInteractiveMenuForBareCommand(t *testing.T) {
 		if !strings.Contains(menu, want) {
 			t.Fatalf("CLI menu missing %q:\n%s", want, menu)
 		}
+	}
+}
+
+func TestRunServerRejectsMissingConfig(t *testing.T) {
+	var stderr bytes.Buffer
+	oldStderr := os.Stderr
+	readPipe, writePipe, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stderr = writePipe
+	defer func() { os.Stderr = oldStderr }()
+
+	exitCode := runServer(nil)
+	_ = writePipe.Close()
+	_, _ = stderr.ReadFrom(readPipe)
+
+	if exitCode != 1 {
+		t.Fatalf("expected exit 1 without config, got %d", exitCode)
+	}
+	if !strings.Contains(stderr.String(), "serve mode requires --config") {
+		t.Fatalf("expected missing config error, got %q", stderr.String())
 	}
 }
 

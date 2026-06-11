@@ -1758,7 +1758,11 @@ version="${SINGBOX_VERSION:-1.13.13}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 url="https://github.com/SagerNet/sing-box/releases/download/v${version}/sing-box-${version}-linux-${asset_arch}.tar.gz"
+checksums_url="https://github.com/SagerNet/sing-box/releases/download/v${version}/sing-box-${version}-checksums.txt"
 curl -fL "$url" -o "$tmp/sing-box.tar.gz"
+curl -fL "$checksums_url" -o "$tmp/checksums.txt"
+grep "sing-box-${version}-linux-${asset_arch}.tar.gz" "$tmp/checksums.txt" > "$tmp/sing-box.tar.gz.sha256"
+(cd "$tmp" && sha256sum -c "sing-box.tar.gz.sha256")
 tar -xzf "$tmp/sing-box.tar.gz" -C "$tmp"
 cp "$tmp"/sing-box-*/sing-box /usr/local/bin/sing-box
 chmod +x /usr/local/bin/sing-box

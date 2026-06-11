@@ -170,6 +170,24 @@ func TestInstallerDownloadsReleaseAssetAndVerifiesChecksum(t *testing.T) {
 	}
 }
 
+func TestInstallerVerifiesSingBoxArchiveChecksumBeforeExtracting(t *testing.T) {
+	script := read(t, "packaging", "install.sh")
+	for _, want := range []string{
+		"sb_checksums_url=\"https://github.com/SagerNet/sing-box/releases/download/v${sb_version}/sing-box-${sb_version}-checksums.txt\"",
+		"curl -fL \"$sb_checksums_url\" -o \"$tmp_sb/checksums.txt\"",
+		"grep \"sing-box-${sb_version}-linux-${sb_asset_arch}.tar.gz\" \"$tmp_sb/checksums.txt\" > \"$tmp_sb/sing-box.tar.gz.sha256\"",
+		"sha256sum -c \"sing-box.tar.gz.sha256\"",
+		"tar -xzf \"$tmp_sb/sing-box.tar.gz\" -C \"$tmp_sb\"",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("installer sing-box checksum contract missing %q", want)
+		}
+	}
+	if strings.Index(script, "sha256sum -c \"sing-box.tar.gz.sha256\"") > strings.Index(script, "tar -xzf \"$tmp_sb/sing-box.tar.gz\"") {
+		t.Fatalf("installer must verify sing-box checksum before extracting archive")
+	}
+}
+
 func TestInstallerSupportsNonInteractiveUpdateMode(t *testing.T) {
 	script := read(t, "packaging", "install.sh")
 	for _, want := range []string{

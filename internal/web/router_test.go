@@ -2015,6 +2015,28 @@ func TestCoreInstallUninstallAPIsRequireExplicitSystemChangeConfirmation(t *test
 	}
 }
 
+func TestCoreSingboxInstallScriptVerifiesChecksumBeforeExtracting(t *testing.T) {
+	source, err := os.ReadFile("router.go")
+	if err != nil {
+		t.Fatalf("read router.go: %v", err)
+	}
+	script := string(source)
+	for _, want := range []string{
+		`checksums_url="https://github.com/SagerNet/sing-box/releases/download/v${version}/sing-box-${version}-checksums.txt"`,
+		`curl -fL "$checksums_url" -o "$tmp/checksums.txt"`,
+		`grep "sing-box-${version}-linux-${asset_arch}.tar.gz" "$tmp/checksums.txt" > "$tmp/sing-box.tar.gz.sha256"`,
+		`sha256sum -c "sing-box.tar.gz.sha256"`,
+		`tar -xzf "$tmp/sing-box.tar.gz" -C "$tmp"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("sing-box WebUI install script missing checksum contract %q", want)
+		}
+	}
+	if strings.Index(script, `sha256sum -c "sing-box.tar.gz.sha256"`) > strings.Index(script, `tar -xzf "$tmp/sing-box.tar.gz"`) {
+		t.Fatalf("sing-box WebUI install script must verify checksum before extracting archive")
+	}
+}
+
 func TestPanelWiresCoreInstallUninstallActions(t *testing.T) {
 	router := web.NewRouter()
 	page := httptest.NewRecorder()
