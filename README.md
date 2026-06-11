@@ -24,7 +24,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/packaging/in
 Install specific version:
 
 ```bash
-MIGATE_VERSION=v1.0.12 bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/packaging/install.sh)
+MIGATE_VERSION=v1.0.13 bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/packaging/install.sh)
 ```
 
 During installation, you will be prompted for:
