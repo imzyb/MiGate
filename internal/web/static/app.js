@@ -290,13 +290,21 @@
 
     function startOverviewResourceRefresh() {
       clearInterval(overviewResourceTimer);
-      overviewResourceTimer = setInterval(loadSystemResources, 5000);
+      overviewResourceTimer = setInterval(function() {
+        if (!document.hidden) loadSystemResources();
+      }, 5000);
     }
 
     function stopOverviewResourceRefresh() {
       clearInterval(overviewResourceTimer);
       overviewResourceTimer = null;
     }
+
+    document.addEventListener('visibilitychange', function() {
+      if (document.getElementById('overview').style.display !== 'none' && !document.hidden) {
+        loadSystemResources();
+      }
+    });
 
     async function loadSystemResources() {
       try {

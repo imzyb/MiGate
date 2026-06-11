@@ -251,6 +251,20 @@ func TestPanelWiresWebUIUpdateActionAndI18nMessages(t *testing.T) {
 	}
 }
 
+func TestOverviewPageAutoRefreshesResourcesWhenVisible(t *testing.T) {
+	jsBody := readAppJS(t)
+	for _, want := range []string{
+		`setInterval(`,
+		`document.hidden`,
+		`document.addEventListener('visibilitychange'`,
+		`/api/system/resources`,
+	} {
+		if !strings.Contains(jsBody, want) {
+			t.Fatalf("app.js missing overview auto-refresh contract %q", want)
+		}
+	}
+}
+
 func TestAppJSDynamicCopyUsesI18nKeys(t *testing.T) {
 	jsBody := readAppJS(t)
 	inString := false
@@ -1580,7 +1594,8 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		"document.getElementById('server-uptime').textContent",
 		"function startOverviewResourceRefresh()",
 		"clearInterval(overviewResourceTimer)",
-		"overviewResourceTimer = setInterval(loadSystemResources, 5000)",
+		"overviewResourceTimer = setInterval(function()",
+		"if (!document.hidden) loadSystemResources()",
 		"if (sectionId !== 'overview') stopOverviewResourceRefresh();",
 		"async function loadOverviewServiceStatuses()",
 		"xrayStatusMetric.textContent = formatServiceStatus(xs)",
