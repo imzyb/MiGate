@@ -2107,7 +2107,7 @@ func updateHandler() http.HandlerFunc {
 		}
 		go func() {
 			time.Sleep(500 * time.Millisecond)
-			_ = exec.Command("/usr/local/bin/migate-install", "--update").Run()
+			_ = exec.Command("systemd-run", "--unit=migate-update", "--collect", "--same-dir", "--property=Type=oneshot", "--property=User=root", "--property=StandardOutput=append:/var/log/migate-update.log", "--property=StandardError=append:/var/log/migate-update.log", "/usr/local/bin/migate-install", "--update").Run()
 		}()
 	}
 }

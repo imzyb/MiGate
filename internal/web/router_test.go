@@ -131,6 +131,25 @@ func TestUpdateAPIStartsInstallerUpdateWithoutBlockingResponse(t *testing.T) {
 	}
 }
 
+func TestUpdateAPIRunsInstallerOutsideMiGateServiceCgroup(t *testing.T) {
+	source, err := os.ReadFile("router.go")
+	if err != nil {
+		t.Fatalf("read router.go: %v", err)
+	}
+	body := string(source)
+	for _, want := range []string{
+		`exec.Command("systemd-run", "--unit=migate-update", "--collect", "--same-dir", "--property=Type=oneshot", "--property=User=root", "--property=StandardOutput=append:/var/log/migate-update.log", "--property=StandardError=append:/var/log/migate-update.log", "/usr/local/bin/migate-install", "--update")`,
+		`/var/log/migate-update.log`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("update handler missing detached updater contract %q", want)
+		}
+	}
+	if strings.Contains(body, `exec.Command("/usr/local/bin/migate-install", "--update").Run()`) {
+		t.Fatalf("update handler must not run updater inside the migate service cgroup")
+	}
+}
+
 func TestPanelI18nEnglishLocaleDoesNotContainChineseCopy(t *testing.T) {
 	router := web.NewRouter()
 	page := httptest.NewRecorder()
