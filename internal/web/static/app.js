@@ -1220,7 +1220,7 @@ function openCreateRoutingRule() {
             vmessPath = inbound.xhttp_path || '';
           }
           if (inbound.security === 'tls' || inbound.security === 'reality') {
-            vmessSni = inbound.reality_server_names || '';
+            vmessSni = inbound.security === 'reality' ? (inbound.reality_server_names || '') : (inbound.tls_sni || '');
           }
           var vmessData = {v:'2',ps:c.email,add:hostName,port:String(inbound.port),id:c.uuid,aid:'0',scy:'auto',net:inbound.network||'tcp',type:'none',host:vmessHost,path:vmessPath,tls:(inbound.security==='tls'||inbound.security==='reality')?'tls':'',sni:vmessSni};
           try { shareLink = 'vmess://' + base64EncodeUnicode(JSON.stringify(vmessData)); } catch(e) { shareLink = ''; }
@@ -1250,7 +1250,7 @@ function openCreateRoutingRule() {
             if (inbound.reality_public_key) p.push('pbk=' + encodeURIComponent(inbound.reality_public_key));
             if (inbound.reality_short_id) p.push('sid=' + encodeURIComponent(inbound.reality_short_id));
           } else if (inbound.security === 'tls') {
-            if (inbound.reality_server_names) p.push('sni=' + encodeURIComponent(inbound.reality_server_names));
+            if (inbound.tls_sni) p.push('sni=' + encodeURIComponent(inbound.tls_sni));
             p.push('allowInsecure=1');
           }
           if (inbound.network === 'ws') {
