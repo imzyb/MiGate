@@ -1285,7 +1285,7 @@ function openCreateRoutingRule() {
               '<span class="mono">' + c.uuid.substring(0,8) + '…</span>' +
               '<span style="' + trafficStyle + '">↑' + formatBytes(c.up||0) + ' ↓' + formatBytes(c.down||0) + '</span>' +
               '<span>' + formatBytes(used) + ' / ' + (limit > 0 ? formatBytes(limit) : '∞') + '</span>' +
-              '<span style="' + expireStyle + t("dyn135") + expiredText + '</span>' +
+              '<span style="' + expireStyle + '\x22\x3e' + t("dyn135") + expiredText + '</span>' +
               (limit > 0 ? '<span><div class="traffic-track"><div class="traffic-fill ' + fillClass + '" style="width:' + pct + '%"></div></div></span>' : '') +
             '</div>' +
           '</div>' +
