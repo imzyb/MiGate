@@ -724,19 +724,16 @@ func routerFromConfig(path string) (http.Handler, func(), error) {
 		xrayCtrl = web.NewRealController(store, cfg.XrayConfigPath, execCmd)
 		opts = append(opts, web.WithXrayController(xrayCtrl))
 	}
-	// Query real Xray traffic stats through the lightweight xray CLI API when
-	// the local Xray StatsService is actually reachable. Local preview/release
-	// audit runs often have an xray binary but no StatsService, so fall back to
-	// the lightweight stub instead of logging a scheduler error every minute.
-	statsClient := usableStatsClient(context.Background(), xray.NewCommandStatsClient("/usr/local/bin/xray", "127.0.0.1:10085"))
+	statsClient := xray.NewResilientStatsClient(
+		xray.NewCommandStatsClient("/usr/local/bin/xray", "127.0.0.1:10085"),
+		xray.NewStubStatsClient(),
+	)
 	opts = append(opts, web.WithStatsClient(statsClient))
 
 	// Create schedulers before building router (needed for options and cleanup wiring)
-	// Traffic sync scheduler — syncs client traffic stats from Xray API when a real stats client is configured.
-	var trafficSched *scheduler.TrafficSyncScheduler
-	if !xray.StatsClientIsStub(statsClient) {
-		trafficSched = scheduler.NewTrafficSyncScheduler(store, statsClient, 1*time.Minute)
-	}
+	// Traffic sync scheduler keeps retrying Xray StatsService because Xray may
+	// become available only after the panel starts and applies generated config.
+	trafficSched := scheduler.NewTrafficSyncScheduler(store, statsClient, 1*time.Minute)
 
 	router := web.NewRouter(opts...)
 
@@ -745,43 +742,26 @@ func routerFromConfig(path string) (http.Handler, func(), error) {
 	// Start schedulers in background and wait for them during cleanup.
 	var schedWG sync.WaitGroup
 	trafficStarted := make(chan struct{})
-	if trafficSched != nil {
-		schedWG.Add(1)
-		go func() {
-			defer schedWG.Done()
-			log.Println("traffic sync scheduler started")
-			close(trafficStarted)
-			trafficSched.Start()
-		}()
-	} else {
+	schedWG.Add(1)
+	go func() {
+		defer schedWG.Done()
+		log.Println("traffic sync scheduler started")
 		close(trafficStarted)
-	}
+		trafficSched.Start()
+	}()
 	<-trafficStarted
 
 	var cleanupOnce sync.Once
 	cleanup := func() {
 		cleanupOnce.Do(func() {
 			stopSocks5Cache()
-			if trafficSched != nil {
-				trafficSched.Stop()
-			}
+			trafficSched.Stop()
 			schedWG.Wait()
 			closeStore()
 		})
 	}
 
 	return router, cleanup, nil
-}
-
-func usableStatsClient(ctx context.Context, client xray.StatsClient) xray.StatsClient {
-	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	if _, err := client.QueryAllStats(probeCtx); err != nil {
-		log.Printf("traffic sync: xray stats unavailable, realtime Xray traffic sync disabled: %v", err)
-		_ = client.Close()
-		return xray.NewStubStatsClient()
-	}
-	return client
 }
 
 func readPanelConfig(path string) (panelConfig, error) {

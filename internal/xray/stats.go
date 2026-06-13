@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 )
 
 // StatsClient provides access to Xray's traffic statistics.
@@ -53,6 +56,17 @@ type CommandStatsClient struct {
 	Server     string
 }
 
+// ResilientStatsClient keeps retrying the real Xray stats source instead of
+// permanently falling back when Xray is still starting or the generated config
+// has not been applied yet.
+type ResilientStatsClient struct {
+	primary            StatsClient
+	fallback           StatsClient
+	mu                 sync.Mutex
+	ready              bool
+	lastUnavailableLog time.Time
+}
+
 // NewStubStatsClient creates a stub client that returns empty stats.
 func NewStubStatsClient() *StubStatsClient {
 	return &StubStatsClient{}
@@ -66,6 +80,13 @@ func NewCommandStatsClient(binaryPath, server string) *CommandStatsClient {
 		server = "127.0.0.1:10085"
 	}
 	return &CommandStatsClient{BinaryPath: binaryPath, Server: server}
+}
+
+func NewResilientStatsClient(primary StatsClient, fallback StatsClient) *ResilientStatsClient {
+	if fallback == nil {
+		fallback = NewStubStatsClient()
+	}
+	return &ResilientStatsClient{primary: primary, fallback: fallback}
 }
 
 // QueryAllStats returns an empty map (no real stats available).
@@ -87,6 +108,48 @@ func (c *CommandStatsClient) QueryAllStats(ctx context.Context) (map[string]*Cli
 }
 
 func (c *CommandStatsClient) Close() error { return nil }
+
+func (c *ResilientStatsClient) QueryAllStats(ctx context.Context) (map[string]*ClientStats, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.primary == nil {
+		return c.fallback.QueryAllStats(ctx)
+	}
+	stats, err := c.primary.QueryAllStats(ctx)
+	if err == nil {
+		if !c.ready {
+			log.Println("traffic sync: xray stats became available")
+			c.ready = true
+		}
+		return stats, nil
+	}
+	if c.ready {
+		log.Printf("traffic sync: xray stats became unavailable: %v", err)
+		c.ready = false
+		c.lastUnavailableLog = time.Now()
+	} else if time.Since(c.lastUnavailableLog) >= time.Minute {
+		log.Printf("traffic sync: xray stats unavailable, will retry: %v", err)
+		c.lastUnavailableLog = time.Now()
+	}
+	return c.fallback.QueryAllStats(ctx)
+}
+
+func (c *ResilientStatsClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var err error
+	if c.primary != nil {
+		err = c.primary.Close()
+	}
+	if c.fallback != nil {
+		if fallbackErr := c.fallback.Close(); err == nil {
+			err = fallbackErr
+		}
+	}
+	return err
+}
 
 func ParseStatsQueryOutput(raw []byte) (map[string]*ClientStats, error) {
 	var payload struct {
@@ -124,10 +187,12 @@ func ParseStatsQueryOutput(raw []byte) (map[string]*ClientStats, error) {
 // This implementation requires the google.golang.org/grpc dependency.
 //
 // To use this client, build with the grpc tag:
-//   go build -tags grpc ./...
+//
+//	go build -tags grpc ./...
 //
 // Or manually replace the client at runtime:
-//   client, _ := xray.NewGRPCStatsClient(ctx, "tcp:127.0.0.1:1080")
+//
+//	client, _ := xray.NewGRPCStatsClient(ctx, "tcp:127.0.0.1:1080")
 type GRPCStatsClient struct {
 	// Connection to Xray's gRPC API endpoint
 	// addr format: "tcp:127.0.0.1:1080" or "unix:/path/to/xray-api.sock"

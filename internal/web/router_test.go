@@ -131,6 +131,48 @@ func TestUpdateAPIStartsInstallerUpdateWithoutBlockingResponse(t *testing.T) {
 	}
 }
 
+func TestUpdateCheckAPIReportsLatestRelease(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("expected GET update check, got %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tag_name":"v1.2.0","html_url":"https://github.com/imzyb/MiGate/releases/tag/v1.2.0","name":"v1.2.0"}`))
+	}))
+	defer upstream.Close()
+
+	router := web.NewRouter(web.WithVersion("v1.1.0"), web.WithUpdateCheckURL(upstream.URL))
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/update/check", nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected update check 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode update check: %v", err)
+	}
+	for _, want := range []string{`"current_version":"v1.1.0"`, `"latest_version":"v1.2.0"`, `"release_url":"https://github.com/imzyb/MiGate/releases/tag/v1.2.0"`, `"status":"ok"`} {
+		if !strings.Contains(resp.Body.String(), want) {
+			t.Fatalf("update check response missing %q: %s", want, resp.Body.String())
+		}
+	}
+	if body["update_available"] != true {
+		t.Fatalf("expected update_available true, got %#v", body["update_available"])
+	}
+}
+
+func TestUpdateStatusAPIReportsState(t *testing.T) {
+	router := web.NewRouter()
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/update/status", nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected update status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"status"`) {
+		t.Fatalf("update status response missing status: %s", resp.Body.String())
+	}
+}
+
 func TestUpdateAPIRunsInstallerOutsideMiGateServiceCgroup(t *testing.T) {
 	source, err := os.ReadFile("router.go")
 	if err != nil {
@@ -138,7 +180,7 @@ func TestUpdateAPIRunsInstallerOutsideMiGateServiceCgroup(t *testing.T) {
 	}
 	body := string(source)
 	for _, want := range []string{
-		`exec.Command("systemd-run", "--unit=migate-update", "--replace", "--collect", "--same-dir", "--property=Type=oneshot", "--property=User=root", "--property=TimeoutSec=180", "--property=StandardOutput=append:/var/log/migate-update.log", "--property=StandardError=append:/var/log/migate-update.log", "/usr/local/bin/migate-install", "--update")`,
+		`exec.Command("systemd-run", "--wait", "--unit=migate-update", "--replace", "--collect", "--same-dir", "--property=Type=oneshot", "--property=User=root", "--property=TimeoutSec=180", "--property=StandardOutput=append:/var/log/migate-update.log", "--property=StandardError=append:/var/log/migate-update.log", "/usr/local/bin/migate-install", "--update")`,
 		`/var/log/migate-update.log`,
 	} {
 		if !strings.Contains(body, want) {
@@ -217,7 +259,9 @@ func TestPanelWiresWebUIUpdateActionAndI18nMessages(t *testing.T) {
 	jsBody := readAppJS(t)
 	for _, want := range []string{
 		`id="update-button"`,
-		`onclick="updateMiGate()"`,
+		`onclick="handleUpdateButton()"`,
+		`checkUpdate:"检测更新"`,
+		`checkUpdate:"Check update"`,
 		`updateNow:"立即更新"`,
 		`updateNow:"Update now"`,
 		`newVersionAvailablePrefix`,
@@ -228,11 +272,15 @@ func TestPanelWiresWebUIUpdateActionAndI18nMessages(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
+		`async function handleUpdateButton()`,
 		`async function updateMiGate()`,
+		`apiPath('/api/update/check')`,
 		`apiFetch('/api/update', {method: 'POST'})`,
+		`pollMiGateUpdateRecovery()`,
 		`t('updateChecking')`,
 		`t('updateStarted')`,
 		`t('updateFailed')`,
+		`t('updateConfirm')`,
 		`t('newVersionAvailablePrefix')`,
 		`t('updateReleaseNotes')`,
 	} {
@@ -241,6 +289,7 @@ func TestPanelWiresWebUIUpdateActionAndI18nMessages(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
+		`api.github.com/repos/imzyb/MiGate/releases/latest`,
 		`🚀 新版本 <strong>v`,
 		`已发布（当前 v`,
 		`查看 <a href=`,
@@ -1587,20 +1636,28 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 			t.Fatalf("app.js missing traffic/expiry JS %q", want)
 		}
 	}
-	for _, want := range []string{"traffic_limit", "bar-low"} {
+	for _, want := range []string{"traffic_limit", "bar-low", "traffic-pill", "xray_up", "xray_down", "traffic_stats_source", "realtime_stats_source", "refreshInboundTraffic", "resetClientTrafficInline"} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("panel missing traffic/expiry element %q", want)
+			if !strings.Contains(jsBody, want) {
+				t.Fatalf("panel missing traffic/expiry element %q", want)
+			}
 		}
+	}
+	if strings.Contains(jsBody, "renderInbounds(mergeTrafficStats(data.inbounds || [], stats))") {
+		t.Fatalf("loadInbounds must not fetch /api/stats after /api/inbounds already includes traffic data")
 	}
 
 	// Overview traffic and server resource stats
-	for _, want := range []string{"total-traffic", "xray-status-metric", "server-cpu", "server-memory", "server-disk", "server-uptime"} {
+	for _, want := range []string{"total-traffic", "total-traffic-up", "total-traffic-down", "total-traffic-sum", "realtime-traffic", "realtime-traffic-up", "realtime-traffic-down", "realtime-traffic-sum", "xray-status-metric", "server-cpu", "server-memory", "server-disk", "server-uptime"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("panel missing overview stat element %q", want)
 		}
 	}
 	for _, want := range []string{
 		"formatBytes",
+		"function updateTrafficOverview",
+		"const realtimeUp = details.reduce((sum, c) => sum + Number(c.xray_up || 0), 0)",
+		"updateTrafficOverview(trafficUp, trafficDown, realtimeUp, realtimeDown)",
 		"formatPercent",
 		"formatUptime",
 		"async function loadSystemResources()",
@@ -1612,7 +1669,8 @@ func TestPanelWiresAdvancedWebUI(t *testing.T) {
 		"function startOverviewResourceRefresh()",
 		"clearInterval(overviewResourceTimer)",
 		"overviewResourceTimer = setInterval(function()",
-		"if (!document.hidden) loadSystemResources()",
+		"loadStats();",
+		"loadSystemResources();",
 		"if (sectionId !== 'overview') stopOverviewResourceRefresh();",
 		"async function loadOverviewServiceStatuses()",
 		"xrayStatusMetric.textContent = formatServiceStatus(xs)",

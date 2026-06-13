@@ -35,6 +35,34 @@ type XrayStatusStore interface {
 	ListInbounds(ctx context.Context) ([]db.Inbound, error)
 }
 
+type clientTrafficSummary struct {
+	Up             int64  `json:"up"`
+	Down           int64  `json:"down"`
+	XrayUp         int64  `json:"xray_up,omitempty"`
+	XrayDown       int64  `json:"xray_down,omitempty"`
+	Source         string `json:"source"`
+	RealtimeSource string `json:"realtime_source,omitempty"`
+	Note           string `json:"note,omitempty"`
+}
+
+type inboundTrafficSummary struct {
+	Up             int64  `json:"up"`
+	Down           int64  `json:"down"`
+	Total          int64  `json:"total"`
+	Source         string `json:"source"`
+	RealtimeSource string `json:"realtime_source,omitempty"`
+}
+
+type inboundView struct {
+	db.Inbound
+	TrafficUp      int64                          `json:"traffic_up"`
+	TrafficDown    int64                          `json:"traffic_down"`
+	TrafficTotal   int64                          `json:"traffic_total"`
+	TrafficSource  string                         `json:"traffic_stats_source"`
+	RealtimeSource string                         `json:"realtime_stats_source,omitempty"`
+	ClientTraffic  map[int64]clientTrafficSummary `json:"client_traffic,omitempty"`
+}
+
 type Store interface {
 	ListInbounds(ctx context.Context) ([]db.Inbound, error)
 	CreateInbound(ctx context.Context, params db.CreateInboundParams) (db.Inbound, error)
@@ -114,7 +142,27 @@ type routerConfig struct {
 	basePath       string
 	statsClient    xray.StatsClient
 	socks5PoolURL  string
+	updateCheckURL string
 }
+
+const defaultUpdateCheckURL = "https://api.github.com/repos/imzyb/MiGate/releases/latest"
+
+type updateRuntimeStatus struct {
+	Status         string    `json:"status"`
+	CurrentVersion string    `json:"current_version,omitempty"`
+	TargetVersion  string    `json:"target_version,omitempty"`
+	Message        string    `json:"message,omitempty"`
+	StartedAt      time.Time `json:"started_at,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at,omitempty"`
+}
+
+type updateRuntimeState struct {
+	mu      sync.Mutex
+	running bool
+	status  updateRuntimeStatus
+}
+
+var globalUpdateState = &updateRuntimeState{status: updateRuntimeStatus{Status: "idle", Message: "idle"}}
 
 type Option func(*routerConfig)
 
@@ -154,6 +202,12 @@ func WithSocks5PoolURL(poolURL string) Option {
 	}
 }
 
+func WithUpdateCheckURL(checkURL string) Option {
+	return func(cfg *routerConfig) {
+		cfg.updateCheckURL = strings.TrimSpace(checkURL)
+	}
+}
+
 // WithStatsClient sets the stats client for traffic statistics.
 func WithStatsClient(client xray.StatsClient) Option {
 	return func(cfg *routerConfig) {
@@ -165,6 +219,7 @@ func NewRouter(options ...Option) http.Handler {
 	cfg := routerConfig{
 		xrayController: defaultXrayController{},
 		socks5PoolURL:  defaultSocks5PoolURL,
+		updateCheckURL: defaultUpdateCheckURL,
 	}
 	for _, option := range options {
 		option(&cfg)
@@ -179,7 +234,7 @@ func NewRouter(options ...Option) http.Handler {
 	mux.HandleFunc("/api/sessions", sessionsListHandler(&cfg))
 	mux.HandleFunc("/api/sessions/", sessionRevokeHandler(&cfg))
 	mux.HandleFunc("/api/health", healthHandler)
-	mux.HandleFunc("/api/inbounds", inboundsHandler(cfg.store, cfg.xrayController))
+	mux.HandleFunc("/api/inbounds", inboundsHandler(cfg.store, cfg.xrayController, cfg.statsClient))
 	mux.HandleFunc("/api/inbounds/", inboundChildrenHandler(cfg.store, cfg.xrayController))
 	mux.HandleFunc("/api/outbounds", outboundsHandler(cfg.store, cfg.xrayController))
 	mux.HandleFunc("/api/outbounds/", outboundChildrenHandler(&cfg))
@@ -200,7 +255,9 @@ func NewRouter(options ...Option) http.Handler {
 	mux.HandleFunc("/api/restart", restartHandler())
 	mux.HandleFunc("/api/service/status", serviceStatusHandler())
 	mux.HandleFunc("/api/version", versionHandler(cfg.version))
-	mux.HandleFunc("/api/update", updateHandler())
+	mux.HandleFunc("/api/update/check", updateCheckHandler(&cfg))
+	mux.HandleFunc("/api/update/status", updateStatusHandler())
+	mux.HandleFunc("/api/update", updateHandler(cfg.version))
 	mux.HandleFunc("/api/singbox/status", singboxStatusHandler())
 	mux.HandleFunc("/api/singbox/apply", singboxApplyHandler(cfg.store))
 	mux.HandleFunc("/api/singbox/install", coreInstallHandler("singbox"))
@@ -953,6 +1010,41 @@ func isSingBoxProtocol(protocol string) bool {
 	}
 }
 
+func summarizeTraffic(ctx context.Context, inbounds []db.Inbound, statsClient xray.StatsClient) (map[int64]inboundTrafficSummary, map[int64]clientTrafficSummary) {
+	liveStats := map[string]*xray.ClientStats{}
+	if statsClient != nil {
+		if stats, err := statsClient.QueryAllStats(ctx); err == nil {
+			liveStats = stats
+		}
+	}
+	byInbound := map[int64]inboundTrafficSummary{}
+	byClient := map[int64]clientTrafficSummary{}
+	for _, inbound := range inbounds {
+		inboundSummary := inboundTrafficSummary{Source: "db"}
+		if isSingBoxProtocol(inbound.Protocol) {
+			inboundSummary.Source = "unavailable"
+		}
+		for _, client := range inbound.Clients {
+			clientSummary := clientTrafficSummary{Up: client.Up, Down: client.Down, Source: "db"}
+			if isSingBoxProtocol(inbound.Protocol) {
+				clientSummary.Source = "unavailable"
+				clientSummary.Note = "sing-box realtime traffic stats are not yet wired"
+			} else if stats, ok := liveStats[client.Email]; ok {
+				clientSummary.XrayUp = stats.Uplink
+				clientSummary.XrayDown = stats.Downlink
+				clientSummary.RealtimeSource = "xray"
+				inboundSummary.RealtimeSource = "xray"
+			}
+			byClient[client.ID] = clientSummary
+			inboundSummary.Up += clientSummary.Up
+			inboundSummary.Down += clientSummary.Down
+		}
+		inboundSummary.Total = inboundSummary.Up + inboundSummary.Down
+		byInbound[inbound.ID] = inboundSummary
+	}
+	return byInbound, byClient
+}
+
 func statsHandler(store Store, statsClient xray.StatsClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -978,43 +1070,39 @@ func statsHandler(store Store, statsClient xray.StatsClient) http.HandlerFunc {
 			}
 		}
 
-		// Get per-client traffic stats if statsClient is available
-		clientStats := make(map[string]*xray.ClientStats)
-		if statsClient != nil {
-			stats, _ := statsClient.QueryAllStats(ctx)
-			clientStats = stats
-		}
-
-		// Build client traffic list from DB + stats. Xray protocols can use the
-		// live Xray stats API; sing-box protocols are not wired to a realtime
-		// counter source yet, so label them explicitly instead of presenting DB
-		// values as live traffic.
+		trafficByInbound, trafficByClient := summarizeTraffic(ctx, inb, statsClient)
 		var clientList []map[string]interface{}
+		var totalUp int64
+		var totalDown int64
 		for _, in := range inb {
 			for _, c := range in.Clients {
+				clientTraffic := trafficByClient[c.ID]
 				info := map[string]interface{}{
 					"id":                   c.ID,
 					"inbound_id":           c.InboundID,
 					"protocol":             in.Protocol,
 					"email":                c.Email,
 					"enabled":              c.Enabled,
-					"up":                   c.Up,
-					"down":                 c.Down,
+					"up":                   clientTraffic.Up,
+					"down":                 clientTraffic.Down,
+					"xray_up":              clientTraffic.XrayUp,
+					"xray_down":            clientTraffic.XrayDown,
 					"traffic_limit":        c.TrafficLimit,
 					"expiry_at":            c.ExpiryAt,
-					"traffic_stats_source": "db",
+					"traffic_stats_source": clientTraffic.Source,
 				}
-				if isSingBoxProtocol(in.Protocol) {
-					info["traffic_stats_source"] = "unavailable"
-					info["traffic_stats_note"] = "sing-box realtime traffic stats are not yet wired"
-				} else if liveStats, ok := clientStats[c.Email]; ok {
-					// Override with live stats if available.
-					info["up"] = liveStats.Uplink
-					info["down"] = liveStats.Downlink
-					info["traffic_stats_source"] = "xray"
+				if clientTraffic.RealtimeSource != "" {
+					info["realtime_stats_source"] = clientTraffic.RealtimeSource
+				}
+				if clientTraffic.Note != "" {
+					info["traffic_stats_note"] = clientTraffic.Note
 				}
 				clientList = append(clientList, info)
 			}
+		}
+		for _, traffic := range trafficByInbound {
+			totalUp += traffic.Up
+			totalDown += traffic.Down
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1022,6 +1110,9 @@ func statsHandler(store Store, statsClient xray.StatsClient) http.HandlerFunc {
 			"inbounds":              len(inb),
 			"clients":               clientCount,
 			"client_details":        clientList,
+			"traffic_up":            totalUp,
+			"traffic_down":          totalDown,
+			"traffic_total":         totalUp + totalDown,
 			"outbounds":             totalObs,
 			"outbounds_enabled":     enabledObs,
 			"routing_rules":         totalRules,
@@ -1170,11 +1261,11 @@ func clampPercent(v float64) float64 {
 	return v
 }
 
-func inboundsHandler(store Store, ctrl XrayController) http.HandlerFunc {
+func inboundsHandler(store Store, ctrl XrayController, statsClient xray.StatsClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			listInbounds(w, r, store)
+			listInbounds(w, r, store, statsClient)
 		case http.MethodPost:
 			createInbound(w, r, store)
 			applyXrayAsync(ctrl)
@@ -1231,7 +1322,7 @@ func deriveRealityPublicKeys(inbounds []db.Inbound) {
 	}
 }
 
-func listInbounds(w http.ResponseWriter, r *http.Request, store Store) {
+func listInbounds(w http.ResponseWriter, r *http.Request, store Store, statsClient xray.StatsClient) {
 	inbounds := []db.Inbound{}
 	if store != nil {
 		loaded, err := store.ListInbounds(r.Context())
@@ -1242,8 +1333,28 @@ func listInbounds(w http.ResponseWriter, r *http.Request, store Store) {
 		deriveRealityPublicKeys(loaded)
 		inbounds = loaded
 	}
+	trafficByInbound, trafficByClient := summarizeTraffic(r.Context(), inbounds, statsClient)
+	views := make([]inboundView, 0, len(inbounds))
+	for _, inbound := range inbounds {
+		summary := trafficByInbound[inbound.ID]
+		view := inboundView{
+			Inbound:        inbound,
+			TrafficUp:      summary.Up,
+			TrafficDown:    summary.Down,
+			TrafficTotal:   summary.Total,
+			TrafficSource:  summary.Source,
+			RealtimeSource: summary.RealtimeSource,
+			ClientTraffic:  map[int64]clientTrafficSummary{},
+		}
+		for _, client := range inbound.Clients {
+			if clientTraffic, ok := trafficByClient[client.ID]; ok {
+				view.ClientTraffic[client.ID] = clientTraffic
+			}
+		}
+		views = append(views, view)
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"inbounds": inbounds})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"inbounds": views})
 }
 
 func createInbound(w http.ResponseWriter, r *http.Request, store Store) {
@@ -1742,7 +1853,7 @@ func coreInstallHandler(core string) http.HandlerFunc {
 		switch core {
 		case "xray":
 			commands = []string{"download Xray-install script", "run installed script", "mkdir -p /usr/local/etc/xray", "ln -sf /usr/local/migate/xray.json /usr/local/etc/xray/xray.json", "systemctl enable --now xray"}
-		script = `set -euo pipefail
+			script = `set -euo pipefail
 if ! command -v curl >/dev/null 2>&1; then echo 'curl is required' >&2; exit 1; fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -1929,27 +2040,27 @@ func certStatusHandler(cfg *routerConfig) http.HandlerFunc {
 					}
 				}
 			}
-		if domain != "" {
-			// Check /etc/xray/certs/{domain}.pem and .key first
-			certPath = "/etc/xray/certs/" + domain + ".pem"
-			keyPath = "/etc/xray/certs/" + domain + ".key"
-			if _, err := os.Stat(certPath); err == nil {
-				if _, err := os.Stat(keyPath); err == nil {
-					issued = true
-				}
-			}
-			// Fallback to config dir for tests
-			if !issued && cfg.configDir != "" {
-				certDir := cfg.configDir + "/certs/" + domain
-				certPath = certDir + "/fullchain.pem"
-				keyPath = certDir + "/privkey.pem"
+			if domain != "" {
+				// Check /etc/xray/certs/{domain}.pem and .key first
+				certPath = "/etc/xray/certs/" + domain + ".pem"
+				keyPath = "/etc/xray/certs/" + domain + ".key"
 				if _, err := os.Stat(certPath); err == nil {
 					if _, err := os.Stat(keyPath); err == nil {
 						issued = true
 					}
 				}
+				// Fallback to config dir for tests
+				if !issued && cfg.configDir != "" {
+					certDir := cfg.configDir + "/certs/" + domain
+					certPath = certDir + "/fullchain.pem"
+					keyPath = certDir + "/privkey.pem"
+					if _, err := os.Stat(certPath); err == nil {
+						if _, err := os.Stat(keyPath); err == nil {
+							issued = true
+						}
+					}
+				}
 			}
-		}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -2027,50 +2138,50 @@ func certIssueHandler(cfg *routerConfig) http.HandlerFunc {
 			return
 		}
 
-	// Issue cert via acme.sh directly to /etc/xray/certs/
-	certDir := "/etc/xray/certs"
-	if err := os.MkdirAll(certDir, 0755); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "mkdir_cert_dir_failed"})
-		return
-	}
+		// Issue cert via acme.sh directly to /etc/xray/certs/
+		certDir := "/etc/xray/certs"
+		if err := os.MkdirAll(certDir, 0755); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "mkdir_cert_dir_failed"})
+			return
+		}
 
-	certFile := certDir + "/" + req.Domain + ".pem"
-	keyFile := certDir + "/" + req.Domain + ".key"
+		certFile := certDir + "/" + req.Domain + ".pem"
+		keyFile := certDir + "/" + req.Domain + ".key"
 
-	// Check if acme.sh is installed; if not, install it without interpolating
-	// request data into a shell command string.
-	if _, err := exec.LookPath("acme.sh"); err != nil {
-		installOut, err := installACMESh(req.Email)
+		// Check if acme.sh is installed; if not, install it without interpolating
+		// request data into a shell command string.
+		if _, err := exec.LookPath("acme.sh"); err != nil {
+			installOut, err := installACMESh(req.Email)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"error":  "install_acme_failed",
+					"detail": installOut,
+				})
+				return
+			}
+		}
+
+		// Run acme.sh --issue --standalone
+		out, err := exec.Command("acme.sh",
+			"--issue", "--standalone", "-d", req.Domain,
+			"--keylength", "ec-256",
+			"--fullchain-file", certFile,
+			"--key-file", keyFile,
+			"--reloadcmd", "systemctl restart xray || true",
+		).CombinedOutput()
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_ = json.NewEncoder(w).Encode(map[string]string{
-				"error":  "install_acme_failed",
-				"detail": installOut,
+				"error":  "issue_cert_failed",
+				"detail": string(out),
 			})
 			return
 		}
-	}
 
-	// Run acme.sh --issue --standalone
-	out, err := exec.Command("acme.sh",
-		"--issue", "--standalone", "-d", req.Domain,
-		"--keylength", "ec-256",
-		"--fullchain-file", certFile,
-		"--key-file", keyFile,
-		"--reloadcmd", "systemctl restart xray || true",
-	).CombinedOutput()
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error":  "issue_cert_failed",
-			"detail": string(out),
-		})
-		return
-	}
-
-	// Set permissions for xray user
-	exec.Command("chmod", "644", certFile, keyFile).Run()
+		// Set permissions for xray user
+		exec.Command("chmod", "644", certFile, keyFile).Run()
 
 		// Update panel.json with cert domain/email
 		configPath := cfg.configDir + "/panel.json"
@@ -2100,13 +2211,13 @@ func certIssueHandler(cfg *routerConfig) http.HandlerFunc {
 			return
 		}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":    "issued",
-		"domain":    req.Domain,
-		"cert_path": certFile,
-		"key_path":  keyFile,
-	})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":    "issued",
+			"domain":    req.Domain,
+			"cert_path": certFile,
+			"key_path":  keyFile,
+		})
 	}
 }
 
@@ -2124,26 +2235,164 @@ func versionHandler(version string) http.HandlerFunc {
 	}
 }
 
-func updateHandler() http.HandlerFunc {
+func updateCheckHandler(cfg *routerConfig) http.HandlerFunc {
+	type releaseResponse struct {
+		TagName string `json:"tag_name"`
+		HTMLURL string `json:"html_url"`
+		Name    string `json:"name"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		current := strings.TrimSpace(cfg.version)
+		if current == "" {
+			current = "dev"
+		}
+		result := map[string]interface{}{
+			"current_version":  current,
+			"latest_version":   "",
+			"update_available": false,
+			"release_url":      "",
+			"status":           "unknown",
+		}
+		if current == "dev" {
+			result["status"] = "dev"
+			result["message"] = "dev builds cannot be checked against releases"
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(result)
+			return
+		}
+		checkURL := strings.TrimSpace(cfg.updateCheckURL)
+		if checkURL == "" {
+			checkURL = defaultUpdateCheckURL
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, nil)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "update_check_failed", map[string]interface{}{"detail": err.Error()})
+			return
+		}
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", "MiGate-update-check")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			writeJSONError(w, http.StatusBadGateway, "update_check_failed", map[string]interface{}{"detail": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			writeJSONError(w, http.StatusBadGateway, "update_check_failed", map[string]interface{}{"detail": resp.Status})
+			return
+		}
+		var release releaseResponse
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&release); err != nil {
+			writeJSONError(w, http.StatusBadGateway, "update_check_failed", map[string]interface{}{"detail": err.Error()})
+			return
+		}
+		latest := strings.TrimSpace(release.TagName)
+		result["latest_version"] = latest
+		result["release_url"] = strings.TrimSpace(release.HTMLURL)
+		result["release_name"] = strings.TrimSpace(release.Name)
+		result["status"] = "ok"
+		result["update_available"] = latest != "" && normalizeMiGateVersion(latest) != normalizeMiGateVersion(current)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+	}
+}
+
+func updateStatusHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		status := globalUpdateState.snapshot()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(status)
+	}
+}
+
+func updateHandler(version string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
+		current := strings.TrimSpace(version)
+		if current == "" {
+			current = "dev"
+		}
+		status, started := globalUpdateState.start(current)
+		if !started {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(status)
+			return
+		}
 		command := "/usr/local/bin/migate-install --update"
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "updating", "command": command})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "updating", "command": command, "message": status.Message})
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
 		if runningUnderGoTest() {
+			globalUpdateState.finish("started", "update command accepted in test mode")
 			return
 		}
 		go func() {
 			time.Sleep(500 * time.Millisecond)
-			_ = exec.Command("systemd-run", "--unit=migate-update", "--replace", "--collect", "--same-dir", "--property=Type=oneshot", "--property=User=root", "--property=TimeoutSec=180", "--property=StandardOutput=append:/var/log/migate-update.log", "--property=StandardError=append:/var/log/migate-update.log", "/usr/local/bin/migate-install", "--update").Run()
+			err := exec.Command("systemd-run", "--wait", "--unit=migate-update", "--replace", "--collect", "--same-dir", "--property=Type=oneshot", "--property=User=root", "--property=TimeoutSec=180", "--property=StandardOutput=append:/var/log/migate-update.log", "--property=StandardError=append:/var/log/migate-update.log", "/usr/local/bin/migate-install", "--update").Run()
+			if err != nil {
+				globalUpdateState.finish("failed", err.Error())
+				return
+			}
+			globalUpdateState.finish("restarting", "update command started, MiGate will restart shortly")
 		}()
 	}
+}
+
+func normalizeMiGateVersion(version string) string {
+	version = strings.TrimSpace(version)
+	version = strings.TrimPrefix(version, "MiGate version:")
+	version = strings.TrimSpace(version)
+	version = strings.TrimPrefix(version, "v")
+	return version
+}
+
+func (s *updateRuntimeState) start(current string) (updateRuntimeStatus, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.running {
+		return s.status, false
+	}
+	now := time.Now().UTC()
+	s.running = true
+	s.status = updateRuntimeStatus{
+		Status:         "updating",
+		CurrentVersion: current,
+		Message:        "update command accepted",
+		StartedAt:      now,
+		UpdatedAt:      now,
+	}
+	return s.status, true
+}
+
+func (s *updateRuntimeState) finish(status, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.running = false
+	s.status.Status = status
+	s.status.Message = message
+	s.status.UpdatedAt = time.Now().UTC()
+}
+
+func (s *updateRuntimeState) snapshot() updateRuntimeStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.status
 }
 
 func settingsHandler(cfg *routerConfig) http.HandlerFunc {
@@ -2751,6 +3000,7 @@ const panelHTML = `<!doctype html>
     .account-name { color:var(--fg); font-size:var(--text-sm); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .account-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
     .account-actions button { min-height:32px; padding:0 10px; font-size:var(--text-xs); border-radius:var(--radius-md); background:var(--surface-subtle); color:var(--fg); box-shadow:none; }
+    .account-actions button.update-available { background:var(--fg); color:var(--bg); }
     nav a { display:block; color:var(--fg); text-decoration:none; padding:10px var(--space-3); border-radius:var(--radius-md); margin:var(--space-1) 0; box-shadow:none; font-size:var(--text-md); font-weight:500; }
     nav a.active, nav a:hover { background:var(--surface-subtle); box-shadow:var(--shadow-sm); }
     .grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:var(--space-4); margin-bottom:var(--space-4); }
@@ -2769,6 +3019,9 @@ const panelHTML = `<!doctype html>
     .compact-metric-card { background:var(--surface); border-radius:var(--radius-md); box-shadow:var(--shadow-sm); padding:12px 14px; }
     .compact-metric-card .metric { font-size:22px; margin-top:6px; }
     .compact-metric-card p { font-size:12px; margin-top:4px; }
+    .metric-split { display:grid; grid-template-columns:1fr; gap:4px; margin-top:8px; color:var(--muted); font-size:var(--text-xs); line-height:1.35; }
+    .metric-split span { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
+    .metric-split strong { color:var(--fg); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .metric { font-size:30px; font-weight:600; line-height:1.05; letter-spacing:-0.96px; margin-top:10px; color:var(--fg); }
     .section-heading, .section-title { font-size:24px; line-height:1.2; letter-spacing:-0.96px; font-weight:600; margin:0 0 var(--space-3); color:var(--fg); }
     .protocols { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--space-3); }
@@ -2831,6 +3084,11 @@ const panelHTML = `<!doctype html>
     .danger-icon-btn { background:rgba(239,68,68,.12); color:var(--danger); box-shadow:var(--shadow-sm); }
     .traffic-track { width:128px; height:4px; margin-top:5px; overflow:hidden; border-radius:9999px; background:var(--line-strong); }
     .traffic-fill { height:100%; border-radius:9999px; background:var(--accent2); }
+    .traffic-fill.bar-mid { background:var(--amber); }
+    .traffic-fill.bar-high { background:var(--danger); }
+    .traffic-pill { display:inline-flex; align-items:center; min-height:22px; padding:0 8px; border-radius:9999px; font-size:var(--text-xs); font-weight:500; background:var(--surface); box-shadow:var(--shadow-sm); color:var(--muted); }
+    .traffic-pill.live { color:var(--accent2); background:rgba(22,163,74,.12); }
+    .traffic-pill.unavailable { color:var(--amber); background:rgba(245,158,11,.12); }
     .empty-state { display:grid; gap:10px; justify-items:start; padding:22px; border-radius:var(--radius-xl); background:var(--surface); box-shadow:var(--shadow-sm); color:var(--muted); }
     .empty-state-title { color:var(--fg); font-size:16px; font-weight:600; letter-spacing:-0.32px; }
     .empty-state-copy { max-width:560px; color:var(--muted); font-size:13px; line-height:1.6; }
@@ -2920,7 +3178,7 @@ const panelHTML = `<!doctype html>
     @media (max-width: 560px) { .grid,.overview-grid,.protocols, form { grid-template-columns:1fr; } main { padding:calc(var(--space-5) + 56px) var(--space-3) var(--space-4); } .mobile-topbar { padding-left:var(--space-3); padding-right:var(--space-3); } .modal-content,#confirm-dialog { min-width:0; width:calc(100vw - 28px); max-width:calc(100vw - 28px); } .modal-form { grid-template-columns:1fr; } .form-actions,.modal-footer { flex-direction:column-reverse; align-items:stretch; } .socks5-pool-layout { grid-template-columns:1fr; } .socks5-pool-detail-card { min-height:auto; } .socks5-pool-list-panel { min-height:auto; } .socks5-pool-list { height:min(48vh, 360px); } .resource-row { grid-template-columns:1fr; gap:var(--space-2); } .client-resource-row { grid-template-columns:1fr; gap:var(--space-2); padding:10px var(--space-3) 10px var(--space-4); } .resource-meta { flex-wrap:wrap; gap:var(--space-1) var(--space-2); } .resource-actions { justify-content:flex-start; padding-top:var(--space-1); } .client-resource-row .resource-actions { justify-content:flex-start; margin-left:0; gap:4px; } .icon-btn, .danger-icon-btn { min-width:44px; min-height:44px; height:44px; font-size:13px; } .client-resource-row .icon-btn, .client-resource-row .danger-icon-btn { min-width:44px; } .outbound-card { flex-wrap:wrap; padding:12px; } .outbound-actions { width:100%; justify-content:flex-start; padding-left:26px; } .client-subsection .list { gap:6px; } }
   </style>
   <script>
-const i18n={zh:{overview:"概览",inbounds:"入站",outbound:"出站",routing:"路由",settings:"设置",currentUser:"当前用户",loading:"加载中...",logout:"登出",darkMode:"深色模式",lightMode:"浅色模式",langToggle:"English",serverResources:"服务器资源",cpu:"CPU",memory:"内存",disk:"硬盘",uptime:"开机时长",businessStatus:"业务状态",clients:"客户端",totalTraffic:"总流量",routingRules:"路由规则",runningStatus:"运行状态",protocolDistribution:"协议分布",coreProtocols:"核心协议",newInbound:"新增入站",searchInbound:"搜索入站...",defaultSort:"默认排序",byPort:"按端口",byProtocol:"按协议",byClients:"按客户端数",loadingInbounds:"正在加载入站...",outboundManagement:"出站管理",outboundDesc:"配置链式代理转发（SOCKS5 / HTTP），实现流量经外部代理链路中转。",newOutbound:"新增出站",loadingOutbounds:"正在加载出站...",routingManagement:"路由管理",routingDesc:"配置域名/IP 路由规则，决定匹配流量的出站选择。",newRoute:"新增路由",loadingRoutes:"正在加载路由...",xrayConfig:"Xray 配置",xrayDesc:"Xray 运行状态、生成的配置预览与应用操作。",preview:"预览",apply:"应用",validate:"验证",restart:"重启",reloadConfig:"重载配置",singboxConfig:"Sing-box 配置",singboxDesc:"Sing-box 运行状态、生成的配置预览与应用操作。",panelSettings:"面板设置",panelSettingsDesc:"WebUI 端口、路径、凭据等面板运行参数。",refresh:"刷新",saveSettings:"保存设置",confirmRestart:"确认重启 MiGate 服务？",cancel:"取消",confirm:"确认",name:"名称",protocol:"协议类型",port:"端口",enabled:"启用",actions:"操作",edit:"编辑",delete:"删除",copy:"复制",active:"活跃",total:"总计",usedTotal:"已用 / 总量",systemUptime:"系统运行时间",checking:"检查中...",runningOverview:"运行概况",activeClients:"活跃客户端",noInbounds:"暂无入站",noOutbounds:"暂无出站",noRoutes:"暂无路由",updateNow:"立即更新",updateChecking:"正在检查更新...",updateStarted:"更新已开始，服务会短暂重启，请稍后刷新页面。",updateFailed:"更新失败",newVersionAvailablePrefix:"🚀 新版本",newVersionAvailableMiddle:"已发布（当前",updateReleaseNotes:"更新日志",updateAlreadyLatest:"已是最新版本",dyn001:"登录状态已过期，请重新登录",dyn002:"暂无入站",dyn003:"先创建一个 VLESS / VMess / Trojan / Shadowsocks 节点；MiGate 会自动生成客户端与 Xray 配置。",dyn004:"创建入站",dyn005:"查看 Xray",dyn006:"查看 Sing-box",dyn007:" 客户端</span></div>",dyn008:")\" title=\"展开客户端\">客户端</button>",dyn009:")\" title=\"编辑\">编辑</button>",dyn010:")\" title=\"启用/禁用\">",dyn011:"禁用",dyn012:"启用",dyn013:")\" title=\"删除\">删除</button>",dyn014:"<div class=\"empty-state\"><div class=\"empty-state-title\">无匹配结果</div><div class=\"empty-state-copy\">没有入站匹配当前的搜索或筛选条件。</div></div>",dyn015:"还没有入站。建议先创建一个 VLESS/REALITY 或 TLS 入站，再添加客户端。",dyn016:"已启用 ",dyn017:" 个入站，停用 ",dyn018:" 个；受限客户端 ",dyn019:" 个，过期客户端 ",dyn020:" 个。",dyn021:"活跃客户端 ",dyn022:"无法连接",dyn023:"未安装",dyn024:"运行中",dyn025:"已停止",dyn026:"未知",dyn027:"天 ",dyn028:"小时",dyn029:"小时 ",dyn030:"分钟",dyn031:"<div class=\"muted\" style=\"padding:12px\">加载失败</div>",dyn032:"暂无出站",dyn033:"出站用于链式代理转发。点击上方\"新建出站\"添加 SOCKS5 / HTTP 代理。",dyn034:"直接连接",dyn035:"阻断",dyn036:")\" title=\"测速\">&#9889;</button>",dyn037:")\" title=\"编辑\">&#9998;</button>",dyn038:")\" title=\"删除\">&#10005;</button>",dyn039:"<span class=\"muted\" style=\"font-size:var(--text-xs);padding:4px 8px\">内置</span>",dyn040:"测速中...",dyn041:" 超时",dyn042:" 失败",dyn043:"没有可测速的自定义出站",dyn044:" 测速中",dyn045:"测速失败",dyn046:"完成: ",dyn047:" 成功, ",dyn048:"测速异常: ",dyn049:"排序保存失败",dyn050:"排序已保存",dyn051:"<option value=\"\">-- 请选择地区 --</option>",dyn052:"<div class=\"empty-state\"><div class=\"empty-state-title\">请选择地区后显示对应 SOCKS5</div><div class=\"empty-state-copy\">先从上方选择国家/地区，再逐行测延时。</div></div>",dyn053:"其他 / OT",dyn054:"北美 / NA",dyn055:"亚洲 / AS",dyn056:"欧洲 / EU",dyn057:"南美 / SA",dyn058:"大洋洲 / OC",dyn059:"非洲 / AF",dyn060:"测速中",dyn061:"<div class=\"empty-state\"><div class=\"empty-state-title\">地址池加载失败</div><div class=\"empty-state-copy\">",dyn062:"<div class=\"empty-state\"><div class=\"empty-state-title\">请选择地区后显示对应 SOCKS5</div><div class=\"empty-state-copy\">不会默认展开全量列表，避免滚动和测速压力。</div></div>",dyn063:"<div class=\"empty-state\"><div class=\"empty-state-title\">正在加载地区 SOCKS5</div><div class=\"empty-state-copy\">加载后会逐行测延时。</div></div>",dyn064:"SOCKS5 地址池缓存状态：",dyn065:"<div class=\"empty-state\"><div class=\"empty-state-title\">请选择地区后显示对应 SOCKS5</div></div>",dyn066:"<div class=\"empty-state\"><div class=\"empty-state-title\">暂无可用代理</div><div class=\"empty-state-copy\">换一个地区或稍后重试。</div></div>",dyn067:"<h3 style=\"margin:10px 0 8px;font-size:18px\">选择地区后查看详情</h3>",dyn068:"<p class=\"field-help\" style=\"margin:0 0 14px\">左侧显示当前选中 SOCKS5 的详细信息；右侧只在选择地区后展示列表并逐行测延时。</p>",dyn069:"<div><span class=\"muted\">地区数</span><br><strong>",dyn070:"<div><span class=\"muted\">缓存状态</span><br><strong>",dyn071:"加载中",dyn072:"<div><span class=\"muted\">刷新策略</span><br><strong>每日 06:00</strong></div></div>",dyn073:"<div><span class=\"muted\">地址</span><br><strong>",dyn074:"<div><span class=\"muted\">延时</span><br><strong>",dyn075:"<div><span class=\"muted\">地区</span><br><strong>",dyn076:"<div><span class=\"muted\">运营商</span><br><strong>",dyn077:"<div><span class=\"muted\">认证</span><br><strong>",dyn078:"需要账号密码",dyn079:"无认证",dyn080:"请选择一个 SOCKS5",dyn081:"导入中...",dyn082:"导入失败",dyn083:"SOCKS5 已添加：",dyn084:"导入失败: ",dyn085:"请输入出站标识",dyn086:"请输入代理地址",dyn087:"请输入有效端口(1-65535)",dyn088:"创建失败",dyn089:"出站已创建",dyn090:"创建失败: ",dyn091:"未找到出站",dyn092:"加载失败",dyn093:"更新失败",dyn094:"出站已更新",dyn095:"更新失败: ",dyn096:"确认删除此出站？",dyn097:"删除失败",dyn098:"出站已删除",dyn099:"删除失败: ",dyn100:"<div class=\"empty-state\"><div class=\"empty-state-title\">暂无路由规则</div><div class=\"empty-state-copy\">添加规则可将特定域名、入站或协议的流量转发到指定出站。点击上方\"新建规则\"开始。</div></div>",dyn101:"入站: ",dyn102:"域名: ",dyn103:"协议: ",dyn104:"所有流量",dyn105:")\" title=\"编辑\" data-rule-outbound=\"",dyn106:"<option value=\"\">留空 = 所有入站</option>",dyn107:"<option value=\"\">-- 选择出站 --</option>",dyn108:"加载下拉选项失败: ",dyn109:"未命名",dyn110:" (端口 ",dyn111:"请选择目标出站",dyn112:"创建中...",dyn113:"路由规则已创建",dyn114:"确认删除此路由规则？",dyn115:"路由规则已删除",dyn116:"保存中...",dyn117:"保存失败",dyn118:"路由规则已更新",dyn119:"保存失败: ",dyn120:"浅色模式",dyn121:"深色模式",dyn122:"未登录",dyn123:"未启用认证",dyn124:"无法读取用户",dyn125:"登出失败",dyn126:"已登出",dyn127:"<div class=\"list\" style=\"margin:0\">正在加载客户端...</div>",dyn128:"<div class=\"muted\" style=\"padding:12px\">入站未找到</div>",dyn129:")\" class=\"btn-sm\">新增客户端</button>",dyn130:"<div class=\"muted\" style=\"padding:12px\">加载失败</div>",dyn131:"暂无客户端",dyn132:"在当前入站下创建第一个客户端后，即可复制订阅或分享链接。",dyn133:"创建客户端",dyn134:"不限",dyn135:"到期 ",dyn136:")\" title=\"复制分享链接\">复制链接</button>",dyn137:")\" title=\"编辑客户端\">编辑</button>",dyn138:"\\')\" title=\"启用/禁用客户端\">",dyn139:"\\')\" title=\"删除客户端\">删除</button>",dyn140:"复制失败，请手动复制下面的链接",dyn141:"已复制链接",dyn142:"复制失败，请手动复制",dyn143:"确认删除入站 ",dyn144:"？此操作不可撤销，其下的客户端也将被删除。",dyn145:"删除失败：",dyn146:"确认删除客户端 ",dyn147:"删除中...",dyn148:"删除客户端失败",dyn149:"客户端已删除",dyn150:"入站未找到",dyn151:"请填写备注和端口",dyn152:"端口 ",dyn153:" 已被入站 ",dyn154:" 使用",dyn155:"编辑入站失败",dyn156:"入站已更新",dyn157:"开关入站失败",dyn158:"入站 ",dyn159:"已启用",dyn160:"已禁用",dyn161:"客户端未找到",dyn162:"请输入客户端标识",dyn163:"编辑客户端失败",dyn164:"客户端已更新",dyn165:"切换中...",dyn166:"开关客户端失败",dyn167:"客户端 ",dyn168:"确定要重置此客户端的流量数据吗？此操作不可恢复。",dyn169:"重置中...",dyn170:"重置流量失败",dyn171:"流量已重置",dyn172:"请先展开入站再创建客户端",dyn173:"创建客户端失败",dyn174:"客户端创建成功",dyn175:"VLESS + Reality：高性能，推荐优先使用。",dyn176:"VMess + WebSocket + TLS：适合 CDN 反代场景。",dyn177:"Trojan + TLS：兼容性广泛的协议。",dyn178:"Shadowsocks：轻量加密代理。",dyn179:"Hysteria2：基于 QUIC 的 UDP 加速协议；sing-box 1.13 服务端需要 TLS，MiGate 默认使用自签证书。",dyn180:"TUIC：基于 QUIC 的低延迟 UDP 代理，适合弱网环境。",dyn181:"ShadowTLS：将流量伪装成标准 TLS 连接，可绕过深度包检测。",dyn182:"\\')\">重新生成</button>",dyn183:"\\')\">显示/隐藏</button>",dyn184:"密码/密钥",dyn185:"密码",dyn186:"客户端凭据已自动生成为 ",dyn187:"，可以手动修改；不懂时保持默认即可。",dyn188:"创建入站失败",dyn189:"入站创建成功",dyn190:"是",dyn191:"否",dyn192:"无入站",dyn193:"已安装 / 未托管",dyn194:"连接失败",dyn195:"安装",dyn196:"卸载",dyn197:"确认",dyn198:" 核心？这会修改系统服务和二进制文件。",dyn199:"正在",dyn200:" 核心操作执行中，请稍候。",dyn201:"操作失败",dyn202:"完成",dyn203:" 核心已",dyn204:" 核心",dyn205:"失败",dyn206:"请检查系统权限、网络和服务状态。",dyn207:"正在应用",dyn208:"正在写入 xray.json、执行配置校验并尝试重启 Xray 及 sing-box。",dyn209:"\\nSing-box: ✅ 已应用",dyn210:" 个入站)",dyn211:"\\nSing-box: ⏭ 无 sing-box 入站",dyn212:"应用失败",dyn213:"Xray 状态：",dyn214:"应用配置失败",dyn215:"应用完成",dyn216:"配置已应用",dyn217:"请检查 Xray 配置目录、xray 命令和 systemd 服务状态。",dyn218:"加载配置失败",dyn219:"加载中...",dyn220:"暂无日志",dyn221:"加载日志失败",dyn222:"正在写入 sing-box 配置并尝试重启服务。",dyn223:"Sing-box 配置已应用",dyn224:" 个入站）",dyn225:"未知错误",dyn226:"Sing-box 应用失败",dyn227:"请求失败，请检查网络连接和服务状态。",dyn228:"数据库",dyn229:" | 密码已设置",dyn230:" | 无密码",dyn231:"设置不可用",dyn232:"需要在 panel.json 配置文件下运行，或检查配置目录是否已传入。",dyn233:"✓ 已签发",dyn234:"证书：",dyn235:" | 密钥：",dyn236:"待获取（域名已配置）",dyn237:"未配置",dyn238:"请先填写域名和邮箱",dyn239:"签发中…",dyn240:"签发中，请等待…",dyn241:"证书获取成功",dyn242:"签发失败：",dyn243:"签发失败",dyn244:"签发失败：网络错误",dyn245:"获取证书",dyn246:"请输入面板端口",dyn247:"保存设置失败",dyn248:"设置已保存，重启服务后生效",dyn249:"保存设置",dyn250:"确认重启 MiGate 服务？页面将暂时无法访问，重启后自动重试恢复。",dyn251:"重启中…",dyn252:"重启失败",dyn253:"重启服务",dyn254:"正在重启 MiGate 服务…",dyn255:"重启超时，请手动刷新",dyn256:"重启请求失败",dyn257:"<span style=\"color:var(--accent2)\">●</span> 运行中",dyn258:"异常",dyn259:"未运行",dyn260:"非 systemd 环境或服务未安装",dyn261:"不可用",dyn262:"无法查询服务状态",dyn263:"默认密码警告",dyn264:"当前使用的密码是默认密码，存在安全风险。建议立即在",certNotIssued:"未找到已签发的证书，请先在设置页获取证书",certImported:"已导入设置中的证书路径",certStatusError:"无法读取证书状态："},en:{overview:"Overview",inbounds:"Inbounds",outbound:"Outbound",routing:"Routing",settings:"Settings",currentUser:"Current user",loading:"Loading...",logout:"Logout",darkMode:"Dark mode",lightMode:"Light mode",langToggle:"中文",serverResources:"Server resources",cpu:"CPU",memory:"Memory",disk:"Disk",uptime:"Uptime",businessStatus:"Business status",clients:"Clients",totalTraffic:"Total traffic",routingRules:"Routing rules",runningStatus:"Running status",protocolDistribution:"Protocol distribution",coreProtocols:"Core protocols",newInbound:"New inbound",searchInbound:"Search inbound...",defaultSort:"Default sort",byPort:"By port",byProtocol:"By protocol",byClients:"By clients",usedTotal:"Used / total",systemUptime:"System uptime",active:"Active",total:"Total",runningOverview:"Running overview",checking:"Checking",day:"d",hour:"h",minute:"min",panelSettings:"Panel settings",panelSettingsDesc:"Configure panel port, authentication, and certificate settings.",refresh:"Refresh",saveSettings:"Save settings",restart:"Restart",xrayConfig:"Xray config",xrayDesc:"View status, install/uninstall Xray core, and manage configuration.",singboxConfig:"Sing-box config",singboxDesc:"View status, install/uninstall sing-box core, and manage configuration.",preview:"Preview",apply:"Apply",outboundManagement:"Outbound management",outboundDesc:"Manage proxy outbound nodes and test latency.",routingManagement:"Routing management",routingDesc:"Configure domain-based routing rules.",newOutbound:"New outbound",newRoute:"New route",updateNow:"Update now",updateChecking:"Checking for updates...",updateStarted:"Update started, panel may restart briefly",updateFailed:"Update failed",newVersionAvailablePrefix:"🚀 New version",newVersionAvailableMiddle:"released (current: v",updateReleaseNotes:"Release notes",updateAlreadyLatest:"Already up to date",dyn001:"Session expired, please login again",dyn002:"No inbound configured",dyn003:"Create your first inbound to start accepting connections.",dyn004:"New inbound",dyn005:"View Xray",dyn006:"View Sing-box",dyn007:" clients</span></div>",dyn008:")\">Clients</button>",dyn009:")\" title=\"Edit\">Edit</button>",dyn010:",this)\" title=\"Toggle\">",dyn011:"Disable",dyn012:"Enable",dyn013:")\" title=\"Delete\">Delete</button>",dyn014:"No matching inbounds",dyn015:"Are you sure?",dyn016:"Confirm",dyn017:"Cancel",dyn018:"Protocol",dyn019:"Enabled",dyn020:"Network",dyn021:"Security",dyn022:"Unknown",dyn023:"Not installed",dyn024:"Running",dyn025:"Stopped",dyn026:"Unknown",dyn027:"d ",dyn028:"h",dyn029:"h ",dyn030:"min",dyn031:"Create inbound",dyn032:"Edit inbound",dyn033:"Name",dyn034:"e.g. Main entry",dyn035:"Port",dyn036:")\" title=\"Speed test\">&#9889;</button>",dyn037:")\" title=\"Edit\">&#9998;</button>",dyn038:")\" title=\"Delete\">&#10005;</button>",dyn039:"<span class=\"muted\" style=\"font-size:var(--text-xs);padding:4px 8px\">Built-in</span>",dyn040:"Delete this inbound and all its clients?",dyn041:"Delete",dyn042:"Toggle inbound",dyn043:"Enable this inbound?",dyn044:"Disable this inbound?",dyn045:"Confirm",dyn046:"No clients",dyn047:"Add your first client to this inbound.",dyn048:"New client",dyn049:"Create client",dyn050:"Edit client",dyn051:"Email",dyn052:"e.g. user@example.com",dyn053:"UUID",dyn054:"Generate",dyn055:"Traffic limit (bytes, 0=unlimited)",dyn056:"Expiry (UNIX timestamp, 0=never)",dyn057:"Enabled",dyn058:"Create",dyn059:"Save",dyn060:"Delete client",dyn061:"Delete this client?",dyn062:"Delete",dyn063:"Toggle client",dyn064:"Enable this client?",dyn065:"Disable this client?",dyn066:"Confirm",dyn067:"Copied",dyn068:"Failed to copy",dyn069:"No outbound configured",dyn070:"Create your first outbound to enable routing.",dyn071:"New outbound",dyn072:"Create outbound",dyn073:"Edit outbound",dyn074:"Tag",dyn075:"e.g. proxy-1",dyn076:"Type",dyn077:"Address",dyn078:"e.g. proxy.example.com",dyn079:"Port",dyn080:"e.g. 1080",dyn081:"Username",dyn082:"Password",dyn083:"Enabled",dyn084:"Create",dyn085:"Save",dyn086:"Delete outbound",dyn087:"Delete this outbound?",dyn088:"Delete",dyn089:"Toggle outbound",dyn090:"Enable this outbound?",dyn091:"Disable this outbound?",dyn092:"Confirm",dyn093:"Test",dyn094:"Testing...",dyn095:"ms",dyn096:"Timeout",dyn097:"Error",dyn098:"No routing rules",dyn099:"Create your first routing rule.",dyn100:"New route",dyn101:"Inbound: ",dyn102:"Domain: ",dyn103:"Protocol: ",dyn104:"All traffic",dyn105:")\" title=\"Edit\" data-rule-outbound=\"",dyn106:"Outbound tag",dyn107:"e.g. proxy-1",dyn108:"Enabled",dyn109:"Create",dyn110:"Save",dyn111:"Delete rule",dyn112:"Delete this routing rule?",dyn113:"Delete",dyn114:"Delete this routing rule?",dyn115:"Enable this rule?",dyn116:"Disable this rule?",dyn117:"Confirm",dyn118:"Settings updated",dyn119:"Failed to save settings",dyn120:"Light mode",dyn121:"Dark mode",dyn122:"Certificate issued successfully",dyn123:"Failed to issue certificate",dyn124:"Please fill domain and email",dyn125:"Issuing...",dyn126:"Issue certificate",dyn127:"<div class=\"list\" style=\"margin:0\">Loading clients...</div>",dyn128:"Failed to fetch Xray status",dyn129:")\" class=\"btn-sm\">New client</button>",dyn130:"Failed to fetch Sing-box status",dyn131:"No clients",dyn132:"Add your first client to this inbound.",dyn133:"New client",dyn134:"Never",dyn135:"Expires: ",dyn136:")\" title=\"Copy link\">Copy Link</button>",dyn137:")\" title=\"Edit\">Edit</button>",dyn138:"')\" title=\"Toggle\">",dyn139:"')\" title=\"Delete\">Delete</button>",dyn140:"Please fill all required fields",dyn141:"Creating...",dyn142:"Create",dyn143:"Inbound created",dyn144:"Failed to create inbound",dyn145:"Saving...",dyn146:"Save",dyn147:"Inbound updated",dyn148:"Failed to update inbound",dyn149:"Deleting...",dyn150:"Delete",dyn151:"Inbound deleted",dyn152:"Failed to delete inbound",dyn153:"Inbound toggled",dyn154:"Failed to toggle inbound",dyn155:"Please fill all required fields",dyn156:"Creating...",dyn157:"Create",dyn158:"Client created",dyn159:"Failed to create client",dyn160:"Saving...",dyn161:"Save",dyn162:"Client updated",dyn163:"Failed to update client",dyn164:"Deleting...",dyn165:"Delete",dyn166:"Client deleted",dyn167:"Failed to delete client",dyn168:"Client toggled",dyn169:"Failed to toggle client",dyn170:"Please fill all required fields",dyn171:"Creating...",dyn172:"Create",dyn173:"Outbound created",dyn174:"Failed to create outbound",dyn175:"Saving...",dyn176:"Save",dyn177:"Outbound updated",dyn178:"Failed to update outbound",dyn179:"Deleting...",dyn180:"Delete",dyn181:"Outbound deleted",dyn182:"\\')\">Regenerate</button>",dyn183:"\\')\">Show/Hide</button>",dyn184:"Failed to toggle outbound",dyn185:"Testing...",dyn186:"Test",dyn187:"Latency: ",dyn188:"ms",dyn189:"Timeout",dyn190:"Error: ",dyn191:"Please fill all required fields",dyn192:"Creating...",dyn193:"Create",dyn194:"Route created",dyn195:"Failed to create route",dyn196:"Saving...",dyn197:"Save",dyn198:"Route updated",dyn199:"Failed to update route",dyn200:"Deleting...",dyn201:"Delete",dyn202:"Route deleted",dyn203:"Failed to delete route",dyn204:"Route toggled",dyn205:"Failed to toggle route",dyn206:"Loading inbounds...",dyn207:"Loading outbounds...",dyn208:"Loading routes...",dyn209:"Xray config preview",dyn210:"Xray logs",dyn211:"Loading...",dyn212:"Empty config",dyn213:"Failed to load config",dyn214:"Loading logs...",dyn215:"No logs",dyn216:"Failed to load logs",dyn217:"Sing-box config preview",dyn218:"Sing-box logs",dyn219:"Loading logs...",dyn220:"No logs",dyn221:"Failed to load logs",dyn222:"Installing...",dyn223:"Install",dyn224:"Core installed",dyn225:"Failed to install core",dyn226:"Uninstalling...",dyn227:"Uninstall",dyn228:"Database: ",dyn229:", password enabled",dyn230:", no password",dyn231:"Failed to load settings",dyn232:"Cannot reach settings API",dyn233:"Issued",dyn234:"Cert: ",dyn235:", Key: ",dyn236:"Domain configured, not issued",dyn237:"Not configured",dyn238:"Please fill domain and email",dyn239:"Issuing...",dyn240:"Issue certificate",dyn241:"Certificate issued",dyn242:"Failed to issue certificate",dyn243:"Checking for updates...",dyn244:"Update now",dyn245:"Update started, panel may restart",dyn246:"Failed to start update",dyn247:"Service status: <span style=\"font-weight:600;color:var(--accent2)\">●</span> Running",dyn248:"Service status: <span style=\"font-weight:600\">●</span> Stopped",dyn249:"Service status: Unknown",dyn250:"Active inbound clients",dyn251:"inbounds enabled",dyn252:"clients active",dyn253:"No enabled inbounds",dyn254:"No active clients",dyn255:"All inbounds disabled",dyn256:"No clients configured",dyn257:"Service status: <span style=\"font-weight:600;color:var(--accent2)\">●</span> Running",dyn258:"Error",dyn259:"Not running",dyn260:"Non-systemd environment or service not installed",dyn261:"Unavailable",dyn262:"Unable to query service status",dyn263:"Default password warning",dyn264:"You are using the default password. Change it in ",certNotIssued:"No certificate issued yet, please get one in settings first",certImported:"Certificate imported from settings",certStatusError:"Unable to read certificate status: "}};
+const i18n={zh:{overview:"概览",inbounds:"入站",outbound:"出站",routing:"路由",settings:"设置",currentUser:"当前用户",loading:"加载中...",logout:"登出",darkMode:"深色模式",lightMode:"浅色模式",langToggle:"English",serverResources:"服务器资源",cpu:"CPU",memory:"内存",disk:"硬盘",uptime:"开机时长",businessStatus:"业务状态",clients:"客户端",totalTraffic:"总流量",realtimeTraffic:"实时流量",uploadTraffic:"上传流量",downloadTraffic:"下载流量",routingRules:"路由规则",runningStatus:"运行状态",protocolDistribution:"协议分布",coreProtocols:"核心协议",newInbound:"新增入站",searchInbound:"搜索入站...",defaultSort:"默认排序",byPort:"按端口",byProtocol:"按协议",byClients:"按客户端数",loadingInbounds:"正在加载入站...",outboundManagement:"出站管理",outboundDesc:"配置链式代理转发（SOCKS5 / HTTP），实现流量经外部代理链路中转。",newOutbound:"新增出站",loadingOutbounds:"正在加载出站...",routingManagement:"路由管理",routingDesc:"配置域名/IP 路由规则，决定匹配流量的出站选择。",newRoute:"新增路由",loadingRoutes:"正在加载路由...",xrayConfig:"Xray 配置",xrayDesc:"Xray 运行状态、生成的配置预览与应用操作。",preview:"预览",apply:"应用",validate:"验证",restart:"重启",reloadConfig:"重载配置",singboxConfig:"Sing-box 配置",singboxDesc:"Sing-box 运行状态、生成的配置预览与应用操作。",panelSettings:"面板设置",panelSettingsDesc:"WebUI 端口、路径、凭据等面板运行参数。",refresh:"刷新",saveSettings:"保存设置",confirmRestart:"确认重启 MiGate 服务？",cancel:"取消",confirm:"确认",name:"名称",protocol:"协议类型",port:"端口",enabled:"启用",actions:"操作",edit:"编辑",delete:"删除",copy:"复制",active:"活跃",total:"总计",usedTotal:"已用 / 总量",systemUptime:"系统运行时间",checking:"检查中...",runningOverview:"运行概况",activeClients:"活跃客户端",noInbounds:"暂无入站",noOutbounds:"暂无出站",noRoutes:"暂无路由",updateNow:"立即更新",updateChecking:"正在检查更新...",updateStarted:"更新已开始，服务会短暂重启，请稍后刷新页面。",updateFailed:"更新失败",newVersionAvailablePrefix:"🚀 新版本",newVersionAvailableMiddle:"已发布（当前",updateReleaseNotes:"更新日志",updateAlreadyLatest:"已是最新版本",checkUpdate:"检测更新",updateAvailable:"发现新版本",updateConfirm:"确认升级 MiGate 面板？服务会短暂重启，Xray 和 sing-box 不会被升级。",updateCompleted:"升级完成，正在刷新页面",updateCheckFailed:"检测更新失败",updateStillRunning:"升级正在进行中",dyn001:"登录状态已过期，请重新登录",dyn002:"暂无入站",dyn003:"先创建一个 VLESS / VMess / Trojan / Shadowsocks 节点；MiGate 会自动生成客户端与 Xray 配置。",dyn004:"创建入站",dyn005:"查看 Xray",dyn006:"查看 Sing-box",dyn007:" 客户端</span></div>",dyn008:")\" title=\"展开客户端\">客户端</button>",dyn009:")\" title=\"编辑\">编辑</button>",dyn010:")\" title=\"启用/禁用\">",dyn011:"禁用",dyn012:"启用",dyn013:")\" title=\"删除\">删除</button>",dyn014:"<div class=\"empty-state\"><div class=\"empty-state-title\">无匹配结果</div><div class=\"empty-state-copy\">没有入站匹配当前的搜索或筛选条件。</div></div>",dyn015:"还没有入站。建议先创建一个 VLESS/REALITY 或 TLS 入站，再添加客户端。",dyn016:"已启用 ",dyn017:" 个入站，停用 ",dyn018:" 个；受限客户端 ",dyn019:" 个，过期客户端 ",dyn020:" 个。",dyn021:"活跃客户端 ",dyn022:"无法连接",dyn023:"未安装",dyn024:"运行中",dyn025:"已停止",dyn026:"未知",dyn027:"天 ",dyn028:"小时",dyn029:"小时 ",dyn030:"分钟",dyn031:"<div class=\"muted\" style=\"padding:12px\">加载失败</div>",dyn032:"暂无出站",dyn033:"出站用于链式代理转发。点击上方\"新建出站\"添加 SOCKS5 / HTTP 代理。",dyn034:"直接连接",dyn035:"阻断",dyn036:")\" title=\"测速\">&#9889;</button>",dyn037:")\" title=\"编辑\">&#9998;</button>",dyn038:")\" title=\"删除\">&#10005;</button>",dyn039:"<span class=\"muted\" style=\"font-size:var(--text-xs);padding:4px 8px\">内置</span>",dyn040:"测速中...",dyn041:" 超时",dyn042:" 失败",dyn043:"没有可测速的自定义出站",dyn044:" 测速中",dyn045:"测速失败",dyn046:"完成: ",dyn047:" 成功, ",dyn048:"测速异常: ",dyn049:"排序保存失败",dyn050:"排序已保存",dyn051:"<option value=\"\">-- 请选择地区 --</option>",dyn052:"<div class=\"empty-state\"><div class=\"empty-state-title\">请选择地区后显示对应 SOCKS5</div><div class=\"empty-state-copy\">先从上方选择国家/地区，再逐行测延时。</div></div>",dyn053:"其他 / OT",dyn054:"北美 / NA",dyn055:"亚洲 / AS",dyn056:"欧洲 / EU",dyn057:"南美 / SA",dyn058:"大洋洲 / OC",dyn059:"非洲 / AF",dyn060:"测速中",dyn061:"<div class=\"empty-state\"><div class=\"empty-state-title\">地址池加载失败</div><div class=\"empty-state-copy\">",dyn062:"<div class=\"empty-state\"><div class=\"empty-state-title\">请选择地区后显示对应 SOCKS5</div><div class=\"empty-state-copy\">不会默认展开全量列表，避免滚动和测速压力。</div></div>",dyn063:"<div class=\"empty-state\"><div class=\"empty-state-title\">正在加载地区 SOCKS5</div><div class=\"empty-state-copy\">加载后会逐行测延时。</div></div>",dyn064:"SOCKS5 地址池缓存状态：",dyn065:"<div class=\"empty-state\"><div class=\"empty-state-title\">请选择地区后显示对应 SOCKS5</div></div>",dyn066:"<div class=\"empty-state\"><div class=\"empty-state-title\">暂无可用代理</div><div class=\"empty-state-copy\">换一个地区或稍后重试。</div></div>",dyn067:"<h3 style=\"margin:10px 0 8px;font-size:18px\">选择地区后查看详情</h3>",dyn068:"<p class=\"field-help\" style=\"margin:0 0 14px\">左侧显示当前选中 SOCKS5 的详细信息；右侧只在选择地区后展示列表并逐行测延时。</p>",dyn069:"<div><span class=\"muted\">地区数</span><br><strong>",dyn070:"<div><span class=\"muted\">缓存状态</span><br><strong>",dyn071:"加载中",dyn072:"<div><span class=\"muted\">刷新策略</span><br><strong>每日 06:00</strong></div></div>",dyn073:"<div><span class=\"muted\">地址</span><br><strong>",dyn074:"<div><span class=\"muted\">延时</span><br><strong>",dyn075:"<div><span class=\"muted\">地区</span><br><strong>",dyn076:"<div><span class=\"muted\">运营商</span><br><strong>",dyn077:"<div><span class=\"muted\">认证</span><br><strong>",dyn078:"需要账号密码",dyn079:"无认证",dyn080:"请选择一个 SOCKS5",dyn081:"导入中...",dyn082:"导入失败",dyn083:"SOCKS5 已添加：",dyn084:"导入失败: ",dyn085:"请输入出站标识",dyn086:"请输入代理地址",dyn087:"请输入有效端口(1-65535)",dyn088:"创建失败",dyn089:"出站已创建",dyn090:"创建失败: ",dyn091:"未找到出站",dyn092:"加载失败",dyn093:"更新失败",dyn094:"出站已更新",dyn095:"更新失败: ",dyn096:"确认删除此出站？",dyn097:"删除失败",dyn098:"出站已删除",dyn099:"删除失败: ",dyn100:"<div class=\"empty-state\"><div class=\"empty-state-title\">暂无路由规则</div><div class=\"empty-state-copy\">添加规则可将特定域名、入站或协议的流量转发到指定出站。点击上方\"新建规则\"开始。</div></div>",dyn101:"入站: ",dyn102:"域名: ",dyn103:"协议: ",dyn104:"所有流量",dyn105:")\" title=\"编辑\" data-rule-outbound=\"",dyn106:"<option value=\"\">留空 = 所有入站</option>",dyn107:"<option value=\"\">-- 选择出站 --</option>",dyn108:"加载下拉选项失败: ",dyn109:"未命名",dyn110:" (端口 ",dyn111:"请选择目标出站",dyn112:"创建中...",dyn113:"路由规则已创建",dyn114:"确认删除此路由规则？",dyn115:"路由规则已删除",dyn116:"保存中...",dyn117:"保存失败",dyn118:"路由规则已更新",dyn119:"保存失败: ",dyn120:"浅色模式",dyn121:"深色模式",dyn122:"未登录",dyn123:"未启用认证",dyn124:"无法读取用户",dyn125:"登出失败",dyn126:"已登出",dyn127:"<div class=\"list\" style=\"margin:0\">正在加载客户端...</div>",dyn128:"<div class=\"muted\" style=\"padding:12px\">入站未找到</div>",dyn129:")\" class=\"btn-sm\">新增客户端</button>",dyn130:"<div class=\"muted\" style=\"padding:12px\">加载失败</div>",dyn131:"暂无客户端",dyn132:"在当前入站下创建第一个客户端后，即可复制订阅或分享链接。",dyn133:"创建客户端",dyn134:"不限",dyn135:"到期 ",dyn136:")\" title=\"复制分享链接\">复制链接</button>",dyn137:")\" title=\"编辑客户端\">编辑</button>",dyn138:"\\')\" title=\"启用/禁用客户端\">",dyn139:"\\')\" title=\"删除客户端\">删除</button>",dyn140:"复制失败，请手动复制下面的链接",dyn141:"已复制链接",dyn142:"复制失败，请手动复制",dyn143:"确认删除入站 ",dyn144:"？此操作不可撤销，其下的客户端也将被删除。",dyn145:"删除失败：",dyn146:"确认删除客户端 ",dyn147:"删除中...",dyn148:"删除客户端失败",dyn149:"客户端已删除",dyn150:"入站未找到",dyn151:"请填写备注和端口",dyn152:"端口 ",dyn153:" 已被入站 ",dyn154:" 使用",dyn155:"编辑入站失败",dyn156:"入站已更新",dyn157:"开关入站失败",dyn158:"入站 ",dyn159:"已启用",dyn160:"已禁用",dyn161:"客户端未找到",dyn162:"请输入客户端标识",dyn163:"编辑客户端失败",dyn164:"客户端已更新",dyn165:"切换中...",dyn166:"开关客户端失败",dyn167:"客户端 ",dyn168:"确定要重置此客户端的流量数据吗？此操作不可恢复。",dyn169:"重置中...",dyn170:"重置流量失败",dyn171:"流量已重置",dyn172:"请先展开入站再创建客户端",dyn173:"创建客户端失败",dyn174:"客户端创建成功",dyn175:"VLESS + Reality：高性能，推荐优先使用。",dyn176:"VMess + WebSocket + TLS：适合 CDN 反代场景。",dyn177:"Trojan + TLS：兼容性广泛的协议。",dyn178:"Shadowsocks：轻量加密代理。",dyn179:"Hysteria2：基于 QUIC 的 UDP 加速协议；sing-box 1.13 服务端需要 TLS，MiGate 默认使用自签证书。",dyn180:"TUIC：基于 QUIC 的低延迟 UDP 代理，适合弱网环境。",dyn181:"ShadowTLS：将流量伪装成标准 TLS 连接，可绕过深度包检测。",dyn182:"\\')\">重新生成</button>",dyn183:"\\')\">显示/隐藏</button>",dyn184:"密码/密钥",dyn185:"密码",dyn186:"客户端凭据已自动生成为 ",dyn187:"，可以手动修改；不懂时保持默认即可。",dyn188:"创建入站失败",dyn189:"入站创建成功",dyn190:"是",dyn191:"否",dyn192:"无入站",dyn193:"已安装 / 未托管",dyn194:"连接失败",dyn195:"安装",dyn196:"卸载",dyn197:"确认",dyn198:" 核心？这会修改系统服务和二进制文件。",dyn199:"正在",dyn200:" 核心操作执行中，请稍候。",dyn201:"操作失败",dyn202:"完成",dyn203:" 核心已",dyn204:" 核心",dyn205:"失败",dyn206:"请检查系统权限、网络和服务状态。",dyn207:"正在应用",dyn208:"正在写入 xray.json、执行配置校验并尝试重启 Xray 及 sing-box。",dyn209:"\\nSing-box: ✅ 已应用",dyn210:" 个入站)",dyn211:"\\nSing-box: ⏭ 无 sing-box 入站",dyn212:"应用失败",dyn213:"Xray 状态：",dyn214:"应用配置失败",dyn215:"应用完成",dyn216:"配置已应用",dyn217:"请检查 Xray 配置目录、xray 命令和 systemd 服务状态。",dyn218:"加载配置失败",dyn219:"加载中...",dyn220:"暂无日志",dyn221:"加载日志失败",dyn222:"正在写入 sing-box 配置并尝试重启服务。",dyn223:"Sing-box 配置已应用",dyn224:" 个入站）",dyn225:"未知错误",dyn226:"Sing-box 应用失败",dyn227:"请求失败，请检查网络连接和服务状态。",dyn228:"数据库",dyn229:" | 密码已设置",dyn230:" | 无密码",dyn231:"设置不可用",dyn232:"需要在 panel.json 配置文件下运行，或检查配置目录是否已传入。",dyn233:"✓ 已签发",dyn234:"证书：",dyn235:" | 密钥：",dyn236:"待获取（域名已配置）",dyn237:"未配置",dyn238:"请先填写域名和邮箱",dyn239:"签发中…",dyn240:"签发中，请等待…",dyn241:"证书获取成功",dyn242:"签发失败：",dyn243:"签发失败",dyn244:"签发失败：网络错误",dyn245:"获取证书",dyn246:"请输入面板端口",dyn247:"保存设置失败",dyn248:"设置已保存，重启服务后生效",dyn249:"保存设置",dyn250:"确认重启 MiGate 服务？页面将暂时无法访问，重启后自动重试恢复。",dyn251:"重启中…",dyn252:"重启失败",dyn253:"重启服务",dyn254:"正在重启 MiGate 服务…",dyn255:"重启超时，请手动刷新",dyn256:"重启请求失败",dyn257:"<span style=\"color:var(--accent2)\">●</span> 运行中",dyn258:"异常",dyn259:"未运行",dyn260:"非 systemd 环境或服务未安装",dyn261:"不可用",dyn262:"无法查询服务状态",dyn263:"默认密码警告",dyn264:"当前使用的密码是默认密码，存在安全风险。建议立即在",certNotIssued:"未找到已签发的证书，请先在设置页获取证书",certImported:"已导入设置中的证书路径",certStatusError:"无法读取证书状态：",trafficSourceRealtime:"Xray 计数",trafficSourceXrayCounter:"Xray 计数",trafficSourceUnavailable:"不可用",trafficSourceCached:"缓存",trafficRealtimePrefix:"Xray 计数",resetTraffic:"重置流量",resetShort:"重置",enabledStatus:"启用",disabledStatus:"停用",expiredStatus:"过期",limitedStatus:"超限",refreshTraffic:"刷新流量"},en:{overview:"Overview",inbounds:"Inbounds",outbound:"Outbound",routing:"Routing",settings:"Settings",currentUser:"Current user",loading:"Loading...",logout:"Logout",darkMode:"Dark mode",lightMode:"Light mode",langToggle:"中文",serverResources:"Server resources",cpu:"CPU",memory:"Memory",disk:"Disk",uptime:"Uptime",businessStatus:"Business status",clients:"Clients",totalTraffic:"Total traffic",realtimeTraffic:"Realtime traffic",uploadTraffic:"Upload",downloadTraffic:"Download",routingRules:"Routing rules",runningStatus:"Running status",protocolDistribution:"Protocol distribution",coreProtocols:"Core protocols",newInbound:"New inbound",searchInbound:"Search inbound...",defaultSort:"Default sort",byPort:"By port",byProtocol:"By protocol",byClients:"By clients",usedTotal:"Used / total",systemUptime:"System uptime",active:"Active",total:"Total",runningOverview:"Running overview",checking:"Checking",day:"d",hour:"h",minute:"min",panelSettings:"Panel settings",panelSettingsDesc:"Configure panel port, authentication, and certificate settings.",refresh:"Refresh",saveSettings:"Save settings",restart:"Restart",xrayConfig:"Xray config",xrayDesc:"View status, install/uninstall Xray core, and manage configuration.",singboxConfig:"Sing-box config",singboxDesc:"View status, install/uninstall sing-box core, and manage configuration.",preview:"Preview",apply:"Apply",outboundManagement:"Outbound management",outboundDesc:"Manage proxy outbound nodes and test latency.",routingManagement:"Routing management",routingDesc:"Configure domain-based routing rules.",newOutbound:"New outbound",newRoute:"New route",updateNow:"Update now",updateChecking:"Checking for updates...",updateStarted:"Update started, panel may restart briefly",updateFailed:"Update failed",newVersionAvailablePrefix:"🚀 New version",newVersionAvailableMiddle:"released (current: v",updateReleaseNotes:"Release notes",updateAlreadyLatest:"Already up to date",checkUpdate:"Check update",updateAvailable:"Update found",updateConfirm:"Update MiGate panel now? The service will restart briefly. Xray and sing-box will not be updated.",updateCompleted:"Update completed, refreshing",updateCheckFailed:"Update check failed",updateStillRunning:"Update is already running",dyn001:"Session expired, please login again",dyn002:"No inbound configured",dyn003:"Create your first inbound to start accepting connections.",dyn004:"New inbound",dyn005:"View Xray",dyn006:"View Sing-box",dyn007:" clients</span></div>",dyn008:")\">Clients</button>",dyn009:")\" title=\"Edit\">Edit</button>",dyn010:",this)\" title=\"Toggle\">",dyn011:"Disable",dyn012:"Enable",dyn013:")\" title=\"Delete\">Delete</button>",dyn014:"No matching inbounds",dyn015:"Are you sure?",dyn016:"Confirm",dyn017:"Cancel",dyn018:"Protocol",dyn019:"Enabled",dyn020:"Network",dyn021:"Security",dyn022:"Unknown",dyn023:"Not installed",dyn024:"Running",dyn025:"Stopped",dyn026:"Unknown",dyn027:"d ",dyn028:"h",dyn029:"h ",dyn030:"min",dyn031:"Create inbound",dyn032:"Edit inbound",dyn033:"Name",dyn034:"e.g. Main entry",dyn035:"Port",dyn036:")\" title=\"Speed test\">&#9889;</button>",dyn037:")\" title=\"Edit\">&#9998;</button>",dyn038:")\" title=\"Delete\">&#10005;</button>",dyn039:"<span class=\"muted\" style=\"font-size:var(--text-xs);padding:4px 8px\">Built-in</span>",dyn040:"Delete this inbound and all its clients?",dyn041:"Delete",dyn042:"Toggle inbound",dyn043:"Enable this inbound?",dyn044:"Disable this inbound?",dyn045:"Confirm",dyn046:"No clients",dyn047:"Add your first client to this inbound.",dyn048:"New client",dyn049:"Create client",dyn050:"Edit client",dyn051:"Email",dyn052:"e.g. user@example.com",dyn053:"UUID",dyn054:"Generate",dyn055:"Traffic limit (bytes, 0=unlimited)",dyn056:"Expiry (UNIX timestamp, 0=never)",dyn057:"Enabled",dyn058:"Create",dyn059:"Save",dyn060:"Delete client",dyn061:"Delete this client?",dyn062:"Delete",dyn063:"Toggle client",dyn064:"Enable this client?",dyn065:"Disable this client?",dyn066:"Confirm",dyn067:"Copied",dyn068:"Failed to copy",dyn069:"No outbound configured",dyn070:"Create your first outbound to enable routing.",dyn071:"New outbound",dyn072:"Create outbound",dyn073:"Edit outbound",dyn074:"Tag",dyn075:"e.g. proxy-1",dyn076:"Type",dyn077:"Address",dyn078:"e.g. proxy.example.com",dyn079:"Port",dyn080:"e.g. 1080",dyn081:"Username",dyn082:"Password",dyn083:"Enabled",dyn084:"Create",dyn085:"Save",dyn086:"Delete outbound",dyn087:"Delete this outbound?",dyn088:"Delete",dyn089:"Toggle outbound",dyn090:"Enable this outbound?",dyn091:"Disable this outbound?",dyn092:"Confirm",dyn093:"Test",dyn094:"Testing...",dyn095:"ms",dyn096:"Timeout",dyn097:"Error",dyn098:"No routing rules",dyn099:"Create your first routing rule.",dyn100:"New route",dyn101:"Inbound: ",dyn102:"Domain: ",dyn103:"Protocol: ",dyn104:"All traffic",dyn105:")\" title=\"Edit\" data-rule-outbound=\"",dyn106:"Outbound tag",dyn107:"e.g. proxy-1",dyn108:"Enabled",dyn109:"Create",dyn110:"Save",dyn111:"Delete rule",dyn112:"Delete this routing rule?",dyn113:"Delete",dyn114:"Delete this routing rule?",dyn115:"Enable this rule?",dyn116:"Disable this rule?",dyn117:"Confirm",dyn118:"Settings updated",dyn119:"Failed to save settings",dyn120:"Light mode",dyn121:"Dark mode",dyn122:"Certificate issued successfully",dyn123:"Failed to issue certificate",dyn124:"Please fill domain and email",dyn125:"Issuing...",dyn126:"Issue certificate",dyn127:"<div class=\"list\" style=\"margin:0\">Loading clients...</div>",dyn128:"Failed to fetch Xray status",dyn129:")\" class=\"btn-sm\">New client</button>",dyn130:"Failed to fetch Sing-box status",dyn131:"No clients",dyn132:"Add your first client to this inbound.",dyn133:"New client",dyn134:"Never",dyn135:"Expires: ",dyn136:")\" title=\"Copy link\">Copy Link</button>",dyn137:")\" title=\"Edit\">Edit</button>",dyn138:"')\" title=\"Toggle\">",dyn139:"')\" title=\"Delete\">Delete</button>",dyn140:"Please fill all required fields",dyn141:"Creating...",dyn142:"Create",dyn143:"Inbound created",dyn144:"Failed to create inbound",dyn145:"Saving...",dyn146:"Save",dyn147:"Inbound updated",dyn148:"Failed to update inbound",dyn149:"Deleting...",dyn150:"Delete",dyn151:"Inbound deleted",dyn152:"Failed to delete inbound",dyn153:"Inbound toggled",dyn154:"Failed to toggle inbound",dyn155:"Please fill all required fields",dyn156:"Creating...",dyn157:"Create",dyn158:"Client created",dyn159:"Failed to create client",dyn160:"Saving...",dyn161:"Save",dyn162:"Client updated",dyn163:"Failed to update client",dyn164:"Deleting...",dyn165:"Delete",dyn166:"Client deleted",dyn167:"Failed to delete client",dyn168:"Client toggled",dyn169:"Failed to toggle client",dyn170:"Please fill all required fields",dyn171:"Creating...",dyn172:"Create",dyn173:"Outbound created",dyn174:"Failed to create outbound",dyn175:"Saving...",dyn176:"Save",dyn177:"Outbound updated",dyn178:"Failed to update outbound",dyn179:"Deleting...",dyn180:"Delete",dyn181:"Outbound deleted",dyn182:"\\')\">Regenerate</button>",dyn183:"\\')\">Show/Hide</button>",dyn184:"Failed to toggle outbound",dyn185:"Testing...",dyn186:"Test",dyn187:"Latency: ",dyn188:"ms",dyn189:"Timeout",dyn190:"Error: ",dyn191:"Please fill all required fields",dyn192:"Creating...",dyn193:"Create",dyn194:"Route created",dyn195:"Failed to create route",dyn196:"Saving...",dyn197:"Save",dyn198:"Route updated",dyn199:"Failed to update route",dyn200:"Deleting...",dyn201:"Delete",dyn202:"Route deleted",dyn203:"Failed to delete route",dyn204:"Route toggled",dyn205:"Failed to toggle route",dyn206:"Loading inbounds...",dyn207:"Loading outbounds...",dyn208:"Loading routes...",dyn209:"Xray config preview",dyn210:"Xray logs",dyn211:"Loading...",dyn212:"Empty config",dyn213:"Failed to load config",dyn214:"Loading logs...",dyn215:"No logs",dyn216:"Failed to load logs",dyn217:"Sing-box config preview",dyn218:"Sing-box logs",dyn219:"Loading logs...",dyn220:"No logs",dyn221:"Failed to load logs",dyn222:"Installing...",dyn223:"Install",dyn224:"Core installed",dyn225:"Failed to install core",dyn226:"Uninstalling...",dyn227:"Uninstall",dyn228:"Database: ",dyn229:", password enabled",dyn230:", no password",dyn231:"Failed to load settings",dyn232:"Cannot reach settings API",dyn233:"Issued",dyn234:"Cert: ",dyn235:", Key: ",dyn236:"Domain configured, not issued",dyn237:"Not configured",dyn238:"Please fill domain and email",dyn239:"Issuing...",dyn240:"Issue certificate",dyn241:"Certificate issued",dyn242:"Failed to issue certificate",dyn243:"Checking for updates...",dyn244:"Update now",dyn245:"Update started, panel may restart",dyn246:"Failed to start update",dyn247:"Service status: <span style=\"font-weight:600;color:var(--accent2)\">●</span> Running",dyn248:"Service status: <span style=\"font-weight:600\">●</span> Stopped",dyn249:"Service status: Unknown",dyn250:"Active inbound clients",dyn251:"inbounds enabled",dyn252:"clients active",dyn253:"No enabled inbounds",dyn254:"No active clients",dyn255:"All inbounds disabled",dyn256:"No clients configured",dyn257:"Service status: <span style=\"font-weight:600;color:var(--accent2)\">●</span> Running",dyn258:"Error",dyn259:"Not running",dyn260:"Non-systemd environment or service not installed",dyn261:"Unavailable",dyn262:"Unable to query service status",dyn263:"Default password warning",dyn264:"You are using the default password. Change it in ",certNotIssued:"No certificate issued yet, please get one in settings first",certImported:"Certificate imported from settings",certStatusError:"Unable to read certificate status: ",trafficSourceRealtime:"Xray counter",trafficSourceXrayCounter:"Xray counter",trafficSourceUnavailable:"Unavailable",trafficSourceCached:"Cached",trafficRealtimePrefix:"Xray counter",resetTraffic:"Reset traffic",resetShort:"Reset",enabledStatus:"Enabled",disabledStatus:"Disabled",expiredStatus:"Expired",limitedStatus:"Limited",refreshTraffic:"Refresh traffic"}};
 let currentLang=((document.cookie.match(/migate_lang=([^;]+)/)||[])[1]||'zh');
 function t(k){return i18n[currentLang][k]||k}
 function toggleLang(){currentLang=currentLang==='zh'?'en':'zh';document.cookie='migate_lang='+currentLang+';path=/;max-age=31536000';location.reload()}
@@ -3403,6 +3661,7 @@ document.addEventListener('DOMContentLoaded', applyStaticI18n)
           <button id="logout-button" class="secondary" onclick="logoutPanel()"><script>document.write(t('logout'))</script></button>
           <button id="theme-toggle" class="secondary" onclick="toggleTheme()"><script>document.write(t('darkMode'))</script></button>
           <button id="lang-toggle" class="secondary" onclick="toggleLang()"><script>document.write(t('langToggle'))</script></button>
+          <button id="update-button" class="secondary" onclick="handleUpdateButton()"><script>document.write(t('checkUpdate'))</script></button>
         </div>
       </div>
     </aside>
@@ -3426,7 +3685,8 @@ document.addEventListener('DOMContentLoaded', applyStaticI18n)
         </div>
         <div class="compact-metric-card"><div><script>document.write(t('inbounds'))</script></div><div id="inbound-count" class="metric">0</div><p>VLESS / VMess / Trojan / Shadowsocks</p></div>
         <div class="compact-metric-card"><div><script>document.write(t('clients'))</script></div><div id="client-count" class="metric">0</div><p><script>document.write(t('active'))</script> / <script>document.write(t('total'))</script></p></div>
-        <div class="compact-metric-card"><div><script>document.write(t('totalTraffic'))</script></div><div id="total-traffic" class="metric">0 B</div><p>所有客户端上行+下行累计</p></div>
+        <div class="compact-metric-card"><div><script>document.write(t('totalTraffic'))</script></div><div id="total-traffic" class="metric">0 B</div><div class="metric-split"><span><script>document.write(t('uploadTraffic'))</script><strong id="total-traffic-up">0 B</strong></span><span><script>document.write(t('downloadTraffic'))</script><strong id="total-traffic-down">0 B</strong></span><span><script>document.write(t('totalTraffic'))</script><strong id="total-traffic-sum">0 B</strong></span></div></div>
+        <div class="compact-metric-card"><div><script>document.write(t('realtimeTraffic'))</script></div><div id="realtime-traffic" class="metric">0 B</div><div class="metric-split"><span><script>document.write(t('uploadTraffic'))</script><strong id="realtime-traffic-up">0 B</strong></span><span><script>document.write(t('downloadTraffic'))</script><strong id="realtime-traffic-down">0 B</strong></span><span><script>document.write(t('totalTraffic'))</script><strong id="realtime-traffic-sum">0 B</strong></span></div></div>
         <div class="compact-metric-card"><div><script>document.write(t('outbound'))</script></div><div id="outbound-stats" class="metric">0</div><p>已启用 / 总计</p></div>
         <div class="compact-metric-card"><div><script>document.write(t('routingRules'))</script></div><div id="routing-stats" class="metric">0</div><p>已启用 / 总计</p></div>
         <div class="compact-metric-card"><div>Xray</div><div id="xray-status-metric" class="metric"><script>document.write(t('checking'))</script></div><p><script>document.write(t('runningStatus'))</script></p></div>
@@ -3612,7 +3872,6 @@ document.addEventListener('DOMContentLoaded', applyStaticI18n)
             </div>
             <div class="toolbar-actions">
               <button type="button" class="secondary" onclick="loadSettings()"><script>document.write(t('refresh'))</script></button>
-              <button type="button" class="secondary" id="update-button" onclick="updateMiGate()"><script>document.write(t('updateNow'))</script></button>
               <button type="submit" onclick="saveSettings()"><script>document.write(t('saveSettings'))</script></button>
               <button type="button" class="danger" onclick="restartService()"><script>document.write(t('restart'))</script></button>
             </div>

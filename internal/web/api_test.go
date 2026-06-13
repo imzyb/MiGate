@@ -16,6 +16,7 @@ import (
 
 	"github.com/imzyb/MiGate/internal/db"
 	"github.com/imzyb/MiGate/internal/web"
+	"github.com/imzyb/MiGate/internal/xray"
 )
 
 func TestRemovedLegacyAPIRoutesReturnNotFound(t *testing.T) {
@@ -787,6 +788,82 @@ func TestStatsMarksSingBoxClientTrafficAsUnavailable(t *testing.T) {
 	for _, want := range []string{`"protocol":"hysteria2"`, `"traffic_stats_source":"unavailable"`, `"traffic_stats_note":"sing-box realtime traffic stats are not yet wired"`, fmt.Sprintf(`"id":%d`, client.ID)} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("sing-box stats response missing %q: %s", want, body)
+		}
+	}
+}
+
+type fixedStatsClient struct {
+	stats map[string]*xray.ClientStats
+	calls *int
+}
+
+func (c fixedStatsClient) QueryAllStats(ctx context.Context) (map[string]*xray.ClientStats, error) {
+	if c.calls != nil {
+		(*c.calls)++
+	}
+	return c.stats, nil
+}
+
+func (c fixedStatsClient) Close() error { return nil }
+
+func TestStatsAPIReportsStoredAndRealtimeTrafficSeparately(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	inbound, err := store.CreateInbound(context.Background(), db.CreateInboundParams{Remark: "xray", Protocol: "vless", Port: 443, Network: "tcp", Security: "reality"})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	_, err = store.CreateClient(context.Background(), db.CreateClientParams{InboundID: inbound.ID, Email: "sam@example.com"})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+
+	router := web.NewRouter(web.WithStore(store), web.WithStatsClient(fixedStatsClient{stats: map[string]*xray.ClientStats{
+		"sam@example.com": {Email: "sam@example.com", Uplink: 1234, Downlink: 5678},
+	}}))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/stats", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{`"traffic_up":0`, `"traffic_down":0`, `"traffic_total":0`, `"xray_up":1234`, `"xray_down":5678`, `"traffic_stats_source":"db"`, `"realtime_stats_source":"xray"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("stats response missing %q: %s", want, body)
+		}
+	}
+}
+
+func TestInboundsAPIAnnotatesLiveTrafficPerInboundAndClient(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	inbound, err := store.CreateInbound(context.Background(), db.CreateInboundParams{Remark: "xray-live", Protocol: "vless", Port: 8443, Network: "tcp", Security: "reality"})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	client, err := store.CreateClient(context.Background(), db.CreateClientParams{InboundID: inbound.ID, Email: "live@example.com"})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+
+	router := web.NewRouter(web.WithStore(store), web.WithStatsClient(fixedStatsClient{stats: map[string]*xray.ClientStats{
+		"live@example.com": {Email: "live@example.com", Uplink: 222, Downlink: 333},
+	}}))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/inbounds", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{`"traffic_up":0`, `"traffic_down":0`, `"traffic_total":0`, `"traffic_stats_source":"db"`, `"realtime_stats_source":"xray"`, fmt.Sprintf(`"%d":{"up":0,"down":0,"xray_up":222,"xray_down":333`, client.ID), `"source":"db"`, `"realtime_source":"xray"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("inbounds response missing %q: %s", want, body)
 		}
 	}
 }

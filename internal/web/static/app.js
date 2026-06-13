@@ -56,21 +56,47 @@
     const totalTraffic = document.getElementById('total-traffic');
     const xrayStatusMetric = document.getElementById('xray-status-metric');
 
+    function updateTrafficOverview(totalUp, totalDown, realtimeUp, realtimeDown) {
+      totalUp = Number(totalUp || 0);
+      totalDown = Number(totalDown || 0);
+      realtimeUp = Number(realtimeUp || 0);
+      realtimeDown = Number(realtimeDown || 0);
+      const total = totalUp + totalDown;
+      const realtimeTotal = realtimeUp + realtimeDown;
+      totalTraffic.textContent = formatBytes(total);
+      const totalUpEl = document.getElementById('total-traffic-up');
+      const totalDownEl = document.getElementById('total-traffic-down');
+      const totalSumEl = document.getElementById('total-traffic-sum');
+      const realtimeEl = document.getElementById('realtime-traffic');
+      const realtimeUpEl = document.getElementById('realtime-traffic-up');
+      const realtimeDownEl = document.getElementById('realtime-traffic-down');
+      const realtimeSumEl = document.getElementById('realtime-traffic-sum');
+      if (totalUpEl) totalUpEl.textContent = formatBytes(totalUp);
+      if (totalDownEl) totalDownEl.textContent = formatBytes(totalDown);
+      if (totalSumEl) totalSumEl.textContent = formatBytes(total);
+      if (realtimeEl) realtimeEl.textContent = formatBytes(realtimeTotal);
+      if (realtimeUpEl) realtimeUpEl.textContent = formatBytes(realtimeUp);
+      if (realtimeDownEl) realtimeDownEl.textContent = formatBytes(realtimeDown);
+      if (realtimeSumEl) realtimeSumEl.textContent = formatBytes(realtimeTotal);
+    }
+
     function renderInbounds(inbounds) {
       window._cachedInbounds = inbounds;  // cache for port conflict check
       inboundCount.textContent = String(inbounds.length);
       const allClients = inbounds.flatMap(i => i.clients || []);
       clientCount.textContent = String(allClients.length);
       // Compute total traffic
-      const totalUp = allClients.reduce((s, c) => s + (c.up || 0), 0);
-      const totalDown = allClients.reduce((s, c) => s + (c.down || 0), 0);
-      totalTraffic.textContent = formatBytes(totalUp + totalDown);
+      const totalUp = allClients.reduce((s, c) => s + Number(c.up || 0), 0);
+      const totalDown = allClients.reduce((s, c) => s + Number(c.down || 0), 0);
+      const realtimeUp = allClients.reduce((s, c) => s + Number(c.xray_up || 0), 0);
+      const realtimeDown = allClients.reduce((s, c) => s + Number(c.xray_down || 0), 0);
+      updateTrafficOverview(totalUp, totalDown, realtimeUp, realtimeDown);
       // Active clients (enabled + not expired + not over limit)
       const now = Math.floor(Date.now() / 1000);
       const active = allClients.filter(c => {
         if (!c.enabled) return false;
         if (c.expiry_at && c.expiry_at > 0 && c.expiry_at <= now) return false;
-        if (c.traffic_limit && c.traffic_limit > 0 && (c.up||0)+(c.down||0) >= c.traffic_limit) return false;
+        if (c.traffic_limit && c.traffic_limit > 0 && Number(c.up || 0) + Number(c.down || 0) >= c.traffic_limit) return false;
         return true;
       }).length;
       // Show active/total in client count description
@@ -91,14 +117,23 @@
       inboundList.className = 'list';
       inboundList.innerHTML = inbounds.map((inbound) => {
         const enabledClass = inbound.enabled ? 'enabled' : 'disabled';
-        const enabledText = inbound.enabled ? 'Enabled' : 'Disabled';
+        const enabledText = inbound.enabled ? t('enabledStatus') : t('disabledStatus');
+        const inboundTrafficSource = trafficSourceLabel(inbound.traffic_stats_source);
+        const inboundTrafficClass = inbound.traffic_stats_source === 'unavailable' ? 'unavailable' : 'cached';
         return '<div class="resource-row">' +
           '<div class="resource-main">' +
             '<div class="resource-title"><strong>' + escapeHtml(inbound.remark || '-') + '</strong><span class="status-badge ' + enabledClass + '">' + enabledText + '</span></div>' +
-            '<div class="resource-meta"><span>' + escapeHtml(inbound.protocol) + '</span><span>:' + inbound.port + '</span><span>' + escapeHtml(inbound.network || 'tcp') + ' / ' + escapeHtml(inbound.security || 'none') + '</span><span>' + ((inbound.clients || []).length) + t("dyn007") +
+            '<div class="resource-meta">' +
+              '<span>' + escapeHtml(inbound.protocol) + '</span>' +
+              '<span>:' + inbound.port + '</span>' +
+              '<span>' + escapeHtml(inbound.network || 'tcp') + ' / ' + escapeHtml(inbound.security || 'none') + '</span>' +
+              '<span>' + ((inbound.clients || []).length) + ' ' + t('clients') + '</span>' +
+              '<span class="traffic-pill ' + inboundTrafficClass + '">' + t('total') + ' ' + formatBytes(inbound.traffic_total || 0) + ' · ' + inboundTrafficSource + '</span>' +
+            '</div>' +
           '</div>' +
           '<div class="resource-actions">' +
             '<button class="icon-btn" onclick="toggleClientSection(' + inbound.id + t("dyn008") +
+            '<button class="icon-btn" onclick="refreshInboundTraffic(' + inbound.id + ')" title="' + t('refreshTraffic') + '">' + t('refresh') + '</button>' +
             '<button class="icon-btn" onclick="editInbound(' + inbound.id + t("dyn009") +
             '<button class="icon-btn" onclick="toggleInbound(' + inbound.id + t("dyn010") + (inbound.enabled ? t("dyn011") : t("dyn012")) + '</button>' +
             '<button class="danger-icon-btn" onclick="deleteInbound(' + inbound.id + t("dyn013") +
@@ -169,7 +204,7 @@
       const enabledInbounds = inbounds.filter(i => i.enabled).length;
       const disabledInbounds = inbounds.length - enabledInbounds;
       const limitedClients = allClients.filter(c => {
-        const used = (c.up || 0) + (c.down || 0);
+        const used = Number(c.up || 0) + Number(c.down || 0);
         return (c.traffic_limit || 0) > 0 && used >= c.traffic_limit;
       }).length;
       const expiredClients = allClients.filter(c => c.expiry_at && c.expiry_at > 0 && c.expiry_at <= Math.floor(Date.now() / 1000)).length;
@@ -195,6 +230,11 @@
       el.innerHTML = protocols.map(proto =>
         '<div class="protocol-breakdown-row"><span>' + labels[proto] + '</span><strong>' + counts[proto] + '</strong></div>'
       ).join('');
+    }
+
+    function trafficSourceLabel(source) {
+      if (source === 'unavailable') return t('trafficSourceUnavailable');
+      return t('trafficSourceCached');
     }
 
     function escapeHtml(value) {
@@ -231,11 +271,60 @@
         const response = await fetch(apiPath('/api/inbounds'));
         if (!response.ok) { console.error('loadInbounds: API error', response.status); return; }
         const data = await response.json();
-        renderInbounds(data.inbounds || []);
+        renderInbounds(mergeTrafficStats(data.inbounds || []));
         loadOverviewServiceStatuses();
       } catch(e) {
         console.error('loadInbounds error:', e);
       }
+    }
+
+    async function fetchTrafficStats() {
+      try {
+        const resp = await fetch(apiPath('/api/stats'));
+        if (!resp.ok) return null;
+        const stats = await resp.json();
+        window._latestTrafficStats = stats;
+        return stats;
+      } catch(e) {
+        return window._latestTrafficStats || null;
+      }
+    }
+
+    function mergeTrafficStats(inbounds, stats) {
+      const byClient = {};
+      (stats && stats.client_details || []).forEach(function(item) {
+        byClient[item.id] = item;
+      });
+      return (inbounds || []).map(function(inbound) {
+        let up = 0;
+        let down = 0;
+        const source = inbound.traffic_stats_source || 'db';
+        let realtimeSource = inbound.realtime_stats_source || '';
+        inbound.clients = (inbound.clients || []).map(function(client) {
+          const embedded = (inbound.client_traffic && inbound.client_traffic[client.id]) || {};
+          const live = byClient[client.id] || embedded;
+          const merged = Object.assign({}, client, {
+            up: Number(live.up ?? embedded.up ?? client.up ?? 0),
+            down: Number(live.down ?? embedded.down ?? client.down ?? 0),
+            xray_up: Number(live.xray_up ?? embedded.xray_up ?? client.xray_up ?? 0),
+            xray_down: Number(live.xray_down ?? embedded.xray_down ?? client.xray_down ?? 0),
+            traffic_stats_source: live.traffic_stats_source || live.source || embedded.source || client.traffic_stats_source || 'db',
+            realtime_stats_source: live.realtime_stats_source || live.realtime_source || embedded.realtime_source || client.realtime_stats_source || '',
+            traffic_stats_note: live.traffic_stats_note || embedded.note || client.traffic_stats_note || ''
+          });
+          merged.total = merged.up + merged.down;
+          up += merged.up;
+          down += merged.down;
+          if (merged.realtime_stats_source === 'xray') realtimeSource = 'xray';
+          return merged;
+        });
+        inbound.traffic_up = up;
+        inbound.traffic_down = down;
+        inbound.traffic_total = up + down;
+        inbound.traffic_stats_source = source;
+        inbound.realtime_stats_source = realtimeSource;
+        return inbound;
+      });
     }
 
     function formatServiceStatus(service) {
@@ -291,7 +380,10 @@
     function startOverviewResourceRefresh() {
       clearInterval(overviewResourceTimer);
       overviewResourceTimer = setInterval(function() {
-        if (!document.hidden) loadSystemResources();
+        if (!document.hidden) {
+          loadStats();
+          loadSystemResources();
+        }
       }, 5000);
     }
 
@@ -302,6 +394,7 @@
 
     document.addEventListener('visibilitychange', function() {
       if (document.getElementById('overview').style.display !== 'none' && !document.hidden) {
+        loadStats();
         loadSystemResources();
       }
     });
@@ -1126,8 +1219,10 @@ function openCreateRoutingRule() {
       }
       el.style.display = 'block';
       el.innerHTML = t("dyn127");
-      fetch(apiPath('/api/inbounds')).then(r => r.json()).then(data => {
-        const inbound = (data.inbounds || []).find(i => i.id === inboundId);
+      fetch(apiPath('/api/inbounds')).then(r => r.json()).then((data) => {
+        const merged = mergeTrafficStats(data.inbounds || []);
+        window._cachedInbounds = merged;
+        const inbound = merged.find(i => i.id === inboundId);
         if (!inbound) { el.innerHTML = t("dyn128"); return; }
         renderClients(inbound, el.querySelector('.list') || el);
         // Append "新增客户端" button at bottom
@@ -1147,6 +1242,12 @@ function openCreateRoutingRule() {
         const s = await resp.json();
         document.getElementById('inbound-count').textContent = s.inbounds;
         document.getElementById('client-count').textContent = s.clients;
+        const details = s.client_details || [];
+        const trafficUp = Number.isFinite(Number(s.traffic_up)) ? Number(s.traffic_up) : details.reduce((sum, c) => sum + Number(c.up || 0), 0);
+        const trafficDown = Number.isFinite(Number(s.traffic_down)) ? Number(s.traffic_down) : details.reduce((sum, c) => sum + Number(c.down || 0), 0);
+        const realtimeUp = details.reduce((sum, c) => sum + Number(c.xray_up || 0), 0);
+        const realtimeDown = details.reduce((sum, c) => sum + Number(c.xray_down || 0), 0);
+        updateTrafficOverview(trafficUp, trafficDown, realtimeUp, realtimeDown);
         document.getElementById('outbound-stats').textContent = s.outbounds_enabled + ' / ' + s.outbounds;
         document.getElementById('routing-stats').textContent = s.routing_rules_enabled + ' / ' + s.routing_rules;
       } catch(e) {}
@@ -1267,7 +1368,12 @@ function openCreateRoutingRule() {
           }
           shareLink = inbound.protocol + '://' + c.uuid + '@' + hostName + ':' + inbound.port + '?' + p.join('&') + '#' + encodeURIComponent(c.email);
         }
-        const used = (c.up||0) + (c.down||0);
+        const up = Number(c.up || 0);
+        const down = Number(c.down || 0);
+        const xrayUp = Number(c.xray_up || 0);
+        const xrayDown = Number(c.xray_down || 0);
+        const hasXrayCounter = c.realtime_stats_source === 'xray' && (xrayUp > 0 || xrayDown > 0);
+        const used = up + down;
         const limit = c.traffic_limit || 0;
         const pct = limit > 0 ? Math.min(100, used / limit * 100) : 0;
         const isOverLimit = limit > 0 && used >= limit;
@@ -1276,21 +1382,26 @@ function openCreateRoutingRule() {
         const expireStyle = isExpired ? 'color:var(--danger);font-weight:500' : '';
         const trafficStyle = isOverLimit ? 'color:var(--danger)' : '';
         const badgeClass = c.enabled && !isExpired && !isOverLimit ? 'enabled' : 'disabled';
-        const badgeText = c.enabled ? (isExpired ? 'Expired' : (isOverLimit ? 'Limited' : 'Enabled')) : 'Disabled';
+        const badgeText = c.enabled ? (isExpired ? t('expiredStatus') : (isOverLimit ? t('limitedStatus') : t('enabledStatus'))) : t('disabledStatus');
         const fillClass = isOverLimit ? 'bar-high' : (pct >= 85 ? 'bar-mid' : 'bar-low');
+        const sourceText = trafficSourceLabel(c.traffic_stats_source);
+        const sourceClass = c.traffic_stats_source === 'unavailable' ? 'unavailable' : 'cached';
         return '<div class="client-resource-row">' +
           '<div class="resource-main">' +
             '<div class="resource-title"><strong>' + escapeHtml(c.email) + '</strong><span class="status-badge ' + badgeClass + '">' + badgeText + '</span></div>' +
             '<div class="resource-meta">' +
               '<span class="mono">' + c.uuid.substring(0,8) + '…</span>' +
-              '<span style="' + trafficStyle + '">↑' + formatBytes(c.up||0) + ' ↓' + formatBytes(c.down||0) + '</span>' +
+              '<span style="' + trafficStyle + '">' + t('total') + ' ↑' + formatBytes(up) + ' ↓' + formatBytes(down) + '</span>' +
+              (hasXrayCounter ? '<span>' + t('trafficSourceXrayCounter') + ' ↑' + formatBytes(xrayUp) + ' ↓' + formatBytes(xrayDown) + '</span>' : '') +
               '<span>' + formatBytes(used) + ' / ' + (limit > 0 ? formatBytes(limit) : '∞') + '</span>' +
+              '<span class="traffic-pill ' + sourceClass + '">' + sourceText + '</span>' +
               '<span style="' + expireStyle + '\x22\x3e' + t("dyn135") + expiredText + '</span>' +
               (limit > 0 ? '<span><div class="traffic-track"><div class="traffic-fill ' + fillClass + '" style="width:' + pct + '%"></div></div></span>' : '') +
             '</div>' +
           '</div>' +
           '<div class="resource-actions">' +
             '<button id="client-copy-' + c.id + '" class="icon-btn" onclick="copySubUrl(' + htmlAttrString(shareLink) + t("dyn136") +
+            '<button id="client-reset-' + c.id + '" class="icon-btn" onclick="resetClientTrafficInline(' + inbound.id + ',' + c.id + ', \'client-reset-' + c.id + '\')" title="' + t('resetTraffic') + '">' + t('resetShort') + '</button>' +
             '<button id="client-edit-' + c.id + '" class="icon-btn" onclick="editClient(' + c.id + ',' + inbound.id + t("dyn137") +
             '<button id="client-toggle-' + c.id + '" class="icon-btn" onclick="toggleClient(' + c.id + ', \'client-toggle-' + c.id + t("dyn138") + (c.enabled ? t("dyn011") : t("dyn012")) + '</button>' +
             '<button id="client-delete-' + c.id + '" class="danger-icon-btn" onclick="deleteClient(' + inbound.id + ',' + c.id + ', \'client-delete-' + c.id + t("dyn139") +
@@ -1632,6 +1743,44 @@ function openCreateRoutingRule() {
           return;
         }
         showToast(t("dyn167") + (foundClient.enabled ? t("dyn159") : t("dyn160")), 'success');
+        await loadInbounds();
+      } finally {
+        if (restoreButton) restoreButton();
+      }
+    }
+
+    async function refreshInboundTraffic(inboundId) {
+      const response = await fetch(apiPath('/api/inbounds'));
+      if (!response.ok) return;
+      const data = await response.json();
+      const merged = mergeTrafficStats(data.inbounds || []);
+      const section = document.getElementById('client-section-' + inboundId);
+      const wasOpen = section && section.style.display !== 'none';
+      window._cachedInbounds = merged;
+      renderInbounds(merged);
+      if (wasOpen) {
+        const nextSection = document.getElementById('client-section-' + inboundId);
+        const inbound = merged.find(i => i.id === inboundId);
+        if (nextSection && inbound) {
+          nextSection.style.display = 'block';
+          renderClients(inbound, nextSection);
+        }
+      }
+    }
+
+    async function resetClientTrafficInline(inboundId, clientId, buttonId) {
+      const confirmed = await showConfirm(t("dyn168"));
+      if (!confirmed) return;
+      const restoreButton = setActionButtonBusy(buttonId, t("dyn169"));
+      try {
+        const res = await apiFetch('/api/inbounds/' + inboundId + '/clients/' + clientId + '/reset-traffic', {
+          method: 'POST'
+        });
+        if (!res.ok) {
+          showToast(await responseErrorMessage(res, t("dyn170")), 'error');
+          return;
+        }
+        showToast(t("dyn171"), 'success');
         await loadInbounds();
       } finally {
         if (restoreButton) restoreButton();
@@ -2393,41 +2542,71 @@ const singboxLine = singboxResult ? (singboxResult.applied ? t("dyn209") + (sing
       }
     }
 
+    let migateUpdateInfo = null;
+
+    function setUpdateButtonState(state, label) {
+      const btn = document.getElementById('update-button');
+      if (!btn) return;
+      btn.dataset.updateState = state || 'check';
+      btn.textContent = label || t('checkUpdate');
+      btn.classList.toggle('update-available', state === 'available');
+    }
+
+    async function handleUpdateButton() {
+      const btn = document.getElementById('update-button');
+      if (btn && btn.dataset.updateState === 'available') {
+        await updateMiGate();
+        return;
+      }
+      await checkVersion(true);
+    }
+
     async function updateMiGate() {
       const btn = document.getElementById('update-button');
+      if (!await showConfirm(t('updateConfirm'))) return;
       if (btn) { btn.disabled = true; btn.textContent = t('updateChecking'); }
-      // Check if already on latest version before triggering update
-      try {
-        const verRes = await fetch(apiPath('/api/version'));
-        if (verRes.ok) {
-          const verData = await verRes.json();
-          const current = (verData.version || 'dev').replace(/^v/, '');
-          if (current !== 'dev') {
-            const ghRes = await fetch('https://api.github.com/repos/imzyb/MiGate/releases/latest');
-            if (ghRes.ok) {
-              const gh = await ghRes.json();
-              const latest = (gh.tag_name || '').replace(/^v/, '');
-              if (latest && latest === current) {
-                showToast(t('updateAlreadyLatest'), 'info');
-                if (btn) { btn.disabled = false; btn.textContent = t('updateNow'); }
-                return;
-              }
-            }
-          }
-        }
-      } catch (e) { /* version check failed, proceed anyway */ }
       try {
         const res = await apiFetch('/api/update', {method: 'POST'});
+        if (res.status === 409) {
+          showToast(t('updateStillRunning'), 'info');
+          pollMiGateUpdateRecovery();
+          return;
+        }
         if (!res.ok) { throw new Error('update failed'); }
         showToast(t('updateStarted'), 'success');
-        setTimeout(() => {
-          const btn2 = document.getElementById('update-button');
-          if (btn2) { btn2.disabled = false; btn2.textContent = t('updateNow'); }
-        }, 8000);
+        pollMiGateUpdateRecovery();
       } catch (e) {
         showToast(t('updateFailed'), 'error');
-        if (btn) { btn.disabled = false; btn.textContent = t('updateNow'); }
+        if (btn) { btn.disabled = false; setUpdateButtonState('available', t('updateNow')); }
       }
+    }
+
+    function pollMiGateUpdateRecovery() {
+      const btn = document.getElementById('update-button');
+      let attempts = 0;
+      const maxAttempts = 40;
+      const expectedLatest = migateUpdateInfo && migateUpdateInfo.latest_version ? String(migateUpdateInfo.latest_version).replace(/^v/, '') : '';
+      const timer = setInterval(async function() {
+        attempts++;
+        try {
+          const health = await fetch(apiPath('/api/health'), {cache: 'no-store'});
+          const version = await fetch(apiPath('/api/version'), {cache: 'no-store'});
+          if (health.ok && version.ok) {
+            const data = await version.json();
+            const current = String(data.version || '').replace(/^v/, '');
+            if (!expectedLatest || current === expectedLatest) {
+              clearInterval(timer);
+              showToast(t('updateCompleted'), 'success');
+              setTimeout(function() { location.reload(true); }, 800);
+            }
+          }
+        } catch(e) {}
+        if (attempts >= maxAttempts) {
+          clearInterval(timer);
+          showToast(t('updateFailed'), 'error');
+          if (btn) { btn.disabled = false; setUpdateButtonState('check', t('checkUpdate')); }
+        }
+      }, 2000);
     }
 
     async function fetchServiceStatus() {
@@ -2457,24 +2636,38 @@ const singboxLine = singboxResult ? (singboxResult.applied ? t("dyn209") + (sing
     }
 
     // === Version check ===
-    async function checkVersion() {
+    async function checkVersion(showResult) {
       try {
-        const res = await fetch(apiPath('/api/version'));
+        const btn = document.getElementById('update-button');
+        if (btn && showResult) { btn.disabled = true; btn.textContent = t('updateChecking'); }
+        const res = await fetch(apiPath('/api/update/check'), {cache: 'no-store'});
+        if (!res.ok) throw new Error('check failed');
         const data = await res.json();
-        const current = data.version || 'dev';
-        if (current === 'dev') return;
-        // Check GitHub for latest release
-        const ghRes = await fetch('https://api.github.com/repos/imzyb/MiGate/releases/latest');
-        if (!ghRes.ok) return;
-        const gh = await ghRes.json();
-        const latest = (gh.tag_name || '').replace(/^v/, '');
-        const cur = current.replace(/^v/, '');
-        if (latest && latest !== cur) {
+        migateUpdateInfo = data;
+        const current = data.current_version || 'dev';
+        const latest = String(data.latest_version || '').replace(/^v/, '');
+        const cur = String(current || '').replace(/^v/, '');
+        if (data.update_available && latest) {
           const banner = document.getElementById('version-banner');
-          banner.innerHTML = t('newVersionAvailablePrefix') + ' <strong>v' + escapeHtml(latest) + '</strong> ' + t('newVersionAvailableMiddle') + ' v' + escapeHtml(cur) + '）。<a href="' + gh.html_url + '" target="_blank">' + t('updateReleaseNotes') + '</a>';
-          banner.style.display = 'block';
+          const releaseURL = data.release_url || '#';
+          if (banner) {
+            banner.innerHTML = t('newVersionAvailablePrefix') + ' <strong>v' + escapeHtml(latest) + '</strong> ' + t('newVersionAvailableMiddle') + ' v' + escapeHtml(cur) + '）。<a href="' + escapeHtml(releaseURL) + '" target="_blank">' + t('updateReleaseNotes') + '</a>';
+            banner.style.display = 'block';
+          }
+          setUpdateButtonState('available', t('updateNow'));
+          if (showResult) showToast(t('updateAvailable') + ': v' + latest, 'success');
+        } else {
+          const banner = document.getElementById('version-banner');
+          if (banner) banner.style.display = 'none';
+          setUpdateButtonState('check', t('checkUpdate'));
+          if (showResult) showToast(t('updateAlreadyLatest'), 'info');
         }
-      } catch (e) { /* silent */ }
+        if (btn) btn.disabled = false;
+      } catch (e) {
+        const btn = document.getElementById('update-button');
+        if (btn) { btn.disabled = false; setUpdateButtonState('check', t('checkUpdate')); }
+        if (showResult) showToast(t('updateCheckFailed'), 'error');
+      }
     }
     checkVersion();
 
