@@ -200,6 +200,7 @@ type CreateClientParams struct {
 }
 
 type UpdateInboundParams struct {
+	UUID                  string `json:"uuid"`
 	Remark                string `json:"remark"`
 	Protocol              string `json:"protocol"`
 	Port                  int    `json:"port"`
@@ -882,6 +883,15 @@ func (s *Store) UpdateInbound(ctx context.Context, id int64, params UpdateInboun
 	if !supportedProtocols[protocol] {
 		return Inbound{}, fmt.Errorf("unsupported protocol: %s", params.Protocol)
 	}
+	// Preserve existing UUID if not provided in update
+	uuid := params.UUID
+	if uuid == "" {
+		var existingUUID string
+		err := s.db.QueryRowContext(ctx, `SELECT uuid FROM inbounds WHERE id=?`, id).Scan(&existingUUID)
+		if err == nil {
+		uuid = existingUUID
+		}
+	}
 	enabled := 0
 	if params.Enabled {
 		enabled = 1
@@ -890,14 +900,14 @@ func (s *Store) UpdateInbound(ctx context.Context, id int64, params UpdateInboun
 	if params.TuicZeroRTT {
 		tuicZeroRTTInt = 1
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE inbounds SET remark=?, protocol=?, port=?, network=?, security=?, enabled=?,
+	result, err := s.db.ExecContext(ctx, `UPDATE inbounds SET uuid=?, remark=?, protocol=?, port=?, network=?, security=?, enabled=?,
 		ws_path=?, ws_host=?, grpc_service_name=?, reality_dest=?, reality_server_names=?, reality_short_id=?, reality_private_key=?, reality_public_key=?, ss_method=?,
 		tls_cert_file=?, tls_key_file=?, tls_sni=?, tls_fingerprint=?, tls_alpn=?, xhttp_path=?, xhttp_mode=?,
 		hy2_up_mbps=?, hy2_down_mbps=?, hy2_obfs=?, hy2_obfs_password=?, hy2_mport=?,
 		tuic_congestion_control=?, tuic_zero_rtt=?,
 		wg_private_key=?, wg_address=?, wg_peer_public_key=?, wg_allowed_ips=?, wg_endpoint=?, wg_preshared_key=?, wg_mtu=?,
 		shadowtls_version=?, shadowtls_password=? WHERE id=?`,
-		remark, protocol, params.Port, network, security, enabled,
+		uuid, remark, protocol, params.Port, network, security, enabled,
 		params.WsPath, params.WsHost, params.GrpcServiceName, params.RealityDest, params.RealityServerNames, params.RealityShortID, params.RealityPrivateKey, params.RealityPublicKey, params.SSMethod,
 		params.TLSCertFile, params.TLSKeyFile, params.TLSSNI, params.TLSFingerprint, params.TLSALPN, params.XHTTPPath, params.XHTTPMode,
 		params.Hy2UpMbps, params.Hy2DownMbps, params.Hy2Obfs, params.Hy2ObfsPassword, params.Hy2MPort,

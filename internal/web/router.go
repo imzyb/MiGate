@@ -3189,6 +3189,11 @@ document.addEventListener('DOMContentLoaded', applyStaticI18n)
           <input id="ei-port" type="number" min="1" max="65535" placeholder="端口" required>
           <p class="field-help">1-65535，需确保防火墙已放行。</p>
         </div>
+        <div class="field-group span-2">
+          <label class="field-label" for="ei-uuid">入站 UUID / Shadowsocks 密码</label>
+          <div class="inline-field-tools"><input id="ei-uuid" placeholder="自动生成；Shadowsocks 会作为单用户密码/密钥"><button type="button" class="btn-mini" onclick="regenerateField('ei-uuid')">重新生成</button><button type="button" class="btn-mini" onclick="toggleSecretField('ei-uuid')">显示/隐藏</button></div>
+          <p class="field-help">普通协议可保持默认；Shadowsocks 单用户模式会使用这里的值作为密码/密钥。</p>
+        </div>
         <div class="field-group">
           <label class="field-label" for="ei-network">传输</label>
           <select id="ei-network">

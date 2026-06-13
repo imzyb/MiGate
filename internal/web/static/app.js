@@ -1417,6 +1417,13 @@ function openCreateRoutingRule() {
       document.getElementById('ei-hy2-settings').classList.toggle('hidden', proto !== 'hysteria2');
       document.getElementById('ei-tuic-settings').classList.toggle('hidden', proto !== 'tuic');
       document.getElementById('ei-shadowtls-settings').classList.toggle('hidden', proto !== 'shadowtls');
+      // UUID field visibility: keep visible except for wireguard (no credential)
+      const eiUuidGroup = document.getElementById('ei-uuid').closest('.field-group');
+      if (proto === 'wireguard') {
+        eiUuidGroup.style.display = 'none';
+      } else {
+        eiUuidGroup.style.display = '';
+      }
     }
 
     async function editInbound(id) {
@@ -1454,6 +1461,7 @@ function openCreateRoutingRule() {
       document.getElementById('ei-tuic-zero-rtt').checked = inbound.tuic_zero_rtt || false;
       document.getElementById('ei-shadowtls-password').value = inbound.shadowtls_password || '';
       document.getElementById('ei-shadowtls-version').value = inbound.shadowtls_version || 3;
+      document.getElementById('ei-uuid').value = inbound.uuid || '';
       eiUpdateDynamicFields();
       document.getElementById('edit-inbound-overlay').classList.remove('hidden');
     }
@@ -1494,6 +1502,7 @@ function openCreateRoutingRule() {
         tuic_zero_rtt: document.getElementById('ei-tuic-zero-rtt').checked,
         shadowtls_password: document.getElementById('ei-shadowtls-password').value,
         shadowtls_version: Number(document.getElementById('ei-shadowtls-version').value) || 3,
+        uuid: document.getElementById('ei-uuid').value.trim(),
       };
       if (!data.remark || !data.port) { showToast(t("dyn151"), 'error'); return; }
       // Port conflict check (client-side, exclude current inbound)
@@ -1877,6 +1886,7 @@ function openCreateRoutingRule() {
       if (id === 'inbound-reality-short-id' || id === 'ei-reality-short-id') el.value = randHex(8);
       else if (id === 'inbound-hy2-obfs-password' || id === 'ei-hy2-obfs-password') el.value = randHex(12);
       else if (id === 'inbound-uuid') el.value = credentialForProtocol(document.getElementById('inbound-protocol').value);
+      else if (id === 'ei-uuid') el.value = credentialForProtocol(document.getElementById('ei-protocol').value);
       else if (id === 'init-client-uuid') el.value = credentialForProtocol(document.getElementById('inbound-protocol').value);
       else if (id === 'client-uuid') el.value = credentialForProtocol(protocolForClientModal());
       else if (id === 'inbound-init-client-email' || id === 'init-client-email' || id === 'client-email') el.value = 'user@example.com';
