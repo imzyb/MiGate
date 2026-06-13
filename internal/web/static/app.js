@@ -2396,10 +2396,34 @@ const singboxLine = singboxResult ? (singboxResult.applied ? t("dyn209") + (sing
     async function updateMiGate() {
       const btn = document.getElementById('update-button');
       if (btn) { btn.disabled = true; btn.textContent = t('updateChecking'); }
+      // Check if already on latest version before triggering update
+      try {
+        const verRes = await fetch(apiPath('/api/version'));
+        if (verRes.ok) {
+          const verData = await verRes.json();
+          const current = (verData.version || 'dev').replace(/^v/, '');
+          if (current !== 'dev') {
+            const ghRes = await fetch('https://api.github.com/repos/imzyb/MiGate/releases/latest');
+            if (ghRes.ok) {
+              const gh = await ghRes.json();
+              const latest = (gh.tag_name || '').replace(/^v/, '');
+              if (latest && latest === current) {
+                showToast(t('updateAlreadyLatest'), 'info');
+                if (btn) { btn.disabled = false; btn.textContent = t('updateNow'); }
+                return;
+              }
+            }
+          }
+        }
+      } catch (e) { /* version check failed, proceed anyway */ }
       try {
         const res = await apiFetch('/api/update', {method: 'POST'});
         if (!res.ok) { throw new Error('update failed'); }
         showToast(t('updateStarted'), 'success');
+        setTimeout(() => {
+          const btn2 = document.getElementById('update-button');
+          if (btn2) { btn2.disabled = false; btn2.textContent = t('updateNow'); }
+        }, 8000);
       } catch (e) {
         showToast(t('updateFailed'), 'error');
         if (btn) { btn.disabled = false; btn.textContent = t('updateNow'); }
