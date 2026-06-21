@@ -3,7 +3,6 @@ import { ChevronDown, Copy, Link2, RotateCcw, ShieldCheck, X } from 'lucide-reac
 import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import type { UseFormRegisterReturn } from 'react-hook-form';
-import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { getAPIErrorMessage } from '../api/client';
 import { api } from '../api/endpoints';
@@ -12,6 +11,7 @@ import { Field, FieldError, Modal, SpinnerButton, useConfirm, useToast } from '.
 import { copyToClipboard } from '../lib/clipboard';
 import { useI18n } from '../lib/i18n';
 import { coreApplyWarning, coreApplyWarningTone } from '../lib/coreApply';
+import { z } from '../lib/zod';
 import {
   allowedInboundNetworks,
   allowedInboundSecurities,

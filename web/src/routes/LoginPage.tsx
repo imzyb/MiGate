@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { LockKeyhole } from 'lucide-react';
 import { basePath } from '../api/client';
@@ -11,6 +10,7 @@ import type { Session } from '../api/types';
 import { Field, useToast } from '../components/ui';
 import { useI18n } from '../lib/i18n';
 import { refreshSessionState } from '../lib/queryInvalidation';
+import { z } from '../lib/zod';
 
 const schema = z.object({
   username: z.string().min(1),

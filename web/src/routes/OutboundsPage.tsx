@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Edit2, Gauge, Plus, Power, RefreshCw, Rss, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { getAPIErrorMessage } from '../api/client';
 import { api } from '../api/endpoints';
@@ -12,6 +11,7 @@ import { coreLabel, outboundSupportedCores, outboundSupportLevel, outboundSuppor
 import { useI18n } from '../lib/i18n';
 import { showCoreApplyWarning } from '../lib/coreApply';
 import { refreshOutboundDependencies } from '../lib/queryInvalidation';
+import { z } from '../lib/zod';
 import { PageTitle } from './OverviewPage';
 
 const schema = z.object({
@@ -578,6 +578,8 @@ function ProxyPoolModal({ open, onClose, onImported }: { open: boolean; onClose:
         <div className="grid content-start gap-3">
           <Field label={text('代理类型')}>
             <select
+              id="proxy-pool-type"
+              name="proxy_pool_type"
               value={poolType}
               onChange={(event) => {
                 setPoolType(event.target.value as ProxyPoolType);
@@ -593,7 +595,7 @@ function ProxyPoolModal({ open, onClose, onImported }: { open: boolean; onClose:
             </select>
           </Field>
           <Field label={text('国家/地区')}>
-            <select value={country} onChange={(event) => { setCountry(event.target.value); setPage(1); setSelected(null); }}>
+            <select id="proxy-pool-country" name="proxy_pool_country" value={country} onChange={(event) => { setCountry(event.target.value); setPage(1); setSelected(null); }}>
               <option value="">{text('全部地区')}</option>
               {regions.map((region) => <option key={region.code} value={region.code}>{region.name || region.code} ({region.count})</option>)}
             </select>

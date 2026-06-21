@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowRight, ArrowUp, Boxes, Check, Edit2, Plus, Power, Search, Shield, Trash2, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { getAPIErrorMessage } from '../api/client';
 import { api } from '../api/endpoints';
@@ -13,6 +12,7 @@ import { useI18n } from '../lib/i18n';
 import { refreshTopologyDependencies } from '../lib/queryInvalidation';
 import { generatedInboundTag } from '../lib/routing';
 import { showCoreApplyWarning } from '../lib/coreApply';
+import { z } from '../lib/zod';
 import { PageTitle } from './OverviewPage';
 
 const schema = z.object({
