@@ -187,7 +187,7 @@ describe('inbound payload helpers', () => {
       tls_sni: 'example.com',
       hy2_mport: '',
     });
-    expect(udpFast.uuid).toHaveLength(24);
+    expect(udpFast.uuid).toMatch(/^[0-9a-f]{32}$/);
     expect(udpFast.hy2_obfs_password).toHaveLength(18);
     expect(udpFastAgain.hy2_obfs_password).toHaveLength(18);
     expect(udpFastAgain.hy2_obfs_password).not.toBe(udpFast.hy2_obfs_password);
@@ -200,11 +200,30 @@ describe('inbound payload helpers', () => {
       port: 0,
       ss_method: '2022-blake3-aes-128-gcm',
     });
-    expect(light.uuid).toHaveLength(24);
+    expect(light.uuid).toMatch(/^[0-9a-f]{24}$/);
     expect(light.hy2_obfs).toBe('');
     expect(light.hy2_obfs_password).toBe('');
     expect(light.hy2_mport).toBe('');
     expect(light.tls_sni).toBe('');
+  });
+
+  it('keeps generated inbound internal ID format aligned with regenerate behavior', () => {
+    const base = inboundFormValues(createDefaultInbound());
+    expect(base.uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+
+    expect(applyInboundTemplate(base, 'recommended').uuid).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(applyInboundTemplate(base, 'compatible').uuid).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(applyInboundTemplate(base, 'password').uuid).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(applyInboundTemplate(base, 'light').uuid).toMatch(/^[0-9a-f]{24}$/);
+    expect(applyInboundTemplate(base, 'local-socks').uuid).toMatch(/^[0-9a-f]{24}$/);
+    expect(applyInboundTemplate(base, 'local-http').uuid).toMatch(/^[0-9a-f]{24}$/);
+    expect(applyInboundTemplate(base, 'udp-fast').uuid).toMatch(/^[0-9a-f]{32}$/);
+    expect(applyInboundTemplate(base, 'low-latency').uuid).toMatch(/^[0-9a-f]{32}$/);
+    expect(applyInboundTemplate(base, 'handshake-mask').uuid).toMatch(/^[0-9a-f]{32}$/);
+
+    expect(sanitizeInboundFormValues(base, { protocol: 'socks' }).uuid).toMatch(/^[0-9a-f]{24}$/);
+    expect(sanitizeInboundFormValues(base, { protocol: 'tuic' }).uuid).toMatch(/^[0-9a-f]{32}$/);
+    expect(sanitizeInboundFormValues(applyInboundTemplate(base, 'udp-fast'), { protocol: 'vless' }).uuid).toMatch(/^[0-9a-f-]{36}$/i);
   });
 
   it('sanitizes protocol, transport, and security changes to supported combinations', () => {

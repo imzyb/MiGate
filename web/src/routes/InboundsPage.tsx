@@ -675,7 +675,7 @@ export function createDefaultInbound(): Inbound {
     network: 'tcp',
     security: 'reality',
     enabled: true,
-    uuid: randomUUID(),
+    uuid: generatedProtocolCredential('vless'),
     clients: [],
     reality_dest: 'www.cloudflare.com:443',
     reality_server_names: 'www.cloudflare.com',
@@ -857,15 +857,12 @@ export function inboundTemplateOptions() {
 
 export function applyInboundTemplate(current: InboundValues | Inbound, id: InboundTemplateId): InboundValues {
   const template = inboundTemplates.find((item) => item.id === id) || inboundTemplates[0];
-  const next = normalizeInboundCombination(inboundFormValues({ id: 'id' in current ? current.id : 0, ...clearTemplateAdvancedFields(current, id), ...template.values, uuid: current.uuid || randomUUID(), enabled: current.enabled ?? true } as Inbound));
+  const nextProtocol = template.values.protocol || current.protocol || 'vless';
+  const nextUUID = normalizedProtocolCredential(current.uuid, nextProtocol);
+  const next = normalizeInboundCombination(inboundFormValues({ id: 'id' in current ? current.id : 0, ...clearTemplateAdvancedFields(current, id), ...template.values, uuid: nextUUID, enabled: current.enabled ?? true } as Inbound));
   if (template.id === 'recommended') next.reality_short_id = randomHex(4);
   if (template.id === 'udp-fast') {
-    next.uuid = randomSecret(24);
     next.hy2_obfs_password = randomSecret(18);
-  } else if (template.id === 'light' || template.id === 'local-socks' || template.id === 'local-http' || template.id === 'handshake-mask') {
-    next.uuid = randomSecret(24);
-  } else if (!next.uuid) {
-    next.uuid = randomUUID();
   }
   return next;
 }
@@ -899,6 +896,7 @@ export function sanitizeInboundFormValues(values: InboundValues, changes: Partia
   const next = normalizeInboundCombination({
     ...values,
     ...changes,
+    uuid: changedProtocol ? normalizedProtocolCredential(values.uuid, changedProtocol) : values.uuid,
     network: changes.network ?? protocolDefaults?.defaultNetwork ?? values.network,
     security: changes.security ?? protocolDefaults?.defaultSecurity ?? values.security,
   });
@@ -1185,8 +1183,30 @@ function trafficStatusLabel(status: string | undefined, text: (value: string) =>
 }
 
 export function generatedProtocolCredential(protocol?: string) {
-  if (protocol === 'hysteria2' || protocol === 'tuic' || protocol === 'shadowtls') return randomUUID().replace(/-/g, '');
+  const credentialStyle = protocolCredentialStyle(protocol);
+  if (credentialStyle === 'secret') return randomSecret(24);
+  if (credentialStyle === 'hex32') return randomUUID().replace(/-/g, '');
   return randomUUID();
+}
+
+function normalizedProtocolCredential(value: unknown, protocol?: string) {
+  const current = String(value || '').trim();
+  return protocolCredentialMatches(current, protocol) ? current : generatedProtocolCredential(protocol);
+}
+
+function protocolCredentialMatches(value: string, protocol?: string) {
+  if (!value) return false;
+  const credentialStyle = protocolCredentialStyle(protocol);
+  if (credentialStyle === 'uuid') return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  if (credentialStyle === 'hex32') return /^[0-9a-f]{32}$/i.test(value);
+  return /^[0-9a-f]{24}$/i.test(value);
+}
+
+function protocolCredentialStyle(protocol?: string) {
+  const normalized = String(protocol || '').toLowerCase();
+  if (normalized === 'hysteria2' || normalized === 'tuic' || normalized === 'shadowtls') return 'hex32';
+  if (normalized === 'shadowsocks' || normalized === 'socks' || normalized === 'http') return 'secret';
+  return 'uuid';
 }
 
 export function generatedClientCredentialValues(protocol?: string) {
