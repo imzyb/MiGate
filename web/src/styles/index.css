@@ -72,6 +72,14 @@ textarea {
   outline: none;
 }
 
+input[type='checkbox'],
+input[type='radio'] {
+  min-height: auto;
+  width: auto;
+  padding: 0;
+  accent-color: #0f766e;
+}
+
 textarea {
   min-height: 88px;
   padding-top: 10px;
@@ -556,6 +564,10 @@ textarea:focus {
 .segmented-control button.active {
   background: rgb(var(--soft));
   color: rgb(var(--text));
+}
+
+.certificate-apply-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
 }
 
 .inbound-card-grid {

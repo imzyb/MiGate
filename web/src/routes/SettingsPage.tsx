@@ -681,7 +681,7 @@ function CertificateManager({
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
+      <div className="certificate-workspace-layout grid gap-4 2xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
         <div className="grid min-w-0 gap-4">
           <section className="rounded-md border border-panel-line">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-panel-line px-3 py-2">
@@ -861,7 +861,7 @@ function ApplyWorkspace({ selectedCertificate, selectedInboundIds, tlsInbounds, 
         <div className="font-semibold text-panel-text">{text('当前证书')}</div>
         <div className="mt-1 break-all text-panel-muted">{selectedCertificate?.domains?.join(', ') || selectedCertificate?.name || text('未选择证书')}</div>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="certificate-apply-grid grid gap-2">
         {tlsInbounds.map((inbound) => {
           const bindingStatus = inboundCertificateBindingStatus(inbound, selectedCertificate);
           const tlsSNI = inboundTLSValue(inbound, 'tls_sni');
