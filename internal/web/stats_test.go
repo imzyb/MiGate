@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -943,6 +944,153 @@ func TestSummarizeTrafficMarksStaleSamples(t *testing.T) {
 	}
 	if trafficByInbound[1].Status != "stale" || trafficByInbound[1].RateUp != 0 || trafficByInbound[1].RateDown != 0 {
 		t.Fatalf("expected inbound aggregate to inherit stale status and zero rates, got %+v", trafficByInbound[1])
+	}
+}
+
+func TestSummarizeTrafficAggregatesClientTotalsWhenOnlyClientStateExists(t *testing.T) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	store := &countingSummaryStore{
+		states: []db.TrafficState{
+			{Engine: "xray", ScopeType: "client", ScopeKey: "c_only", TotalUp: 30, TotalDown: 40, RateUp: 3, RateDown: 4, Status: "waiting", LastSeenAt: now},
+		},
+	}
+	inbounds := []db.Inbound{{ID: 1, Protocol: "vless", Enabled: true, Clients: []db.Client{{ID: 10, StatsKey: "c_only", Email: "user@example.com", Enabled: true}}}}
+	trafficByInbound, trafficByClient := summarizeTraffic(context.Background(), store, inbounds)
+	client := trafficByClient[10]
+	if client.Status != "waiting" || client.Up != 30 || client.Down != 40 {
+		t.Fatalf("expected waiting client totals to be preserved, got %+v", client)
+	}
+	inbound := trafficByInbound[1]
+	if inbound.Status != "waiting" || inbound.Up != 30 || inbound.Down != 40 || inbound.Total != 70 || inbound.RateUp != 3 || inbound.RateDown != 4 {
+		t.Fatalf("expected inbound to aggregate client-only traffic state, got %+v", inbound)
+	}
+}
+
+func TestSummarizeTrafficUsesClientEmailWhenStatsKeyIsEmpty(t *testing.T) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	store := &countingSummaryStore{
+		states: []db.TrafficState{
+			{Engine: "xray", ScopeType: "client", ScopeKey: "legacy@example.com", TotalUp: 12, TotalDown: 34, Status: "waiting", LastSeenAt: now},
+		},
+	}
+	inbounds := []db.Inbound{{ID: 1, Protocol: "vless", Enabled: true, Clients: []db.Client{{ID: 10, Email: "legacy@example.com", Enabled: true}}}}
+	trafficByInbound, trafficByClient := summarizeTraffic(context.Background(), store, inbounds)
+	client := trafficByClient[10]
+	if client.Status != "waiting" || client.Up != 12 || client.Down != 34 {
+		t.Fatalf("expected email-keyed client state to be selected, got %+v", client)
+	}
+	inbound := trafficByInbound[1]
+	if inbound.Status != "waiting" || inbound.Up != 12 || inbound.Down != 34 || inbound.Total != 46 {
+		t.Fatalf("expected inbound to aggregate email-keyed client state, got %+v", inbound)
+	}
+}
+
+func TestTrafficSummaryKeepsClientTotalsWhenOnlyClientStateExists(t *testing.T) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	store := &countingSummaryStore{
+		inbounds: []db.Inbound{{
+			ID:       1,
+			Protocol: "vless",
+			Enabled:  true,
+			Clients:  []db.Client{{ID: 10, StatsKey: "c_only", Email: "user@example.com", Enabled: true}},
+		}},
+		states: []db.TrafficState{
+			{Engine: "xray", ScopeType: "client", ScopeKey: "c_only", TotalUp: 30, TotalDown: 40, Status: "waiting", LastSeenAt: now},
+		},
+	}
+	response := httptest.NewRecorder()
+	trafficSummaryHandler(store, newTrafficViewCache(0))(response, httptest.NewRequest(http.MethodGet, "/api/traffic/summary", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected traffic summary status 200, got %d body=%s", response.Code, response.Body.String())
+	}
+	var payload map[string]interface{}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode summary response: %v", err)
+	}
+	if payload["total"] != float64(70) || payload["total_up"] != float64(30) || payload["total_down"] != float64(40) {
+		t.Fatalf("expected traffic summary to retain client totals, got %+v", payload)
+	}
+}
+
+func TestSummarizeTrafficKeepsXrayWaitingMarkerFreshWithCumulativeTotals(t *testing.T) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	store := &countingSummaryStore{
+		states: []db.TrafficState{
+			{Engine: "xray", ScopeType: "inbound", ScopeKey: "inbound-1-vless", TotalUp: 30, TotalDown: 40, RateUp: 0, RateDown: 0, Status: "waiting", LastSeenAt: now},
+			{Engine: "xray", ScopeType: "client", ScopeKey: "c_waiting", TotalUp: 30, TotalDown: 40, RateUp: 0, RateDown: 0, Status: "waiting", LastSeenAt: now},
+		},
+	}
+	inbounds := []db.Inbound{{ID: 1, Protocol: "vless", Enabled: true, Clients: []db.Client{{ID: 10, StatsKey: "c_waiting", Email: "user@example.com", Enabled: true}}}}
+	trafficByInbound, trafficByClient := summarizeTraffic(context.Background(), store, inbounds)
+	client := trafficByClient[10]
+	if client.Status != "waiting" || client.Up != 30 || client.Down != 40 || client.RateUp != 0 || client.RateDown != 0 {
+		t.Fatalf("expected fresh waiting client with cumulative totals, got %+v", client)
+	}
+	inbound := trafficByInbound[1]
+	if inbound.Status != "waiting" || inbound.Up != 30 || inbound.Down != 40 || inbound.RateUp != 0 || inbound.RateDown != 0 {
+		t.Fatalf("expected fresh waiting inbound state instead of stale, got %+v", inbound)
+	}
+	coverage := buildTrafficCoverage(trafficByInbound)
+	engines := coverage["engines"].(map[string]string)
+	if coverage["overall"] != "waiting" || engines["xray"] != "waiting" || coverage["stale"] != 0 {
+		t.Fatalf("waiting xray marker should not produce stale coverage, got %+v", coverage)
+	}
+}
+
+func TestSummarizeTrafficAggregatesClientUnavailableWhenNoInboundStateExists(t *testing.T) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	store := &countingSummaryStore{
+		states: []db.TrafficState{
+			{Engine: "xray", ScopeType: "client", ScopeKey: "c_unavailable", TotalUp: 30, TotalDown: 40, RateUp: 0, RateDown: 0, Status: "unavailable", Message: "stats offline", LastSeenAt: now},
+		},
+	}
+	inbounds := []db.Inbound{{ID: 1, Protocol: "vless", Enabled: true, Clients: []db.Client{{ID: 10, StatsKey: "c_unavailable", Email: "user@example.com", Enabled: true}}}}
+	trafficByInbound, trafficByClient := summarizeTraffic(context.Background(), store, inbounds)
+	client := trafficByClient[10]
+	if client.Status != "unavailable" || client.Up != 30 || client.Down != 40 || client.Message != "stats offline" {
+		t.Fatalf("expected unavailable client state with totals, got %+v", client)
+	}
+	inbound := trafficByInbound[1]
+	if inbound.Status != "unavailable" || inbound.Up != 30 || inbound.Down != 40 || inbound.Total != 70 || inbound.RateUp != 0 || inbound.RateDown != 0 {
+		t.Fatalf("expected inbound to aggregate unavailable client state without zeroing totals, got %+v", inbound)
+	}
+	coverage := buildTrafficCoverage(trafficByInbound)
+	engines := coverage["engines"].(map[string]string)
+	if coverage["overall"] != "unavailable" || engines["xray"] != "unavailable" {
+		t.Fatalf("dashboard coverage should surface unavailable xray status, got %+v", coverage)
+	}
+}
+
+func TestSummarizeTrafficMarksInboundPartialWhenSomeClientsAreWaiting(t *testing.T) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	store := &countingSummaryStore{
+		states: []db.TrafficState{
+			{Engine: "xray", ScopeType: "inbound", ScopeKey: "inbound-1-vless", TotalUp: 100, TotalDown: 200, RateUp: 10, RateDown: 20, Status: "ok", LastSeenAt: now},
+			{Engine: "xray", ScopeType: "client", ScopeKey: "c_ok", TotalUp: 60, TotalDown: 80, RateUp: 6, RateDown: 8, Status: "ok", LastSeenAt: now},
+			{Engine: "xray", ScopeType: "client", ScopeKey: "c_waiting", TotalUp: 40, TotalDown: 120, RateUp: 0, RateDown: 0, Status: "waiting", LastSeenAt: now},
+		},
+	}
+	inbounds := []db.Inbound{{
+		ID:       1,
+		Protocol: "vless",
+		Enabled:  true,
+		Clients: []db.Client{
+			{ID: 10, StatsKey: "c_ok", Email: "ok@example.com", Enabled: true},
+			{ID: 11, StatsKey: "c_waiting", Email: "waiting@example.com", Enabled: true},
+		},
+	}}
+	trafficByInbound, trafficByClient := summarizeTraffic(context.Background(), store, inbounds)
+	if trafficByClient[10].Status != "ok" || trafficByClient[11].Status != "waiting" {
+		t.Fatalf("expected client statuses ok/waiting, got ok=%+v waiting=%+v", trafficByClient[10], trafficByClient[11])
+	}
+	inbound := trafficByInbound[1]
+	if inbound.Status != "partial" || inbound.Up != 100 || inbound.Down != 200 || inbound.RateUp != 10 || inbound.RateDown != 20 {
+		t.Fatalf("inbound with ok state and waiting client should be partial without changing inbound totals/rates, got %+v", inbound)
+	}
+	coverage := buildTrafficCoverage(trafficByInbound)
+	engines := coverage["engines"].(map[string]string)
+	if coverage["overall"] != "partial" || engines["xray"] != "partial" {
+		t.Fatalf("dashboard coverage should surface partial xray status, got %+v", coverage)
 	}
 }
 

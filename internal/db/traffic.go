@@ -192,7 +192,7 @@ ON CONFLICT(sampled_at, engine, scope_type, scope_key) DO UPDATE SET
 		totalDown := current.TotalDown + deltaDown
 		rateUp := 0.0
 		rateDown := 0.0
-		if elapsed > 0 {
+		if elapsed > 0 && !shouldSuppressRecoveredTrafficRate(current) {
 			rateUp = float64(deltaUp) / elapsed
 			rateDown = float64(deltaDown) / elapsed
 		}
@@ -421,6 +421,15 @@ func isResetWithoutRawBaseline(state TrafficState) bool {
 		strings.Contains(strings.ToLower(state.Message), "baseline unavailable")
 }
 
+func shouldSuppressRecoveredTrafficRate(state TrafficState) bool {
+	switch normalizeTrafficStatus(state.Status) {
+	case "waiting", "unavailable", "unsupported", "not_configured":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Store) MarkTrafficUnavailable(ctx context.Context, engine, status, message string, observedAt time.Time) error {
 	engine = normalizeTrafficToken(engine)
 	if engine == "" {
@@ -442,7 +451,8 @@ func (s *Store) MarkTrafficScopeStatus(ctx context.Context, stats []TrafficStatu
 	if observedAt.IsZero() {
 		observedAt = time.Now().UTC()
 	}
-	if len(stats) == 0 {
+	normalizedStats := normalizeTrafficStatusMarkers(stats)
+	if len(normalizedStats) == 0 {
 		return nil
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -450,18 +460,28 @@ func (s *Store) MarkTrafficScopeStatus(ctx context.Context, stats []TrafficStatu
 		return err
 	}
 	defer tx.Rollback()
+	currentStates, err := prefetchTrafficStates(ctx, tx, trafficRawStatsForStatusMarkers(normalizedStats))
+	if err != nil {
+		return err
+	}
 	seenAt := observedAt.UTC().Format(time.RFC3339Nano)
-	for _, marker := range stats {
-		engine := normalizeTrafficToken(marker.Engine)
-		scopeType := normalizeTrafficToken(marker.ScopeType)
-		scopeKey := strings.TrimSpace(marker.ScopeKey)
-		if engine == "" || scopeType == "" || scopeKey == "" {
-			continue
-		}
-		status := strings.TrimSpace(marker.Status)
-		if status == "" {
-			status = "unavailable"
-		}
+	sampleBucketAt := trafficSampleBucket(observedAt).UTC().Format(time.RFC3339Nano)
+	insertSample, err := tx.PrepareContext(ctx, `
+INSERT INTO traffic_samples (sampled_at, engine, scope_type, scope_key, total_up, total_down, rate_up, rate_down, status)
+VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)
+ON CONFLICT(sampled_at, engine, scope_type, scope_key) DO UPDATE SET
+  total_up=excluded.total_up,
+  total_down=excluded.total_down,
+  rate_up=0,
+  rate_down=0,
+  status=excluded.status
+`)
+	if err != nil {
+		return err
+	}
+	defer insertSample.Close()
+	for _, marker := range normalizedStats {
+		current := currentStates[trafficStateKey(marker.Engine, marker.ScopeType, marker.ScopeKey)]
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO traffic_states (engine, scope_type, scope_key, total_up, total_down, last_raw_up, last_raw_down, rate_up, rate_down, last_seen_at, status, message)
 VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, ?, ?, ?)
@@ -471,11 +491,49 @@ ON CONFLICT(engine, scope_type, scope_key) DO UPDATE SET
   last_seen_at=excluded.last_seen_at,
   status=excluded.status,
   message=excluded.message
-`, engine, scopeType, scopeKey, seenAt, status, strings.TrimSpace(marker.Message)); err != nil {
+`, marker.Engine, marker.ScopeType, marker.ScopeKey, seenAt, marker.Status, marker.Message); err != nil {
+			return err
+		}
+		if _, err := insertSample.ExecContext(ctx, sampleBucketAt, marker.Engine, marker.ScopeType, marker.ScopeKey, current.TotalUp, current.TotalDown, marker.Status); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	rollbackCleanup, err := s.cleanupTrafficSamples(ctx, tx, observedAt)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		rollbackCleanup()
+		return err
+	}
+	return nil
+}
+
+func normalizeTrafficStatusMarkers(stats []TrafficStatusMarker) []TrafficStatusMarker {
+	normalized := make([]TrafficStatusMarker, 0, len(stats))
+	for _, marker := range stats {
+		marker.Engine = normalizeTrafficToken(marker.Engine)
+		marker.ScopeType = normalizeTrafficToken(marker.ScopeType)
+		marker.ScopeKey = strings.TrimSpace(marker.ScopeKey)
+		marker.Status = strings.TrimSpace(marker.Status)
+		marker.Message = strings.TrimSpace(marker.Message)
+		if marker.Status == "" {
+			marker.Status = "unavailable"
+		}
+		if marker.Engine == "" || marker.ScopeType == "" || marker.ScopeKey == "" {
+			continue
+		}
+		normalized = append(normalized, marker)
+	}
+	return normalized
+}
+
+func trafficRawStatsForStatusMarkers(markers []TrafficStatusMarker) []TrafficRawStat {
+	rawStats := make([]TrafficRawStat, 0, len(markers))
+	for _, marker := range markers {
+		rawStats = append(rawStats, TrafficRawStat{Engine: marker.Engine, ScopeType: marker.ScopeType, ScopeKey: marker.ScopeKey})
+	}
+	return rawStats
 }
 
 func (s *Store) ResetClientTrafficBaseline(ctx context.Context, id int64, baselines []TrafficRawStat) (Client, error) {

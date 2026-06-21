@@ -3326,8 +3326,8 @@ func TestTrafficScopeStatusDoesNotPolluteRawBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list samples after marker: %v", err)
 	}
-	if len(samples) != 1 {
-		t.Fatalf("status marker must not write traffic sample, got %+v", samples)
+	if len(samples) != 2 || samples[1].TotalUp != 100 || samples[1].TotalDown != 300 || samples[1].RateUp != 0 || samples[1].RateDown != 0 || samples[1].Status != "unsupported" {
+		t.Fatalf("status marker should write zero-rate sample without changing totals, got %+v", samples)
 	}
 	if err := store.ApplyTrafficRawStats(ctx, raw(1200, 2600), t0.Add(30*time.Second)); err != nil {
 		t.Fatalf("recovered sample: %v", err)
@@ -3337,15 +3337,255 @@ func TestTrafficScopeStatusDoesNotPolluteRawBaseline(t *testing.T) {
 		t.Fatalf("list states after recovery: %v", err)
 	}
 	state := findTrafficState(states, "singbox", "client", client.StatsKey)
-	if state == nil || state.TotalUp != 200 || state.TotalDown != 600 || state.LastRawUp != 1200 || state.LastRawDown != 2600 {
+	if state == nil || state.TotalUp != 200 || state.TotalDown != 600 || state.LastRawUp != 1200 || state.LastRawDown != 2600 || state.RateUp != 0 || state.RateDown != 0 {
 		t.Fatalf("recovered raw should add only incremental delta, got %+v", state)
 	}
 	samples, err = store.ListTrafficSamples(ctx, "client", time.Unix(0, 0), 100)
 	if err != nil {
 		t.Fatalf("list samples after recovery: %v", err)
 	}
-	if len(samples) != 2 || samples[1].TotalUp != 200 || samples[1].TotalDown != 600 {
+	if len(samples) != 2 || samples[1].TotalUp != 200 || samples[1].TotalDown != 600 || samples[1].RateUp != 0 || samples[1].RateDown != 0 || samples[1].Status != "ok" {
 		t.Fatalf("expected one recovered client bucket after marker, got %+v", samples)
+	}
+}
+
+func TestTrafficScopeStatusRefreshesXrayWaitingWithoutClearingTotals(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	inbound, err := store.CreateInbound(ctx, db.CreateInboundParams{Remark: "xray-waiting", Protocol: "vless", Port: 28100, Network: "tcp", Security: "none"})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	client, err := store.CreateClient(ctx, db.CreateClientParams{InboundID: inbound.ID, Email: "xray-waiting@example.com"})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	inboundKey := db.GeneratedInboundTag(inbound)
+	raw := func(up, down int64) []db.TrafficRawStat {
+		return []db.TrafficRawStat{
+			{Engine: "xray", ScopeType: "inbound", ScopeKey: inboundKey, RawUp: up, RawDown: down, Status: "ok"},
+			{Engine: "xray", ScopeType: "client", ScopeKey: client.StatsKey, RawUp: up, RawDown: down, Status: "ok"},
+		}
+	}
+	t0 := time.Unix(2000, 0)
+	if err := store.ApplyTrafficRawStats(ctx, raw(1000, 2000), t0); err != nil {
+		t.Fatalf("baseline sample: %v", err)
+	}
+	if err := store.ApplyTrafficRawStats(ctx, raw(1300, 2600), t0.Add(10*time.Second)); err != nil {
+		t.Fatalf("increment sample: %v", err)
+	}
+	markerAt := t0.Add(10 * time.Minute)
+	if err := store.MarkTrafficScopeStatus(ctx, []db.TrafficStatusMarker{
+		{Engine: "xray", ScopeType: "inbound", ScopeKey: inboundKey, Status: "waiting", Message: "waiting for traffic sample"},
+		{Engine: "xray", ScopeType: "client", ScopeKey: client.StatsKey, Status: "waiting", Message: "waiting for traffic sample"},
+	}, markerAt); err != nil {
+		t.Fatalf("mark waiting: %v", err)
+	}
+	states, err := store.ListTrafficStates(ctx)
+	if err != nil {
+		t.Fatalf("list states: %v", err)
+	}
+	for _, scope := range []struct {
+		scopeType string
+		scopeKey  string
+	}{
+		{scopeType: "inbound", scopeKey: inboundKey},
+		{scopeType: "client", scopeKey: client.StatsKey},
+	} {
+		state := findTrafficState(states, "xray", scope.scopeType, scope.scopeKey)
+		if state == nil {
+			t.Fatalf("missing traffic state for %s/%s", scope.scopeType, scope.scopeKey)
+		}
+		if state.TotalUp != 300 || state.TotalDown != 600 || state.LastRawUp != 1300 || state.LastRawDown != 2600 {
+			t.Fatalf("waiting marker should preserve totals/raw for %s/%s: %+v", scope.scopeType, scope.scopeKey, state)
+		}
+		if state.Status != "waiting" || state.Message != "waiting for traffic sample" || state.LastSeenAt != markerAt.UTC().Format(time.RFC3339Nano) {
+			t.Fatalf("waiting marker did not refresh status fields for %s/%s: %+v", scope.scopeType, scope.scopeKey, state)
+		}
+		if state.RateUp != 0 || state.RateDown != 0 {
+			t.Fatalf("waiting marker should clear rates for %s/%s: %+v", scope.scopeType, scope.scopeKey, state)
+		}
+	}
+	samples, err := store.ListTrafficSamples(ctx, "client", time.Unix(0, 0), 100)
+	if err != nil {
+		t.Fatalf("list samples: %v", err)
+	}
+	if len(samples) != 2 || samples[1].TotalUp != 300 || samples[1].TotalDown != 600 || samples[1].RateUp != 0 || samples[1].RateDown != 0 || samples[1].Status != "waiting" {
+		t.Fatalf("waiting marker should write zero-rate traffic sample without changing totals, got %+v", samples)
+	}
+}
+
+func TestTrafficScopeStatusCreatesUnavailableStateWithoutTrafficHistory(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	observedAt := time.Unix(3000, 0)
+	if err := store.MarkTrafficScopeStatus(ctx, []db.TrafficStatusMarker{
+		{Engine: "xray", ScopeType: "inbound", ScopeKey: "inbound-1-vless", Status: "unavailable", Message: "stats offline"},
+		{Engine: "xray", ScopeType: "client", ScopeKey: "c_new", Status: "unavailable", Message: "stats offline"},
+	}, observedAt); err != nil {
+		t.Fatalf("mark unavailable: %v", err)
+	}
+	states, err := store.ListTrafficStates(ctx)
+	if err != nil {
+		t.Fatalf("list states: %v", err)
+	}
+	for _, scope := range []struct {
+		scopeType string
+		scopeKey  string
+	}{
+		{scopeType: "inbound", scopeKey: "inbound-1-vless"},
+		{scopeType: "client", scopeKey: "c_new"},
+	} {
+		state := findTrafficState(states, "xray", scope.scopeType, scope.scopeKey)
+		if state == nil {
+			t.Fatalf("missing unavailable state for %s/%s", scope.scopeType, scope.scopeKey)
+		}
+		if state.Status != "unavailable" || state.Message != "stats offline" || state.LastSeenAt != observedAt.UTC().Format(time.RFC3339Nano) {
+			t.Fatalf("unexpected unavailable status for %s/%s: %+v", scope.scopeType, scope.scopeKey, state)
+		}
+		if state.TotalUp != 0 || state.TotalDown != 0 || state.LastRawUp != 0 || state.LastRawDown != 0 || state.RateUp != 0 || state.RateDown != 0 {
+			t.Fatalf("new unavailable marker should create zero state for %s/%s: %+v", scope.scopeType, scope.scopeKey, state)
+		}
+	}
+	samples, err := store.ListTrafficSamples(ctx, "client", time.Unix(0, 0), 100)
+	if err != nil {
+		t.Fatalf("list samples: %v", err)
+	}
+	if len(samples) != 1 || samples[0].ScopeKey != "c_new" || samples[0].TotalUp != 0 || samples[0].TotalDown != 0 || samples[0].RateUp != 0 || samples[0].RateDown != 0 || samples[0].Status != "unavailable" {
+		t.Fatalf("unavailable marker should write zero-rate sample, got %+v", samples)
+	}
+}
+
+func TestTrafficScopeStatusUnavailablePreservesTotalsAndRaw(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	inbound, err := store.CreateInbound(ctx, db.CreateInboundParams{Remark: "xray-unavailable", Protocol: "vless", Port: 28104, Network: "tcp", Security: "none"})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	client, err := store.CreateClient(ctx, db.CreateClientParams{InboundID: inbound.ID, Email: "xray-unavailable@example.com"})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	t0 := time.Unix(4000, 0)
+	raw := func(up, down int64) []db.TrafficRawStat {
+		return []db.TrafficRawStat{{Engine: "xray", ScopeType: "client", ScopeKey: client.StatsKey, RawUp: up, RawDown: down, Status: "ok"}}
+	}
+	if err := store.ApplyTrafficRawStats(ctx, raw(1000, 2000), t0); err != nil {
+		t.Fatalf("baseline sample: %v", err)
+	}
+	if err := store.ApplyTrafficRawStats(ctx, raw(1300, 2600), t0.Add(10*time.Second)); err != nil {
+		t.Fatalf("increment sample: %v", err)
+	}
+	markerAt := t0.Add(time.Minute)
+	if err := store.MarkTrafficScopeStatus(ctx, []db.TrafficStatusMarker{
+		{Engine: "xray", ScopeType: "client", ScopeKey: client.StatsKey, Status: "unavailable", Message: "stats offline"},
+	}, markerAt); err != nil {
+		t.Fatalf("mark unavailable: %v", err)
+	}
+	states, err := store.ListTrafficStates(ctx)
+	if err != nil {
+		t.Fatalf("list states: %v", err)
+	}
+	state := findTrafficState(states, "xray", "client", client.StatsKey)
+	if state == nil {
+		t.Fatalf("missing unavailable client state")
+	}
+	if state.TotalUp != 300 || state.TotalDown != 600 || state.LastRawUp != 1300 || state.LastRawDown != 2600 {
+		t.Fatalf("unavailable marker should preserve totals/raw, got %+v", state)
+	}
+	if state.RateUp != 0 || state.RateDown != 0 || state.Status != "unavailable" || state.Message != "stats offline" {
+		t.Fatalf("unavailable marker should clear rate and refresh status, got %+v", state)
+	}
+	samples, err := store.ListTrafficSamples(ctx, "client", time.Unix(0, 0), 100)
+	if err != nil {
+		t.Fatalf("list samples: %v", err)
+	}
+	if len(samples) != 2 || samples[1].TotalUp != 300 || samples[1].TotalDown != 600 || samples[1].RateUp != 0 || samples[1].RateDown != 0 || samples[1].Status != "unavailable" {
+		t.Fatalf("unavailable marker should write zero-rate sample preserving totals, got %+v", samples)
+	}
+}
+
+func TestTrafficWaitingRecoverySuppressesCompressedRateAfterMultipleMarkers(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	inbound, err := store.CreateInbound(ctx, db.CreateInboundParams{Remark: "xray-waiting-recovery", Protocol: "vless", Port: 28102, Network: "tcp", Security: "none"})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	client, err := store.CreateClient(ctx, db.CreateClientParams{InboundID: inbound.ID, Email: "xray-waiting-recovery@example.com"})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	raw := func(up, down int64) []db.TrafficRawStat {
+		return []db.TrafficRawStat{{Engine: "xray", ScopeType: "client", ScopeKey: client.StatsKey, RawUp: up, RawDown: down, Status: "ok"}}
+	}
+	t0 := time.Unix(10_000, 0)
+	if err := store.ApplyTrafficRawStats(ctx, raw(1000, 2000), t0); err != nil {
+		t.Fatalf("baseline sample: %v", err)
+	}
+	if err := store.ApplyTrafficRawStats(ctx, raw(1100, 2200), t0.Add(time.Minute)); err != nil {
+		t.Fatalf("increment sample: %v", err)
+	}
+	for i := 2; i <= 5; i++ {
+		if err := store.MarkTrafficScopeStatus(ctx, []db.TrafficStatusMarker{
+			{Engine: "xray", ScopeType: "client", ScopeKey: client.StatsKey, Status: "waiting", Message: "waiting for traffic sample"},
+		}, t0.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("waiting marker %d: %v", i, err)
+		}
+	}
+	if err := store.ApplyTrafficRawStats(ctx, raw(1600, 2800), t0.Add(5*time.Minute+10*time.Second)); err != nil {
+		t.Fatalf("recovered raw sample: %v", err)
+	}
+	states, err := store.ListTrafficStates(ctx)
+	if err != nil {
+		t.Fatalf("list states: %v", err)
+	}
+	state := findTrafficState(states, "xray", "client", client.StatsKey)
+	if state == nil || state.TotalUp != 600 || state.TotalDown != 800 || state.RateUp != 0 || state.RateDown != 0 || state.Status != "ok" {
+		t.Fatalf("recovery should keep cumulative delta but suppress compressed rate, got %+v", state)
+	}
+	if err := store.ApplyTrafficRawStats(ctx, raw(1660, 2920), t0.Add(6*time.Minute+10*time.Second)); err != nil {
+		t.Fatalf("post-recovery raw sample: %v", err)
+	}
+	states, err = store.ListTrafficStates(ctx)
+	if err != nil {
+		t.Fatalf("list states after post-recovery: %v", err)
+	}
+	state = findTrafficState(states, "xray", "client", client.StatsKey)
+	if state == nil || state.TotalUp != 660 || state.TotalDown != 920 || state.RateUp != 1 || state.RateDown != 2 {
+		t.Fatalf("next raw sample should resume normal rate calculation, got %+v", state)
+	}
+	samples, err := store.ListTrafficSamples(ctx, "client", time.Unix(0, 0), 100)
+	if err != nil {
+		t.Fatalf("list samples: %v", err)
+	}
+	if len(samples) < 7 {
+		t.Fatalf("expected baseline, waiting, recovery and post-recovery samples, got %+v", samples)
+	}
+	recovered := samples[len(samples)-2]
+	if recovered.Status != "ok" || recovered.TotalUp != 600 || recovered.TotalDown != 800 || recovered.RateUp != 0 || recovered.RateDown != 0 {
+		t.Fatalf("recovered series point should carry totals with zero rate, got %+v", recovered)
 	}
 }
 

@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,6 +92,16 @@ func (m *mockStatsClient) Close() error {
 	return nil
 }
 
+func findTrafficState(states []db.TrafficState, engine, scopeType, scopeKey string) *db.TrafficState {
+	for i := range states {
+		state := &states[i]
+		if state.Engine == engine && state.ScopeType == scopeType && state.ScopeKey == scopeKey {
+			return state
+		}
+	}
+	return nil
+}
+
 func TestTrafficSyncSchedulerSync(t *testing.T) {
 	store := &mockStore{}
 	client := &mockStatsClient{
@@ -130,8 +141,177 @@ func TestTrafficSyncSchedulerWithEmptyStats(t *testing.T) {
 	}
 }
 
+func TestTrafficSyncSchedulerMarksMissingXrayClientsWaitingWhenStatsAreEmpty(t *testing.T) {
+	store := &mockStore{inbounds: []db.Inbound{
+		{
+			ID: 1, Protocol: "vless", Enabled: true,
+			Clients: []db.Client{
+				{ID: 10, StatsKey: "c_xray", Email: "xray@example.com", Enabled: true},
+				{ID: 11, StatsKey: "c_disabled", Email: "disabled@example.com", Enabled: false},
+			},
+		},
+		{
+			ID: 2, Protocol: "hysteria2", Enabled: true,
+			Clients: []db.Client{{ID: 20, StatsKey: "c_hy2", Email: "hy2@example.com", Enabled: true}},
+		},
+	}}
+	client := &mockStatsClient{raw: []xray.TrafficStat{}}
+
+	scheduler := NewTrafficSyncScheduler(store, client, 1*time.Minute)
+	scheduler.sync()
+
+	if len(store.raw) != 0 {
+		t.Fatalf("expected no raw stats for empty xray response, got %+v", store.raw)
+	}
+	if len(store.unavail) != 0 {
+		t.Fatalf("did not expect unavailable marker for successful empty stats response, got %+v", store.unavail)
+	}
+	if len(store.scopeStatus) != 1 {
+		t.Fatalf("expected xray client waiting marker, got %+v", store.scopeStatus)
+	}
+	want := map[string]bool{
+		"client/c_xray": false,
+	}
+	for _, marker := range store.scopeStatus {
+		if marker.Engine != "xray" || marker.Status != "waiting" {
+			t.Fatalf("unexpected xray waiting marker: %+v", marker)
+		}
+		key := marker.ScopeType + "/" + marker.ScopeKey
+		if _, ok := want[key]; !ok {
+			t.Fatalf("unexpected marker scope %q in %+v", key, store.scopeStatus)
+		}
+		want[key] = true
+	}
+	for key, found := range want {
+		if !found {
+			t.Fatalf("missing marker scope %q in %+v", key, store.scopeStatus)
+		}
+	}
+}
+
+func TestTrafficSyncSchedulerMarksOnlyMissingXrayClientsWaitingWhenRawStatsArePartial(t *testing.T) {
+	store := &mockStore{inbounds: []db.Inbound{{
+		ID: 1, Protocol: "vless", Enabled: true,
+		Clients: []db.Client{
+			{ID: 10, StatsKey: "c_seen", Enabled: true},
+			{ID: 11, StatsKey: "c_missing", Enabled: true},
+			{ID: 12, StatsKey: "c_disabled", Enabled: false},
+		},
+	}}}
+	client := &mockStatsClient{raw: []xray.TrafficStat{
+		{Engine: "xray", ScopeType: "client", ScopeKey: "c_seen", Uplink: 100, Downlink: 200},
+	}}
+
+	scheduler := NewTrafficSyncScheduler(store, client, 1*time.Minute)
+	scheduler.sync()
+
+	if len(store.raw) != 1 || store.raw[0].ScopeKey != "c_seen" || store.raw[0].Status != "ok" {
+		t.Fatalf("expected returned xray client to be applied as ok, got %+v", store.raw)
+	}
+	if len(store.scopeStatus) != 1 {
+		t.Fatalf("expected one missing xray client waiting marker, got %+v", store.scopeStatus)
+	}
+	marker := store.scopeStatus[0]
+	if marker.Engine != "xray" || marker.ScopeType != "client" || marker.ScopeKey != "c_missing" || marker.Status != "waiting" {
+		t.Fatalf("unexpected missing client marker: %+v", marker)
+	}
+	if len(store.unavail) != 0 {
+		t.Fatalf("did not expect unavailable marker for partial successful stats, got %+v", store.unavail)
+	}
+}
+
+func TestTrafficSyncSchedulerDoesNotMarkXrayWaitingWhenQueryFails(t *testing.T) {
+	store := &mockStore{inbounds: []db.Inbound{{
+		ID: 1, Protocol: "vless", Enabled: true,
+		Clients: []db.Client{{ID: 10, StatsKey: "c_xray", Enabled: true}},
+	}}}
+	client := &mockStatsClient{err: errors.New("connection refused")}
+
+	scheduler := NewTrafficSyncScheduler(store, client, 1*time.Minute)
+	scheduler.sync()
+
+	if len(store.scopeStatus) != 1 {
+		t.Fatalf("query failure should write xray unavailable scope markers, got %+v", store.scopeStatus)
+	}
+	want := map[string]bool{
+		"client/c_xray": false,
+	}
+	for _, marker := range store.scopeStatus {
+		if marker.Engine != "xray" || marker.Status != "unavailable" || marker.Message != "connection refused" {
+			t.Fatalf("query failure should not write waiting markers, got %+v", store.scopeStatus)
+		}
+		key := marker.ScopeType + "/" + marker.ScopeKey
+		if _, ok := want[key]; !ok {
+			t.Fatalf("unexpected unavailable marker %q in %+v", key, store.scopeStatus)
+		}
+		want[key] = true
+	}
+	for key, found := range want {
+		if !found {
+			t.Fatalf("missing unavailable marker %q in %+v", key, store.scopeStatus)
+		}
+	}
+	if len(store.unavail) != 1 || store.unavail[0].Engine != "xray" || store.unavail[0].Status != "unavailable" {
+		t.Fatalf("expected xray unavailable marker, got %+v", store.unavail)
+	}
+}
+
+func TestTrafficSyncSchedulerCreatesUnavailableXrayStatesWhenQueryFails(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	inbound, err := store.CreateInbound(ctx, db.CreateInboundParams{Remark: "xray-failed", Protocol: "vless", Port: 18101, Network: "tcp", Security: "none"})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	client, err := store.CreateClient(ctx, db.CreateClientParams{InboundID: inbound.ID, Email: "failed@example.com"})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	statsErr := errors.New("xray stats offline")
+	scheduler := NewTrafficSyncScheduler(store, &mockStatsClient{err: statsErr}, time.Minute)
+
+	scheduler.sync()
+
+	states, err := store.ListTrafficStates(ctx)
+	if err != nil {
+		t.Fatalf("list states: %v", err)
+	}
+	clientState := findTrafficState(states, "xray", "client", client.StatsKey)
+	if clientState == nil || clientState.Status != "unavailable" || !strings.Contains(clientState.Message, statsErr.Error()) {
+		t.Fatalf("expected client unavailable state, got %+v in %+v", clientState, states)
+	}
+}
+
+func TestTrafficSyncSchedulerDoesNotMarkXrayWaitingWhenAllRawStatsExist(t *testing.T) {
+	store := &mockStore{inbounds: []db.Inbound{{
+		ID: 1, Protocol: "vless", Enabled: true,
+		Clients: []db.Client{{ID: 10, StatsKey: "c_xray", Enabled: true}},
+	}}}
+	client := &mockStatsClient{raw: []xray.TrafficStat{
+		{Engine: "xray", ScopeType: "client", ScopeKey: "c_xray", Uplink: 100, Downlink: 200},
+	}}
+
+	scheduler := NewTrafficSyncScheduler(store, client, 1*time.Minute)
+	scheduler.sync()
+
+	if len(store.scopeStatus) != 0 {
+		t.Fatalf("raw client stats should not write waiting markers, got %+v", store.scopeStatus)
+	}
+	if len(store.raw) != 1 || store.raw[0].Engine != "xray" || store.raw[0].Status != "ok" {
+		t.Fatalf("expected xray raw stats to be applied, got %+v", store.raw)
+	}
+}
+
 func TestTrafficSyncSchedulerKeepsXrayWhenSingboxUnavailable(t *testing.T) {
-	store := &mockStore{}
+	store := &mockStore{inbounds: []db.Inbound{{
+		ID: 1, Protocol: "hysteria2", Enabled: true,
+		Clients: []db.Client{{ID: 2, StatsKey: "c_hy2", Enabled: true}},
+	}}}
 	xrayClient := &mockStatsClient{raw: []xray.TrafficStat{
 		{Engine: "xray", ScopeType: "client", ScopeKey: "client1@test.com", Uplink: 1024, Downlink: 2048},
 	}}
@@ -148,6 +328,27 @@ func TestTrafficSyncSchedulerKeepsXrayWhenSingboxUnavailable(t *testing.T) {
 	}
 	if len(store.unavail) != 1 || store.unavail[0].Engine != "singbox" || store.unavail[0].Status != "unavailable" {
 		t.Fatalf("expected singbox unavailable marker, got %+v", store.unavail)
+	}
+	want := map[string]bool{
+		"client/c_hy2": false,
+	}
+	for _, marker := range store.scopeStatus {
+		if marker.Engine != "singbox" {
+			continue
+		}
+		if marker.Status != "unavailable" || marker.Message != "connect 127.0.0.1:10086: connection refused" {
+			t.Fatalf("expected singbox unavailable scope marker, got %+v", marker)
+		}
+		key := marker.ScopeType + "/" + marker.ScopeKey
+		if _, ok := want[key]; !ok {
+			t.Fatalf("unexpected singbox unavailable scope marker %q in %+v", key, store.scopeStatus)
+		}
+		want[key] = true
+	}
+	for key, found := range want {
+		if !found {
+			t.Fatalf("missing singbox unavailable scope marker %q in %+v", key, store.scopeStatus)
+		}
 	}
 }
 
@@ -320,5 +521,37 @@ func TestTrafficSyncSchedulerDoesNotRefreshCapabilityWithoutSingboxInbound(t *te
 	}
 	if len(store.scopeStatus) != 0 {
 		t.Fatalf("expected no scope markers without singbox inbound, got %+v", store.scopeStatus)
+	}
+}
+
+func TestTrafficSyncSchedulerKeepsSingboxNotConfiguredWhenOnlyXrayInboundExists(t *testing.T) {
+	store := &mockStore{inbounds: []db.Inbound{{
+		ID: 1, Protocol: "vless", Enabled: true,
+		Clients: []db.Client{{ID: 2, StatsKey: "c_xray", Enabled: true}},
+	}}}
+	xrayClient := &mockStatsClient{err: errors.New("xray stats offline")}
+	scheduler := NewTrafficSyncSchedulerWithSingboxConfig(store, xrayClient, singbox.NewDisabledStatsClient("not_configured", ""), nil, time.Minute)
+
+	scheduler.sync()
+
+	for _, marker := range store.scopeStatus {
+		if marker.Engine == "singbox" {
+			t.Fatalf("only xray inbound should not receive singbox marker, got %+v", store.scopeStatus)
+		}
+	}
+	if len(store.unavail) != 2 {
+		t.Fatalf("expected xray unavailable and singbox not_configured engine markers, got %+v", store.unavail)
+	}
+	foundSingboxNotConfigured := false
+	for _, marker := range store.unavail {
+		if marker.Engine == "singbox" && marker.Status == "not_configured" {
+			foundSingboxNotConfigured = true
+		}
+		if marker.Engine == "singbox" && marker.Status == "unavailable" {
+			t.Fatalf("singbox should remain not_configured, got %+v", store.unavail)
+		}
+	}
+	if !foundSingboxNotConfigured {
+		t.Fatalf("expected singbox engine marker to remain not_configured, got %+v", store.unavail)
 	}
 }

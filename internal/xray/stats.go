@@ -191,7 +191,7 @@ func (c *ResilientStatsClient) QueryTrafficStats(ctx context.Context) ([]Traffic
 		log.Printf("traffic sync: xray stats unavailable, will retry: %v", err)
 		c.lastUnavailableLog = time.Now()
 	}
-	return c.fallback.QueryTrafficStats(ctx)
+	return nil, err
 }
 
 func (c *ResilientStatsClient) Close() error {

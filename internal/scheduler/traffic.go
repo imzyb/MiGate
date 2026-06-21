@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -109,9 +110,20 @@ func (s *TrafficSyncScheduler) sync() {
 		stats, err := s.statsClient.QueryTrafficStats(ctx)
 		if err != nil {
 			log.Printf("traffic sync: failed to query xray stats: %v", err)
+			if markers, refreshed := s.xrayTrafficStatusMarkers(ctx, nil, "unavailable", err.Error(), false); refreshed && len(markers) > 0 {
+				if err := s.store.MarkTrafficScopeStatus(ctx, markers, observedAt); err != nil {
+					log.Printf("traffic sync: failed to apply xray unavailable markers: %v", err)
+				}
+			}
 			_ = s.store.MarkTrafficUnavailable(ctx, "xray", "unavailable", err.Error(), observedAt)
 		} else {
-			rawStats = append(rawStats, convertRawStats(stats)...)
+			xrayRawStats := convertRawStats(stats)
+			if markers, refreshed := s.xrayTrafficStatusMarkers(ctx, xrayRawStats, "waiting", "waiting for traffic sample", false); refreshed && len(markers) > 0 {
+				if err := s.store.MarkTrafficScopeStatus(ctx, markers, observedAt); err != nil {
+					log.Printf("traffic sync: failed to apply xray waiting markers: %v", err)
+				}
+			}
+			rawStats = append(rawStats, xrayRawStats...)
 		}
 	}
 	if s.singboxStatsClient != nil {
@@ -138,6 +150,15 @@ func (s *TrafficSyncScheduler) sync() {
 			stats, err := client.QueryTrafficStats(ctx)
 			if err != nil {
 				log.Printf("traffic sync: failed to query sing-box stats: %v", err)
+				inbounds, refreshed := s.currentSingboxInbounds(ctx)
+				if refreshed && len(inbounds) > 0 {
+					markers := singboxTrafficStatusMarkersForScopes(inbounds, "unavailable", err.Error(), false)
+					if len(markers) > 0 {
+						if err := s.store.MarkTrafficScopeStatus(ctx, markers, observedAt); err != nil {
+							log.Printf("traffic sync: failed to apply sing-box unavailable markers: %v", err)
+						}
+					}
+				}
 				_ = s.store.MarkTrafficUnavailable(ctx, "singbox", "unavailable", err.Error(), observedAt)
 			} else {
 				rawStats = append(rawStats, convertRawStats(stats)...)
@@ -210,14 +231,90 @@ func (s *TrafficSyncScheduler) refreshDisabledSingboxStatsClient(ctx context.Con
 	return client
 }
 
+func (s *TrafficSyncScheduler) xrayTrafficStatusMarkers(ctx context.Context, observed []db.TrafficRawStat, status, message string, includeInbounds bool) ([]db.TrafficStatusMarker, bool) {
+	store, ok := s.store.(inboundStore)
+	if !ok {
+		return nil, false
+	}
+	inbounds, err := store.ListInbounds(ctx)
+	if err != nil {
+		log.Printf("traffic sync: failed to refresh xray inbounds: %v", err)
+		return nil, false
+	}
+	return xrayMissingTrafficStatusMarkers(inbounds, observed, status, message, includeInbounds), true
+}
+
+func xrayMissingTrafficStatusMarkers(inbounds []db.Inbound, observed []db.TrafficRawStat, status, message string, includeInbounds bool) []db.TrafficStatusMarker {
+	seen := map[string]map[string]bool{}
+	for _, stat := range observed {
+		if normalizeTrafficToken(stat.Engine) != "xray" {
+			continue
+		}
+		scopeType := normalizeTrafficToken(stat.ScopeType)
+		scopeKey := strings.TrimSpace(stat.ScopeKey)
+		if scopeType == "" || scopeKey == "" {
+			continue
+		}
+		byKey := seen[scopeType]
+		if byKey == nil {
+			byKey = map[string]bool{}
+			seen[scopeType] = byKey
+		}
+		byKey[scopeKey] = true
+	}
+	markers := []db.TrafficStatusMarker{}
+	for _, inbound := range inbounds {
+		if !inbound.Enabled || db.InboundCore(inbound) != db.CoreXray {
+			continue
+		}
+		if includeInbounds {
+			inboundKey := db.GeneratedInboundTag(inbound)
+			if inboundKey != "" && !seen["inbound"][inboundKey] {
+				markers = append(markers, db.TrafficStatusMarker{Engine: "xray", ScopeType: "inbound", ScopeKey: inboundKey, Status: status, Message: message})
+			}
+		}
+		for _, client := range inbound.Clients {
+			if !client.Enabled {
+				continue
+			}
+			clientKey := strings.TrimSpace(client.StatsKey)
+			if clientKey == "" {
+				clientKey = strings.TrimSpace(client.Email)
+			}
+			if clientKey == "" {
+				continue
+			}
+			if seen["client"][clientKey] {
+				continue
+			}
+			markers = append(markers, db.TrafficStatusMarker{Engine: "xray", ScopeType: "client", ScopeKey: clientKey, Status: status, Message: message})
+		}
+	}
+	return markers
+}
+
+func normalizeTrafficToken(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "sing-box" {
+		return "singbox"
+	}
+	return value
+}
+
 func singboxTrafficStatusMarkers(inbounds []db.Inbound, status, message string) []db.TrafficStatusMarker {
+	return singboxTrafficStatusMarkersForScopes(inbounds, status, message, true)
+}
+
+func singboxTrafficStatusMarkersForScopes(inbounds []db.Inbound, status, message string, includeInbounds bool) []db.TrafficStatusMarker {
 	markers := []db.TrafficStatusMarker{}
 	for _, inbound := range inbounds {
 		if !inbound.Enabled || !singbox.IsSingboxProtocol(inbound.Protocol) {
 			continue
 		}
-		inboundKey := singbox.InboundStatsTag(inbound)
-		markers = append(markers, db.TrafficStatusMarker{Engine: "singbox", ScopeType: "inbound", ScopeKey: inboundKey, Status: status, Message: message})
+		if includeInbounds {
+			inboundKey := singbox.InboundStatsTag(inbound)
+			markers = append(markers, db.TrafficStatusMarker{Engine: "singbox", ScopeType: "inbound", ScopeKey: inboundKey, Status: status, Message: message})
+		}
 		for _, client := range inbound.Clients {
 			if !client.Enabled {
 				continue

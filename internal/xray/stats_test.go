@@ -91,6 +91,28 @@ func TestResilientStatsClientRetriesAfterInitialFailure(t *testing.T) {
 	}
 }
 
+func TestResilientStatsClientTrafficStatsReturnsPrimaryError(t *testing.T) {
+	primary := &flakyStatsClient{}
+	client := NewResilientStatsClient(primary, NewStubStatsClient())
+	defer client.Close()
+
+	first, err := client.QueryTrafficStats(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "not ready") {
+		t.Fatalf("first traffic query should return primary error, got stats=%#v err=%v", first, err)
+	}
+
+	second, err := client.QueryTrafficStats(context.Background())
+	if err != nil {
+		t.Fatalf("second traffic query should recover primary stats: %v", err)
+	}
+	if len(second) != 1 || second[0].ScopeKey != "sam@example.com" || second[0].Uplink != 100 || second[0].Downlink != 200 {
+		t.Fatalf("second traffic query did not recover live stats: %#v", second)
+	}
+	if primary.calls != 2 {
+		t.Fatalf("primary should be retried, got %d calls", primary.calls)
+	}
+}
+
 func TestClientStatsStruct(t *testing.T) {
 	stats := &ClientStats{
 		Email:    "test@example.com",

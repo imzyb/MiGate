@@ -119,9 +119,13 @@ func summarizeTrafficFromStates(states []db.TrafficState, inbounds []db.Inbound)
 			inboundSummary.Engine = inboundState.Engine
 			inboundSummary.LastSampledAt = inboundState.LastSeenAt
 		}
+		aggregatedClientState := false
+		clientAggregateStatus := ""
 		for _, client := range inbound.Clients {
 			clientSummary := clientTrafficSummary{Status: "waiting", Source: "migate", Engine: expectedEngine}
-			if state, ok := selectTrafficState(stateByScope["client\x00"+client.StatsKey], expectedEngine); ok {
+			clientKey := clientTrafficStatsKey(client)
+			if state, ok := selectTrafficState(stateByScope["client\x00"+clientKey], expectedEngine); ok {
+				aggregatedClientState = true
 				freshState := trafficStateWithFreshness(state, now)
 				clientSummary.Up = state.TotalUp
 				clientSummary.Down = state.TotalDown
@@ -140,23 +144,37 @@ func summarizeTrafficFromStates(states []db.TrafficState, inbounds []db.Inbound)
 				clientSummary.Down = client.Down
 				clientSummary.Status = "cumulative_only"
 			}
+			if client.Enabled {
+				clientAggregateStatus = combineTrafficStatuses(clientAggregateStatus, clientSummary.Status)
+			}
 			if !hasInboundState {
 				inboundSummary.Up += clientSummary.Up
 				inboundSummary.Down += clientSummary.Down
 				inboundSummary.RateUp += clientSummary.RateUp
 				inboundSummary.RateDown += clientSummary.RateDown
-				inboundSummary.Status = combineTrafficStatuses(inboundSummary.Status, clientSummary.Status)
 				inboundSummary.Engine = expectedEngine
 			}
 			byClient[client.ID] = clientSummary
 		}
+		if clientAggregateStatus != "" && !hasInboundState {
+			inboundSummary.Status = clientAggregateStatus
+		} else if clientAggregateStatus != "" {
+			inboundSummary.Status = combineTrafficStatuses(inboundSummary.Status, clientAggregateStatus)
+		}
 		inboundSummary.Total = inboundSummary.Up + inboundSummary.Down
-		if inboundSummary.Status == "waiting" && inboundSummary.Total > 0 {
+		if !hasInboundState && !aggregatedClientState && inboundSummary.Status == "waiting" && inboundSummary.Total > 0 {
 			inboundSummary.Status = "cumulative_only"
 		}
 		byInbound[inbound.ID] = inboundSummary
 	}
 	return byInbound, byClient
+}
+
+func clientTrafficStatsKey(client db.Client) string {
+	if key := strings.TrimSpace(client.StatsKey); key != "" {
+		return key
+	}
+	return strings.TrimSpace(client.Email)
 }
 
 func trafficStateWithFreshness(state db.TrafficState, now time.Time) db.TrafficState {
@@ -297,14 +315,22 @@ func stateStatus(state db.TrafficState) string {
 }
 
 func combineTrafficStatuses(current, next string) string {
-	if current == "" || current == "waiting" {
+	current = strings.TrimSpace(current)
+	next = strings.TrimSpace(next)
+	if current == "" {
 		return next
 	}
-	if next == "" || next == "waiting" || current == next {
+	if next == "" {
 		return current
 	}
-	if current == "ok" && next == "ok" {
-		return "ok"
+	if current == next {
+		return current
+	}
+	if current == "not_configured" {
+		return next
+	}
+	if next == "not_configured" {
+		return current
 	}
 	return "partial"
 }

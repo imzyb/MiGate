@@ -2833,6 +2833,234 @@ func TestTrafficAPIsKeepStoredSourceWhenStoredTrafficIsHigherThanRealtime(t *tes
 	}
 }
 
+func TestTrafficAPIsExposeConsistentPartialWaitingState(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	inbound, err := store.CreateInbound(ctx, db.CreateInboundParams{Remark: "xray-partial", Protocol: "vless", Port: 18447, Network: "tcp", Security: "none"})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	okClient, err := store.CreateClient(ctx, db.CreateClientParams{InboundID: inbound.ID, Email: "partial-ok@example.com"})
+	if err != nil {
+		t.Fatalf("create ok client: %v", err)
+	}
+	waitingClient, err := store.CreateClient(ctx, db.CreateClientParams{InboundID: inbound.ID, Email: "partial-waiting@example.com"})
+	if err != nil {
+		t.Fatalf("create waiting client: %v", err)
+	}
+	t0 := time.Now().UTC().Add(-2 * time.Minute).Truncate(time.Second)
+	raw := func(up, down int64) []db.TrafficRawStat {
+		return []db.TrafficRawStat{
+			{Engine: "xray", ScopeType: "client", ScopeKey: okClient.StatsKey, RawUp: up, RawDown: down, Status: "ok"},
+			{Engine: "xray", ScopeType: "client", ScopeKey: waitingClient.StatsKey, RawUp: up * 2, RawDown: down * 2, Status: "ok"},
+		}
+	}
+	if err := store.ApplyTrafficRawStats(ctx, raw(100, 200), t0); err != nil {
+		t.Fatalf("baseline traffic: %v", err)
+	}
+	if err := store.ApplyTrafficRawStats(ctx, raw(160, 260), t0.Add(time.Minute)); err != nil {
+		t.Fatalf("increment traffic: %v", err)
+	}
+	if err := store.MarkTrafficScopeStatus(ctx, []db.TrafficStatusMarker{
+		{Engine: "xray", ScopeType: "client", ScopeKey: waitingClient.StatsKey, Status: "waiting", Message: "waiting for traffic sample"},
+	}, t0.Add(2*time.Minute)); err != nil {
+		t.Fatalf("mark waiting: %v", err)
+	}
+
+	router := web.NewRouter(web.WithStore(store))
+	summary := httptest.NewRecorder()
+	router.ServeHTTP(summary, httptest.NewRequest(http.MethodGet, "/api/traffic/summary", nil))
+	if summary.Code != http.StatusOK {
+		t.Fatalf("summary 200, got %d: %s", summary.Code, summary.Body.String())
+	}
+	var summaryBody struct {
+		TotalUp   int64 `json:"total_up"`
+		TotalDown int64 `json:"total_down"`
+		Status    struct {
+			Overall string            `json:"overall"`
+			Engines map[string]string `json:"engines"`
+		} `json:"status"`
+	}
+	if err := json.NewDecoder(summary.Body).Decode(&summaryBody); err != nil {
+		t.Fatalf("decode summary: %v", err)
+	}
+	if summaryBody.TotalUp != 180 || summaryBody.TotalDown != 180 || summaryBody.Status.Overall != "partial" || summaryBody.Status.Engines["xray"] != "partial" {
+		t.Fatalf("unexpected summary payload: %+v", summaryBody)
+	}
+
+	refresh := httptest.NewRecorder()
+	router.ServeHTTP(refresh, httptest.NewRequest(http.MethodGet, "/api/inbounds?refresh=traffic", nil))
+	if refresh.Code != http.StatusOK {
+		t.Fatalf("refresh 200, got %d: %s", refresh.Code, refresh.Body.String())
+	}
+	refreshBody := refresh.Body.String()
+	for _, want := range []string{`"traffic_up":180`, `"traffic_down":180`, `"traffic_total":360`, `"traffic_status":"partial"`, fmt.Sprintf(`"%d":{"up":60,"down":60`, okClient.ID), `"status":"ok"`, fmt.Sprintf(`"%d":{"up":120,"down":120`, waitingClient.ID), `"status":"waiting"`} {
+		if !strings.Contains(refreshBody, want) {
+			t.Fatalf("refresh response missing %q: %s", want, refreshBody)
+		}
+	}
+
+	trafficInbounds := httptest.NewRecorder()
+	router.ServeHTTP(trafficInbounds, httptest.NewRequest(http.MethodGet, "/api/traffic/inbounds", nil))
+	if trafficInbounds.Code != http.StatusOK {
+		t.Fatalf("traffic inbounds 200, got %d: %s", trafficInbounds.Code, trafficInbounds.Body.String())
+	}
+	for _, want := range []string{`"total_up":180`, `"total_down":180`, `"total":360`, `"status":"partial"`} {
+		if !strings.Contains(trafficInbounds.Body.String(), want) {
+			t.Fatalf("traffic inbounds response missing %q: %s", want, trafficInbounds.Body.String())
+		}
+	}
+
+	trafficClients := httptest.NewRecorder()
+	router.ServeHTTP(trafficClients, httptest.NewRequest(http.MethodGet, "/api/traffic/clients", nil))
+	if trafficClients.Code != http.StatusOK {
+		t.Fatalf("traffic clients 200, got %d: %s", trafficClients.Code, trafficClients.Body.String())
+	}
+	for _, want := range []string{`"total_up":60`, `"total_down":60`, `"status":"ok"`, `"total_up":120`, `"total_down":120`, `"status":"waiting"`} {
+		if !strings.Contains(trafficClients.Body.String(), want) {
+			t.Fatalf("traffic clients response missing %q: %s", want, trafficClients.Body.String())
+		}
+	}
+
+	stats := httptest.NewRecorder()
+	router.ServeHTTP(stats, httptest.NewRequest(http.MethodGet, "/api/stats?detail=1", nil))
+	if stats.Code != http.StatusOK {
+		t.Fatalf("stats detail 200, got %d: %s", stats.Code, stats.Body.String())
+	}
+	for _, want := range []string{`"traffic_up":180`, `"traffic_down":180`, `"traffic_total":360`, `"traffic_status":"ok"`, `"traffic_status":"waiting"`} {
+		if !strings.Contains(stats.Body.String(), want) {
+			t.Fatalf("stats detail response missing %q: %s", want, stats.Body.String())
+		}
+	}
+}
+
+func TestTrafficAPIsExposeUnavailableStateAfterXrayQueryFailure(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	inbound, err := store.CreateInbound(ctx, db.CreateInboundParams{Remark: "xray-unavailable", Protocol: "vless", Port: 18449, Network: "tcp", Security: "none"})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	client, err := store.CreateClient(ctx, db.CreateClientParams{InboundID: inbound.ID, Email: "unavailable@example.com"})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	if err := store.MarkTrafficScopeStatus(ctx, []db.TrafficStatusMarker{
+		{Engine: "xray", ScopeType: "inbound", ScopeKey: db.GeneratedInboundTag(inbound), Status: "unavailable", Message: "xray stats offline"},
+		{Engine: "xray", ScopeType: "client", ScopeKey: client.StatsKey, Status: "unavailable", Message: "xray stats offline"},
+	}, time.Now().UTC()); err != nil {
+		t.Fatalf("mark unavailable: %v", err)
+	}
+
+	router := web.NewRouter(web.WithStore(store))
+	summary := httptest.NewRecorder()
+	router.ServeHTTP(summary, httptest.NewRequest(http.MethodGet, "/api/traffic/summary", nil))
+	if summary.Code != http.StatusOK {
+		t.Fatalf("summary 200, got %d: %s", summary.Code, summary.Body.String())
+	}
+	var summaryBody struct {
+		Status struct {
+			Overall string            `json:"overall"`
+			Engines map[string]string `json:"engines"`
+		} `json:"status"`
+	}
+	if err := json.NewDecoder(summary.Body).Decode(&summaryBody); err != nil {
+		t.Fatalf("decode summary: %v", err)
+	}
+	if summaryBody.Status.Overall != "unavailable" || summaryBody.Status.Engines["xray"] != "unavailable" || summaryBody.Status.Engines["singbox"] != "not_configured" {
+		t.Fatalf("unexpected summary unavailable coverage: %+v", summaryBody.Status)
+	}
+
+	refresh := httptest.NewRecorder()
+	router.ServeHTTP(refresh, httptest.NewRequest(http.MethodGet, "/api/inbounds?refresh=traffic", nil))
+	if refresh.Code != http.StatusOK {
+		t.Fatalf("refresh 200, got %d: %s", refresh.Code, refresh.Body.String())
+	}
+	type refreshClientTraffic struct {
+		Up      int64  `json:"up"`
+		Down    int64  `json:"down"`
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	}
+	type refreshInboundTraffic struct {
+		ID             int64                          `json:"id"`
+		TrafficUp      int64                          `json:"traffic_up"`
+		TrafficDown    int64                          `json:"traffic_down"`
+		TrafficTotal   int64                          `json:"traffic_total"`
+		TrafficStatus  string                         `json:"traffic_status"`
+		TrafficMessage string                         `json:"traffic_message"`
+		ClientTraffic  map[int64]refreshClientTraffic `json:"client_traffic"`
+	}
+	var refreshBody struct {
+		Inbounds []refreshInboundTraffic `json:"inbounds"`
+	}
+	if err := json.NewDecoder(refresh.Body).Decode(&refreshBody); err != nil {
+		t.Fatalf("decode refresh response: %v", err)
+	}
+	var refreshInbound *refreshInboundTraffic
+	for i := range refreshBody.Inbounds {
+		if refreshBody.Inbounds[i].ID == inbound.ID {
+			refreshInbound = &refreshBody.Inbounds[i]
+			break
+		}
+	}
+	if refreshInbound == nil {
+		t.Fatalf("refresh response missing inbound %d: %+v", inbound.ID, refreshBody.Inbounds)
+	}
+	if refreshInbound.TrafficUp != 0 || refreshInbound.TrafficDown != 0 || refreshInbound.TrafficTotal != 0 || refreshInbound.TrafficStatus != "unavailable" || refreshInbound.TrafficMessage != "xray stats offline" {
+		t.Fatalf("unexpected refresh inbound traffic: %+v", *refreshInbound)
+	}
+	refreshClient, ok := refreshInbound.ClientTraffic[client.ID]
+	if !ok {
+		t.Fatalf("refresh response missing client traffic %d: %+v", client.ID, refreshInbound.ClientTraffic)
+	}
+	if refreshClient.Up != 0 || refreshClient.Down != 0 || refreshClient.Status != "unavailable" || refreshClient.Message != "xray stats offline" {
+		t.Fatalf("unexpected refresh client traffic: %+v", refreshClient)
+	}
+
+	trafficClients := httptest.NewRecorder()
+	router.ServeHTTP(trafficClients, httptest.NewRequest(http.MethodGet, "/api/traffic/clients", nil))
+	if trafficClients.Code != http.StatusOK {
+		t.Fatalf("traffic clients 200, got %d: %s", trafficClients.Code, trafficClients.Body.String())
+	}
+	type trafficClientPayload struct {
+		ID        int64  `json:"id"`
+		InboundID int64  `json:"inbound_id"`
+		TotalUp   int64  `json:"total_up"`
+		TotalDown int64  `json:"total_down"`
+		Total     int64  `json:"total"`
+		Status    string `json:"status"`
+		Message   string `json:"message"`
+	}
+	var clientsBody struct {
+		Clients []trafficClientPayload `json:"clients"`
+	}
+	if err := json.NewDecoder(trafficClients.Body).Decode(&clientsBody); err != nil {
+		t.Fatalf("decode traffic clients response: %v", err)
+	}
+	var trafficClient *trafficClientPayload
+	for i := range clientsBody.Clients {
+		if clientsBody.Clients[i].ID == client.ID {
+			trafficClient = &clientsBody.Clients[i]
+			break
+		}
+	}
+	if trafficClient == nil {
+		t.Fatalf("traffic clients response missing client %d: %+v", client.ID, clientsBody.Clients)
+	}
+	if trafficClient.InboundID != inbound.ID || trafficClient.TotalUp != 0 || trafficClient.TotalDown != 0 || trafficClient.Total != 0 || trafficClient.Status != "unavailable" || trafficClient.Message != "xray stats offline" {
+		t.Fatalf("unexpected traffic client payload: %+v", *trafficClient)
+	}
+}
+
 func TestTrafficSeriesAPIUsesTrafficSamples(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
