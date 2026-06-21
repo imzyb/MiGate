@@ -1499,8 +1499,8 @@ func TestStoreAutoAssignsInboundPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create first auto-port inbound: %v", err)
 	}
-	if first.Port < 20000 || first.Port > 60999 {
-		t.Fatalf("expected auto-assigned high port, got %+v", first)
+	if first.Port < 20000 || first.Port > 60000 {
+		t.Fatalf("expected auto-assigned port in range 20000-60000, got %+v", first)
 	}
 
 	second, err := store.CreateInbound(context.Background(), db.CreateInboundParams{
@@ -1511,6 +1511,26 @@ func TestStoreAutoAssignsInboundPort(t *testing.T) {
 	}
 	if second.Port == first.Port {
 		t.Fatalf("auto-assigned duplicate port: first=%+v second=%+v", first, second)
+	}
+	if second.Port < 20000 || second.Port > 60000 {
+		t.Fatalf("expected second auto-assigned port in range 20000-60000, got %+v", second)
+	}
+
+	seen := map[int]bool{first.Port: true, second.Port: true}
+	for i := 0; i < 8; i++ {
+		inbound, err := store.CreateInbound(context.Background(), db.CreateInboundParams{
+			Remark: fmt.Sprintf("auto-extra-%d", i), Protocol: "trojan", Port: 0, Network: "tcp", Security: "tls",
+		})
+		if err != nil {
+			t.Fatalf("create extra auto-port inbound %d: %v", i, err)
+		}
+		if inbound.Port < 20000 || inbound.Port > 60000 {
+			t.Fatalf("expected extra auto-assigned port in range 20000-60000, got %+v", inbound)
+		}
+		if seen[inbound.Port] {
+			t.Fatalf("auto-assigned duplicate port %d after ports %+v", inbound.Port, seen)
+		}
+		seen[inbound.Port] = true
 	}
 }
 

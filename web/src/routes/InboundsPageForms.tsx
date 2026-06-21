@@ -358,7 +358,7 @@ export function InboundModal({ inbound, onClose, onSaved }: { inbound: Inbound |
                 <section className="inbound-config-section client-config-section">
                   <div className="form-section-heading">
                     <div>
-                      <div className="form-section-kicker">{text('默认客户端')}</div>
+                      <div className="form-section-kicker">{text('首个客户端')}</div>
                       <h3>{text('保存后即可连接')}</h3>
                     </div>
                     <div className="form-section-summary">{text(createClientWithNode ? '将同时创建' : '仅创建节点')}</div>
@@ -366,7 +366,7 @@ export function InboundModal({ inbound, onClose, onSaved }: { inbound: Inbound |
                   <div className={createClientWithNode ? 'client-create-card active' : 'client-create-card'}>
                     <div>
                       <strong>{text('同时创建客户端')}</strong>
-                      <span>{text(createClientWithNode ? '生成默认客户端，之后可在节点卡片复制链接或二维码。' : '之后可在节点卡片中手动新增客户端。')}</span>
+                      <span>{text(createClientWithNode ? '生成首个客户端，之后可在节点卡片复制链接或二维码。' : '之后可在节点卡片中手动新增客户端。')}</span>
                     </div>
                     <label className="switch-field">
                       <input type="checkbox" checked={createClientWithNode} onChange={(event) => setCreateClientWithNode(event.target.checked)} />
@@ -390,7 +390,9 @@ export function InboundModal({ inbound, onClose, onSaved }: { inbound: Inbound |
                           </select>
                         </Field>
                         {clientForm.watch('expiry_mode') === 'custom' ? <Field label={text('自定义到期日期')}><input type="date" {...clientForm.register('expiry_date')} /></Field> : null}
-                        <label className="checkbox-field"><input type="checkbox" {...clientForm.register('enabled')} /> {text('已启用')}</label>
+                        <Field label={text('状态')}>
+                          <SwitchField checked={clientForm.watch('enabled') ?? true} inputProps={clientForm.register('enabled')} text={text} />
+                        </Field>
                       </div>
                       <div className="credential-summary-panel">
                         <div>
@@ -688,7 +690,9 @@ export function ClientModal({ inbound, client, onClose, onSaved }: { inbound: In
           <div className="form-section-summary">{text(form.watch('enabled') ? '已启用' : '已停用')}</div>
         </div>
         <Field label={text('客户端名称')}><input {...form.register('email')} /><FieldError message={form.formState.errors.email?.message ? text(form.formState.errors.email.message) : undefined} /></Field>
-        <label className="checkbox-field"><input type="checkbox" {...form.register('enabled')} /> {text('已启用')}</label>
+        <Field label={text('状态')}>
+          <SwitchField checked={form.watch('enabled') ?? true} inputProps={form.register('enabled')} text={text} />
+        </Field>
         <div className="form-section-heading span-2">
           <div>
             <div className="form-section-kicker">{text('用量与到期')}</div>
@@ -809,6 +813,16 @@ function SelectField({ formRegister, options }: { formRegister: UseFormRegisterR
     <select {...formRegister}>
       {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
+  );
+}
+
+function SwitchField({ checked, inputProps, text }: { checked: boolean; inputProps: UseFormRegisterReturn; text: (value: string) => string }) {
+  return (
+    <span className="toggle-switch-field">
+      <input type="checkbox" {...inputProps} />
+      <span className="toggle-switch-track" aria-hidden="true"><span /></span>
+      <strong>{text(checked ? '已启用' : '已停用')}</strong>
+    </span>
   );
 }
 

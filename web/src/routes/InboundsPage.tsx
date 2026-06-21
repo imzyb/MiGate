@@ -1105,7 +1105,7 @@ export function clientFormValues(inbound: Inbound, client?: Client): ClientValue
 
 export function defaultClientName(inboundRemark?: string) {
   const remark = String(inboundRemark || '').trim();
-  return remark ? `${remark} 默认客户端` : '默认客户端';
+  return remark ? `${remark} 首个客户端` : '首个客户端';
 }
 
 export function buildClientPayload(values: ClientValues, protocol = 'vless'): { email: string; uuid: string; credential_id: string; password: string; enabled: boolean; traffic_limit: number; expiry_at: number } {

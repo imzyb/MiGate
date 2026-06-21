@@ -507,7 +507,7 @@ describe('inbound payload helpers', () => {
     const created = buildFullInboundPayload(null, values, client);
     const updated = buildFullInboundPayload(existing, values, client);
 
-    expect(created.initial_client).toMatchObject({ email: '默认客户端', enabled: true });
+    expect(created.initial_client).toMatchObject({ email: '首个客户端', enabled: true });
     expect(updated).not.toHaveProperty('initial_client');
   });
 
@@ -527,8 +527,8 @@ describe('inbound payload helpers', () => {
     const inbound = createDefaultInbound();
     const values = clientFormValues(inbound);
 
-    expect(values.email).toBe('默认客户端');
-    expect(buildClientPayload(values, inbound.protocol).email).toBe('默认客户端');
+    expect(values.email).toBe('首个客户端');
+    expect(buildClientPayload(values, inbound.protocol).email).toBe('首个客户端');
   });
 
   it('normalizes blank inbound ports to zero for backend auto-assignment', () => {

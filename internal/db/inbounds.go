@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net"
 	"strings"
 	"time"
@@ -17,7 +18,7 @@ import (
 
 const (
 	autoInboundPortMin = 20000
-	autoInboundPortMax = 60999
+	autoInboundPortMax = 60000
 )
 
 func (s *Store) CreateInbound(ctx context.Context, params CreateInboundParams) (Inbound, error) {
@@ -944,7 +945,14 @@ LIMIT 1
 }
 
 func (s *Store) allocateInboundPort(ctx context.Context, excludeID int64) (int, error) {
-	for port := autoInboundPortMin; port <= autoInboundPortMax; port++ {
+	portCount := autoInboundPortMax - autoInboundPortMin + 1
+	offset, err := rand.Int(rand.Reader, big.NewInt(int64(portCount)))
+	if err != nil {
+		return 0, err
+	}
+	start := int(offset.Int64())
+	for step := 0; step < portCount; step++ {
+		port := autoInboundPortMin + (start+step)%portCount
 		if _, ok, err := s.FindInboundByPort(ctx, port, excludeID); err != nil {
 			return 0, err
 		} else if ok {
