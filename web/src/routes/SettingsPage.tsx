@@ -472,6 +472,7 @@ export function toggleID(ids: number[], id: number) {
 }
 
 type CertificateWorkspace = 'acme' | 'import' | 'apply';
+type CertificateDetailWorkspace = 'details' | 'bindings' | 'history';
 
 function PanelSettingsCard({
   form,
@@ -895,17 +896,30 @@ function ApplyWorkspace({ selectedCertificate, selectedInboundIds, tlsInbounds, 
 }
 
 function CertificateDetails({ certificate, operations, loading, text }: { certificate?: ManagedCertificate; operations: CertificateOperation[]; loading: boolean; text: (value: string) => string }) {
+  const [workspace, setWorkspace] = useState<CertificateDetailWorkspace>('details');
   if (!certificate) {
-    return <div className="rounded-md border border-panel-line bg-panel-soft p-4"><EmptyState title={text('未选择证书')} description={text('选择左侧证书后查看路径、指纹、绑定和操作记录。')} /></div>;
+    return <div className="certificate-detail-panel rounded-md border border-panel-line bg-panel-soft p-4"><EmptyState title={text('未选择证书')} description={text('选择左侧证书后查看路径、指纹、绑定和操作记录。')} /></div>;
   }
   const boundInbounds = certificate.usages || [];
+  const title = workspace === 'details' ? '证书详情' : workspace === 'bindings' ? '绑定的入站' : '最近操作记录';
   return (
-    <aside className="grid min-w-0 gap-4">
-      <section className="rounded-md border border-panel-line bg-panel-soft p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm font-semibold text-panel-text">{text('证书详情')}</div>
-          <span className={`rounded border px-2 py-0.5 text-xs ${certificateStatusTone(certificate.status)}`}>{text(certificateStatusLabel(certificate.status))}</span>
+    <aside className="certificate-detail-panel min-w-0 rounded-md border border-panel-line bg-panel-soft p-4">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-panel-text">{text(title)}</div>
+          <div className="mt-1 max-w-full break-all text-xs text-panel-muted">{certificate.domains?.join(', ') || certificate.name || `#${certificate.id}`}</div>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded border px-2 py-0.5 text-xs ${certificateStatusTone(certificate.status)}`}>{text(certificateStatusLabel(certificate.status))}</span>
+          <div className="segmented-control" aria-label={text('证书信息类型')}>
+            <button type="button" className={workspace === 'details' ? 'active' : ''} title={text('证书详情')} onClick={() => setWorkspace('details')}><FileKey2 className="h-4 w-4" /></button>
+            <button type="button" className={workspace === 'bindings' ? 'active' : ''} title={text('绑定的入站')} onClick={() => setWorkspace('bindings')}><Link2 className="h-4 w-4" /></button>
+            <button type="button" className={workspace === 'history' ? 'active' : ''} title={text('最近操作记录')} onClick={() => setWorkspace('history')}><Clock3 className="h-4 w-4" /></button>
+          </div>
+        </div>
+      </div>
+
+      {workspace === 'details' ? (
         <div className="grid gap-2 text-xs text-panel-muted">
           <DetailLine label={text('cert_path')} value={certificate.cert_path} />
           <DetailLine label={text('key_path')} value={certificate.key_path} />
@@ -914,9 +928,9 @@ function CertificateDetails({ certificate, operations, loading, text }: { certif
           <DetailLine label={text('到期时间')} value={formatDate(certificate.not_after)} />
           {certificate.last_error ? <DetailLine label={text('最后错误')} value={certificate.last_error} tone="error" /> : null}
         </div>
-      </section>
-      <section className="rounded-md border border-panel-line bg-panel-soft p-4">
-        <div className="mb-3 text-sm font-semibold text-panel-text">{text('绑定的入站')}</div>
+      ) : null}
+
+      {workspace === 'bindings' ? (
         <div className="grid gap-2">
           {boundInbounds.map((inbound) => (
             <div key={inbound.id} className="rounded border border-panel-line bg-panel-surface px-3 py-2 text-sm">
@@ -926,13 +940,11 @@ function CertificateDetails({ certificate, operations, loading, text }: { certif
           ))}
           {boundInbounds.length === 0 ? <div className="text-sm text-panel-muted">{text('暂无入站使用该证书')}</div> : null}
         </div>
-      </section>
-      <section className="rounded-md border border-panel-line bg-panel-soft p-4">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <div className="text-sm font-semibold text-panel-text">{text('最近操作记录')}</div>
-          {loading ? <span className="text-xs text-panel-muted">{text('加载中...')}</span> : null}
-        </div>
+      ) : null}
+
+      {workspace === 'history' ? (
         <div className="grid gap-2">
+          {loading ? <span className="text-xs text-panel-muted">{text('加载中...')}</span> : null}
           {operations.map((operation) => (
             <div key={operation.id} className="rounded border border-panel-line bg-panel-surface px-3 py-2 text-xs">
               <div className="flex flex-wrap items-center gap-2">
@@ -946,7 +958,7 @@ function CertificateDetails({ certificate, operations, loading, text }: { certif
           ))}
           {!loading && operations.length === 0 ? <div className="text-sm text-panel-muted">{text('暂无操作记录')}</div> : null}
         </div>
-      </section>
+      ) : null}
     </aside>
   );
 }

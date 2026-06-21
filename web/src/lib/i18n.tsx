@@ -850,6 +850,7 @@ const zhToEn: Record<string, string> = {
   '暂无可绑定的 TLS 入站': 'No TLS inbounds available for binding',
   '选择左侧证书后查看路径、指纹、绑定和操作记录。': 'Select a certificate on the left to view paths, fingerprints, bindings, and operations.',
   证书详情: 'Certificate details',
+  证书信息类型: 'Certificate info type',
   最后错误: 'Last error',
   绑定的入站: 'Bound inbounds',
   暂无入站使用该证书: 'No inbounds use this certificate',

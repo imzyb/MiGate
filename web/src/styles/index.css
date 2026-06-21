@@ -570,6 +570,19 @@ textarea:focus {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
 }
 
+.certificate-detail-panel {
+  align-self: start;
+}
+
+.certificate-detail-panel .segmented-control {
+  height: 36px;
+}
+
+.certificate-detail-panel .segmented-control button {
+  width: 30px;
+  height: 30px;
+}
+
 .inbound-card-grid {
   display: grid;
   gap: 16px;
