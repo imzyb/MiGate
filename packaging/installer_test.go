@@ -862,6 +862,8 @@ func TestInstallerSupportsNonInteractiveUpdateMode(t *testing.T) {
 		"--version)",
 		"check_update()",
 		"note_current_release_state",
+		"guard_default_latest_upgrade",
+		"compare_versions",
 		"normalize_version",
 		"install_release_flow",
 		"download_release_asset",
@@ -920,7 +922,7 @@ func TestInstallerUpdateFlowRewritesServiceBeforeRestart(t *testing.T) {
 	}
 }
 
-func TestInstallerUpdateFlowRefreshesServiceEvenWhenCurrent(t *testing.T) {
+func TestInstallerExplicitVersionUpdateFlowRefreshesServiceEvenWhenCurrent(t *testing.T) {
 	script := read(t, "packaging", "install.sh")
 	if strings.Contains(script, "if skip_update_if_current; then") {
 		t.Fatalf("update flow must not return before service and installer self-repair when already current")
@@ -949,6 +951,38 @@ func TestInstallerUpdateFlowRefreshesServiceEvenWhenCurrent(t *testing.T) {
 	}
 	if !(noteIdx < downloadIdx && downloadIdx < installIdx && installIdx < writeIdx && writeIdx < restartIdx) {
 		t.Fatalf("update flow must continue from current-version note through installer/service refresh before restart")
+	}
+}
+
+func TestInstallerDefaultLatestUpgradeRefusesNewerCurrentVersion(t *testing.T) {
+	env := newInstallerHarness(t, "newer-current")
+	result := env.runWithVersion(t, "latest")
+	if result.err == nil {
+		t.Fatalf("expected default latest upgrade to refuse newer current version\n%s", result.output)
+	}
+	if got := readFile(t, env.migateBin); !strings.Contains(got, "old migate") {
+		t.Fatalf("default latest guard must not replace newer local binary, got %q", got)
+	}
+	if !strings.Contains(result.output, "高于最新发布版本") || strings.Contains(result.output, "Run: mg update") {
+		t.Fatalf("newer-current output missing clear refusal:\n%s", result.output)
+	}
+	status := readFile(t, env.updateStatusPath)
+	if !strings.Contains(status, `"status": "failed"`) || !strings.Contains(status, "不可执行默认 latest 升级") {
+		t.Fatalf("newer-current status missing refusal: %s", status)
+	}
+}
+
+func TestInstallerDryRunDefaultLatestUpgradeRefusesNewerCurrentVersion(t *testing.T) {
+	env := newInstallerHarness(t, "newer-current")
+	result := env.runWithArgs(t, "latest", "--dry-run")
+	if result.err != nil {
+		t.Fatalf("dry-run newer-current guard should exit successfully after preview refusal: %v\n%s", result.err, result.output)
+	}
+	if !strings.Contains(result.output, "高于最新发布版本") || !strings.Contains(result.output, "不可执行默认 latest 升级") {
+		t.Fatalf("dry-run newer-current output missing clear refusal:\n%s", result.output)
+	}
+	if strings.Contains(result.output, "下载 Release 包") || strings.Contains(result.output, "[DRY-RUN] install") {
+		t.Fatalf("dry-run newer-current guard must not preview download or replacement:\n%s", result.output)
 	}
 }
 
@@ -1478,7 +1512,7 @@ func newInstallerHarness(t *testing.T, scenario string) *installerHarness {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
-	writeExecutable(t, env.migateBin, "#!/usr/bin/env bash\ncase \"$1\" in version) echo 'MiGate version: v1.0.0' ;; hash-password) echo 'hashed-password' ;; ensure-management-direct) echo 'management direct defaults ensured' ;; *) echo 'old migate' ;; esac\n")
+	writeExecutable(t, env.migateBin, "#!/usr/bin/env bash\ncase \"$1\" in version) if [ \"${MIGATE_TEST_SCENARIO:-}\" = \"newer-current\" ]; then echo 'MiGate version: v2.1.0'; else echo 'MiGate version: v1.0.0'; fi ;; hash-password) echo 'hashed-password' ;; ensure-management-direct) echo 'management direct defaults ensured' ;; *) echo 'old migate' ;; esac\n")
 	writeExecutable(t, env.installerBin, "#!/usr/bin/env bash\necho old installer\n")
 	writeExecutable(t, env.uninstallerBin, "#!/usr/bin/env bash\necho old uninstaller\n")
 	if err := os.WriteFile(env.servicePath, []byte("[Service]\nExecStart=old-service\n"), 0644); err != nil {
@@ -1497,10 +1531,21 @@ func newInstallerHarness(t *testing.T, scenario string) *installerHarness {
 
 func (h *installerHarness) run(t *testing.T) installerRunResult {
 	t.Helper()
-	cmd := exec.Command("bash", filepath.Join(repoRoot(t), "packaging", "install.sh"), "--upgrade", "--yes")
+	return h.runWithVersion(t, "v2.0.0")
+}
+
+func (h *installerHarness) runWithVersion(t *testing.T, version string) installerRunResult {
+	t.Helper()
+	return h.runWithArgs(t, version)
+}
+
+func (h *installerHarness) runWithArgs(t *testing.T, version string, args ...string) installerRunResult {
+	t.Helper()
+	cmdArgs := append([]string{filepath.Join(repoRoot(t), "packaging", "install.sh"), "--upgrade", "--yes"}, args...)
+	cmd := exec.Command("bash", cmdArgs...)
 	cmd.Env = append(os.Environ(),
 		"PATH="+h.fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"MIGATE_VERSION=v2.0.0",
+		"MIGATE_VERSION="+version,
 		"MIGATE_REPO=local/MiGate",
 		"MIGATE_DATA_DIR="+h.dataDir,
 		"MIGATE_BACKUP_DIR="+h.backupDir,

@@ -77,6 +77,96 @@ func TestCheckReportsLatestRelease(t *testing.T) {
 	}
 }
 
+func TestCheckComparesSemanticVersions(t *testing.T) {
+	tests := []struct {
+		name            string
+		current         string
+		latest          string
+		updateAvailable bool
+		status          string
+		messageContains string
+	}{
+		{
+			name:            "current lower than latest",
+			current:         "MiGate version: v1.2.2",
+			latest:          "v1.2.3",
+			updateAvailable: true,
+			status:          "ok",
+		},
+		{
+			name:            "current equals latest",
+			current:         " 1.2.3 ",
+			latest:          "v1.2.3",
+			updateAvailable: false,
+			status:          "ok",
+			messageContains: "已是最新",
+		},
+		{
+			name:            "current higher than latest",
+			current:         "v1.3.5",
+			latest:          "v1.3.3",
+			updateAvailable: false,
+			status:          "ok",
+			messageContains: "高于最新发布版本",
+		},
+		{
+			name:            "unparseable current",
+			current:         "dev-build",
+			latest:          "v1.3.3",
+			updateAvailable: false,
+			status:          "unknown",
+			messageContains: "无法解析",
+		},
+		{
+			name:            "unparseable latest",
+			current:         "v1.3.3",
+			latest:          "release",
+			updateAvailable: false,
+			status:          "unknown",
+			messageContains: "无法解析",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := Service{
+				CheckURL: "https://example.test/latest",
+				HTTPDo: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Status:     "200 OK",
+						Body:       io.NopCloser(strings.NewReader(`{"tag_name":"` + tt.latest + `","html_url":"https://example.test/release","name":"Release"}`)),
+					}, nil
+				},
+			}
+			result, err := service.Check(context.Background(), tt.current)
+			if err != nil {
+				t.Fatalf("Check returned error: %v", err)
+			}
+			if result.UpdateAvailable != tt.updateAvailable || result.Status != tt.status {
+				t.Fatalf("unexpected result: %#v", result)
+			}
+			if tt.messageContains != "" && !strings.Contains(result.Message, tt.messageContains) {
+				t.Fatalf("message %q missing %q", result.Message, tt.messageContains)
+			}
+		})
+	}
+}
+
+func TestCompareMiGateVersionsNormalizesInputs(t *testing.T) {
+	cmp, ok := CompareMiGateVersions(" MiGate version: v1.2.3 ", "1.2.4")
+	if !ok || cmp >= 0 {
+		t.Fatalf("expected latest to be newer, cmp=%d ok=%v", cmp, ok)
+	}
+	cmp, ok = CompareMiGateVersions("v1.2.3", " 1.2.3 ")
+	if !ok || cmp != 0 {
+		t.Fatalf("expected versions to be equal, cmp=%d ok=%v", cmp, ok)
+	}
+	if _, ok := CompareMiGateVersions("dev", "v1.2.3"); ok {
+		t.Fatal("dev must not parse as a release version")
+	}
+}
+
 func TestCheckSkipsDevBuilds(t *testing.T) {
 	result, err := (Service{}).Check(context.Background(), "")
 	if err != nil {

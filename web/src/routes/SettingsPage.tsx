@@ -1123,6 +1123,7 @@ function SystemUpdateConsole({
   const currentVersion = version?.version || updateCheck?.current_version || updateStatus?.current_version || '-';
   const latestVersion = updateCheck?.latest_version || updateStatus?.target_version || '-';
   const failed = String(updateStatus?.status || '').toLowerCase() === 'failed';
+  const availabilitySub = updateAvailabilitySummary(updateCheck, text);
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1144,7 +1145,7 @@ function SystemUpdateConsole({
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <SummaryTile label={text('当前版本')} value={currentVersion} sub={text('本机运行版本')} />
         <SummaryTile label={text('最新版本')} value={latestVersion} sub={updateCheck?.release_name || text('等待检查')} />
-        <SummaryTile label={text('可更新')} value={text(updateCheck?.update_available ? '是' : '否')} sub={updateCheck?.status || text('检查后更新')} tone={updateCheck?.update_available ? 'normal' : 'normal'} />
+        <SummaryTile label={text('可更新')} value={text(updateCheck?.update_available ? '是' : '否')} sub={availabilitySub} tone={updateCheck?.update_available ? 'normal' : 'normal'} />
         <SummaryTile label={text('MiGate 服务')} value={text(serviceLabel(service?.status))} sub={service?.service || 'migate'} tone={service?.status && service.status !== 'running' ? 'error' : 'normal'} />
         <SummaryTile label={text('更新状态')} value={text(updateStatus?.status || 'idle')} sub={rollbackSummary(updateStatus, text)} tone={failed ? 'error' : 'normal'} />
       </div>
@@ -1217,6 +1218,11 @@ function certificateOperationTone(status?: string) {
 export function updatePrimaryAction(check?: Pick<UpdateCheck, 'update_available'>, status?: Pick<UpdateStatus, 'status'>): 'check' | 'update' {
   if (isUpdateInProgress(status?.status)) return 'update';
   return check?.update_available ? 'update' : 'check';
+}
+
+export function updateAvailabilitySummary(check: Pick<UpdateCheck, 'message' | 'status'> | undefined, text: (value: string) => string) {
+  if (!check) return text('检查后更新');
+  return check.message ? text(check.message) : check.status || text('检查后更新');
 }
 
 function rollbackSummary(status: UpdateStatus | undefined, text: (value: string) => string) {

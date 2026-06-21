@@ -56,7 +56,7 @@ func updateLogsHandler(cfg *routerConfig) http.HandlerFunc {
 	}
 }
 
-func updateHandler(version string) http.HandlerFunc {
+func updateHandler(cfg *routerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			methodNotAllowed(w)
@@ -65,7 +65,25 @@ func updateHandler(version string) http.HandlerFunc {
 		if _, ok := decodeCoreActionPayload(w, r); !ok {
 			return
 		}
-		response, status, started, err := updateService(version, "", "").Start(r.Context(), version)
+		service := updateService(cfg.version, cfg.updateCheckURL, "")
+		check, err := service.Check(r.Context(), cfg.version)
+		if err != nil {
+			writeServiceError(w, http.StatusBadGateway, err)
+			return
+		}
+		if !check.UpdateAvailable {
+			message := check.Message
+			if message == "" {
+				message = "当前版本不可执行默认 latest 升级"
+			}
+			WriteError(w, http.StatusConflict, APIError{
+				Code:    "update_not_available",
+				Message: message,
+				Fields:  map[string]interface{}{"status": check.Status},
+			}, nil)
+			return
+		}
+		response, status, started, err := service.Start(r.Context(), cfg.version)
 		if err != nil {
 			writeServiceError(w, http.StatusServiceUnavailable, err)
 			return

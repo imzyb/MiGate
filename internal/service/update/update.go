@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -145,7 +146,17 @@ func (s Service) Check(ctx context.Context, currentVersion string) (CheckRespons
 	result.ReleaseURL = strings.TrimSpace(release.HTMLURL)
 	result.ReleaseName = strings.TrimSpace(release.Name)
 	result.Status = "ok"
-	result.UpdateAvailable = latest != "" && NormalizeMiGateVersion(latest) != NormalizeMiGateVersion(current)
+	switch cmp, ok := CompareMiGateVersions(current, latest); {
+	case !ok:
+		result.Status = "unknown"
+		result.Message = "无法解析当前版本或最新发布版本，已跳过自动升级判断"
+	case cmp < 0:
+		result.UpdateAvailable = true
+	case cmp == 0:
+		result.Message = "当前版本已是最新发布版本"
+	default:
+		result.Message = "当前版本高于最新发布版本，不会执行默认升级"
+	}
 	return result, nil
 }
 
@@ -248,6 +259,45 @@ func NormalizeMiGateVersion(version string) string {
 	version = strings.TrimSpace(version)
 	version = strings.TrimPrefix(version, "v")
 	return version
+}
+
+var semanticVersionPattern = regexp.MustCompile(`^([0-9]+)\.([0-9]+)\.([0-9]+)$`)
+
+func CompareMiGateVersions(current, latest string) (int, bool) {
+	currentParts, ok := parseMiGateVersion(current)
+	if !ok {
+		return 0, false
+	}
+	latestParts, ok := parseMiGateVersion(latest)
+	if !ok {
+		return 0, false
+	}
+	for i := range currentParts {
+		if latestParts[i] > currentParts[i] {
+			return -1, true
+		}
+		if latestParts[i] < currentParts[i] {
+			return 1, true
+		}
+	}
+	return 0, true
+}
+
+func parseMiGateVersion(version string) ([3]int, bool) {
+	var parts [3]int
+	normalized := NormalizeMiGateVersion(version)
+	matches := semanticVersionPattern.FindStringSubmatch(normalized)
+	if matches == nil {
+		return parts, false
+	}
+	for i := range parts {
+		value, err := strconv.Atoi(matches[i+1])
+		if err != nil {
+			return parts, false
+		}
+		parts[i] = value
+	}
+	return parts, true
 }
 
 func (s Service) readLogs(lines string) (string, error) {

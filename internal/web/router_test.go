@@ -430,7 +430,13 @@ func TestRouterBasePathLoginPathAcceptsPostForCompatibility(t *testing.T) {
 }
 
 func TestUpdateAPIStartsInstallerUpdateWithoutBlockingResponse(t *testing.T) {
-	router := web.NewRouter()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tag_name":"v1.1.0","html_url":"https://github.com/imzyb/MiGate/releases/tag/v1.1.0","name":"v1.1.0"}`))
+	}))
+	defer upstream.Close()
+
+	router := web.NewRouter(web.WithVersion("v1.0.0"), web.WithUpdateCheckURL(upstream.URL))
 
 	get := httptest.NewRecorder()
 	router.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/api/update", nil))
@@ -457,6 +463,27 @@ func TestUpdateAPIStartsInstallerUpdateWithoutBlockingResponse(t *testing.T) {
 		if !strings.Contains(post.Body.String(), want) {
 			t.Fatalf("update response missing %q: %s", want, post.Body.String())
 		}
+	}
+}
+
+func TestUpdateAPIDoesNotStartDefaultLatestWhenCurrentIsNewer(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tag_name":"v1.3.3","html_url":"https://github.com/imzyb/MiGate/releases/tag/v1.3.3","name":"v1.3.3"}`))
+	}))
+	defer upstream.Close()
+
+	router := web.NewRouter(web.WithVersion("v1.3.5"), web.WithUpdateCheckURL(upstream.URL))
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/update", strings.NewReader(`{"confirm":true,"allow_system_changes":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusConflict {
+		t.Fatalf("expected POST /api/update conflict, got %d: %s", resp.Code, resp.Body.String())
+	}
+	assertStandardAPIError(t, resp.Body.Bytes(), "update_not_available")
+	if !strings.Contains(resp.Body.String(), "当前版本高于最新发布版本") {
+		t.Fatalf("expected newer-current message, got %s", resp.Body.String())
 	}
 }
 

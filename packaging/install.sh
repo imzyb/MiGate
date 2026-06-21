@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO="${MIGATE_REPO:-imzyb/MiGate}"
 VERSION="${MIGATE_VERSION:-latest}"
+REQUESTED_VERSION="$VERSION"
 INSTALL_DIR="${MIGATE_DATA_DIR:-${MIGATE_INSTALL_DIR:-/var/lib/migate}}"
 DATA_DIR="$INSTALL_DIR"
 VERSIONS_PATH="${MIGATE_VERSIONS_PATH:-/var/lib/migate/versions.json}"
@@ -712,6 +713,7 @@ parse_args() {
       --version)
         [ "$#" -ge 2 ] || { log_error "--version requires a value"; exit 2; }
         VERSION="$2"
+        REQUESTED_VERSION="$2"
         shift 2
         ;;
       -h|--help) usage; exit 0 ;;
@@ -739,7 +741,7 @@ release_base_url() {
 }
 
 latest_release_tag() {
-  curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name": "([^"]+)".*/\1/' || true
+  curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' || true
 }
 
 current_migate_version() {
@@ -747,7 +749,33 @@ current_migate_version() {
 }
 
 normalize_version() {
-  printf '%s' "$1" | sed -E 's/^MiGate version:[[:space:]]*//; s/^v//'
+  printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/^MiGate version:[[:space:]]*//; s/^v//'
+}
+
+parse_semver() {
+  local normalized
+  normalized="$(normalize_version "$1")"
+  if printf '%s' "$normalized" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+    printf '%s\n' "$normalized"
+    return 0
+  fi
+  return 1
+}
+
+compare_versions() {
+  local current latest
+  current="$(parse_semver "$1")" || return 2
+  latest="$(parse_semver "$2")" || return 2
+  awk -v current="$current" -v latest="$latest" '
+    BEGIN {
+      split(current, c, ".")
+      split(latest, l, ".")
+      for (i = 1; i <= 3; i++) {
+        if (l[i] + 0 > c[i] + 0) { print -1; exit }
+        if (l[i] + 0 < c[i] + 0) { print 1; exit }
+      }
+      print 0
+    }'
 }
 
 ensure_latest_release_version() {
@@ -764,19 +792,78 @@ ensure_latest_release_version() {
   log_info "解析最新 Release：${VERSION}"
 }
 
+guard_default_latest_upgrade() {
+  if [ "$ACTION" != "upgrade" ] || [ "$REQUESTED_VERSION" != "latest" ]; then
+    return 0
+  fi
+  local current latest cmp
+  current="$(current_migate_version)"
+  if [ -z "$current" ] || [ "$current" = "unknown" ]; then
+    if [ "$DRY_RUN" -eq 1 ]; then
+      log_warn "无法解析当前 MiGate 版本，dry-run 跳过默认 latest 升级保护预览。"
+      return 0
+    fi
+    log_warn "无法解析当前 MiGate 版本，已停止默认 latest 升级以避免误降级。"
+    return 1
+  fi
+  ensure_latest_release_version
+  latest="$VERSION"
+  if [ -z "$latest" ] || [ "$latest" = "unknown" ]; then
+    if [ "$DRY_RUN" -eq 1 ]; then
+      log_warn "无法解析最新 Release 版本，dry-run 跳过默认 latest 升级保护预览。"
+      return 0
+    fi
+    log_warn "无法解析最新 Release 版本，已停止默认 latest 升级以避免误降级。"
+    return 1
+  fi
+  cmp="$(compare_versions "$current" "$latest")" || {
+    log_warn "无法比较当前版本 ${current} 与最新发布版本 ${latest}，已停止默认 latest 升级。"
+    return 11
+  }
+  if [ "$cmp" -eq 0 ]; then
+    log_ok "MiGate 已是最新版本：${current}，不执行默认 latest 升级。"
+    return 10
+  fi
+  if [ "$cmp" -gt 0 ]; then
+    log_warn "当前版本 ${current} 高于最新发布版本 ${latest}，不可执行默认 latest 升级。"
+    return 11
+  fi
+  return 0
+}
+
+note_explicit_version_direction() {
+  if [ "$ACTION" != "upgrade" ] || [ "$REQUESTED_VERSION" = "latest" ]; then
+    return 0
+  fi
+  local current cmp
+  current="$(current_migate_version)"
+  if [ -z "$current" ] || [ "$current" = "unknown" ]; then
+    return 0
+  fi
+  cmp="$(compare_versions "$current" "$VERSION")" || return 0
+  if [ "$cmp" -gt 0 ]; then
+    log_warn "显式指定版本 ${VERSION} 低于当前版本 ${current}，将按用户指定执行降级。"
+  elif [ "$cmp" -eq 0 ]; then
+    log_ok "显式指定版本与当前版本一致：${current}，将刷新安装器和服务配置。"
+  fi
+}
+
 note_current_release_state() {
   if [ "$ACTION" != "upgrade" ] || [ "$DRY_RUN" -eq 1 ]; then
     return 0
   fi
-  local current latest
+  local current latest cmp
   current="$(current_migate_version)"
   if [ -z "$current" ] || [ "$current" = "unknown" ]; then
     return 0
   fi
   ensure_latest_release_version
   latest="$VERSION"
-  if [ -n "$latest" ] && [ "$(normalize_version "$current")" = "$(normalize_version "$latest")" ]; then
+  cmp="$(compare_versions "$current" "$latest")" || return 0
+  if [ "$cmp" -eq 0 ]; then
     log_ok "MiGate 已是最新版本：${current}，将刷新安装器和服务配置。"
+  elif [ "$REQUESTED_VERSION" != "latest" ] && [ "$cmp" -gt 0 ]; then
+    log_warn "显式指定版本 ${latest} 低于当前版本 ${current}，将按用户指定执行降级。"
   fi
 }
 
@@ -861,17 +948,25 @@ install_migate_binary_from_tmp() {
 }
 
 check_update() {
+  local current latest cmp
   latest="$(latest_release_tag)"
   current="$(current_migate_version)"
   [ -n "$current" ] || current="unknown"
   [ -n "$latest" ] || latest="unknown"
   echo "Current version: ${current}"
   echo "Latest version: ${latest}"
-  if [ "$(normalize_version "$current")" != "$(normalize_version "$latest")" ] && [ "$latest" != "unknown" ]; then
+  cmp="$(compare_versions "$current" "$latest")" || cmp="unknown"
+  if [ "$cmp" = "-1" ]; then
     echo "Update available: yes"
     echo "Run: mg update"
+  elif [ "$cmp" = "1" ]; then
+    echo "Update available: no"
+    echo "Current version is higher than the latest release; default latest update is disabled."
+  elif [ "$cmp" = "0" ]; then
+    echo "Update available: no"
   else
     echo "Update available: no"
+    echo "Unable to parse current or latest release version; update check is conservative."
   fi
 }
 
@@ -1827,6 +1922,27 @@ install_release_flow() {
   fi
 
   section "安装 MiGate"
+  if [ "$ACTION" = "upgrade" ]; then
+    set +e
+    guard_default_latest_upgrade
+    local guard_code="$?"
+    set -e
+    if [ "$guard_code" -eq 10 ]; then
+      if [ "$DRY_RUN" -eq 1 ]; then
+        return 0
+      fi
+      write_update_status "completed" "$(current_migate_version)" "$VERSION" "当前版本已是最新发布版本，未执行升级" "" false ""
+      return 0
+    fi
+    if [ "$guard_code" -ne 0 ]; then
+      if [ "$DRY_RUN" -eq 1 ]; then
+        return 0
+      fi
+      write_update_status "failed" "$(current_migate_version)" "$VERSION" "当前版本不可执行默认 latest 升级" "" false ""
+      return 1
+    fi
+    note_explicit_version_direction
+  fi
   note_current_release_state
   ensure_migate_user_group
   ensure_runtime_dirs

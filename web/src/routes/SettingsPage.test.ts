@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../api/client';
-import { certificateInventorySummary, certificateStatusLabel, certIssuePayload, certSettingsPayload, formatUpdateLogs, hasTLSCertificateBinding, inboundCertificateBindingStatus, isUpdateInProgress, isUpdateTerminal, parseDomains, preflightFromAPIError, settingsPayload, shouldClearInboundSelectionForActualCertificate, shouldClearInboundSelectionOnCertificateSelect, toggleID, updateDependencyRefetchInterval, updatePrimaryAction, updateStatusRefetchInterval, updateStatusSummaryKey } from './SettingsPage';
+import { certificateInventorySummary, certificateStatusLabel, certIssuePayload, certSettingsPayload, formatUpdateLogs, hasTLSCertificateBinding, inboundCertificateBindingStatus, isUpdateInProgress, isUpdateTerminal, parseDomains, preflightFromAPIError, settingsPayload, shouldClearInboundSelectionForActualCertificate, shouldClearInboundSelectionOnCertificateSelect, toggleID, updateAvailabilitySummary, updateDependencyRefetchInterval, updatePrimaryAction, updateStatusRefetchInterval, updateStatusSummaryKey } from './SettingsPage';
 
 describe('settings helpers', () => {
   it('sends an empty password to preserve the existing backend password', () => {
@@ -70,8 +70,10 @@ describe('settings helpers', () => {
     expect(updateStatusSummaryKey({ status: 'failed', rolled_back: true, rollback_status: 'restored' })).toBe('升级失败，已回滚，服务已恢复');
     expect(updateStatusSummaryKey({ status: 'failed', rolled_back: true, rollback_status: 'failed' })).toBe('');
     expect(updatePrimaryAction({ update_available: false }, { status: 'idle' })).toBe('check');
+    expect(updatePrimaryAction({ update_available: false }, undefined)).toBe('check');
     expect(updatePrimaryAction({ update_available: true }, { status: 'idle' })).toBe('update');
     expect(updatePrimaryAction({ update_available: false }, { status: 'installing' })).toBe('update');
+    expect(updateAvailabilitySummary({ status: 'ok', message: '当前版本高于最新发布版本，不会执行默认升级' }, (value) => value)).toBe('当前版本高于最新发布版本，不会执行默认升级');
   });
 
   it('formats update logs from API responses', () => {

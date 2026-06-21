@@ -171,7 +171,7 @@ func routeTable() []Route {
 		route(http.MethodGet, "/api/service/status", AuthRequired, CSRFNotRequired, "serviceStatusHandler", func(*routeDeps) http.HandlerFunc { return serviceStatusHandler() }),
 		route(http.MethodGet, "/api/version", AuthRequired, CSRFNotRequired, "versionHandler", func(d *routeDeps) http.HandlerFunc { return versionHandler(d.cfg.version) }),
 		route(http.MethodGet, "/api/update/check", AuthRequired, CSRFNotRequired, "updateCheckHandler", func(d *routeDeps) http.HandlerFunc { return updateCheckHandler(d.cfg) }),
-		route(http.MethodPost, "/api/update", AuthRequired, CSRFRequired, "updateHandler", func(d *routeDeps) http.HandlerFunc { return updateHandler(d.cfg.version) }),
+		route(http.MethodPost, "/api/update", AuthRequired, CSRFRequired, "updateHandler", func(d *routeDeps) http.HandlerFunc { return updateHandler(d.cfg) }),
 		route(http.MethodGet, "/api/update/status", AuthRequired, CSRFNotRequired, "updateStatusHandler", func(d *routeDeps) http.HandlerFunc { return updateStatusHandler(d.cfg) }),
 		route(http.MethodGet, "/api/update/logs", AuthRequired, CSRFNotRequired, "updateLogsHandler", func(d *routeDeps) http.HandlerFunc { return updateLogsHandler(d.cfg) }),
 	}
