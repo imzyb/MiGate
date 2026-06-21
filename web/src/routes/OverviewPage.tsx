@@ -62,12 +62,17 @@ export default function OverviewPage() {
         <Metric icon={Network} tone="teal" label={text('总流量')} value={trafficHidden ? trafficPlaceholder : formatBytes(traffic.total)} sub={trafficHidden ? trafficPlaceholderSub : `${formatBytes(traffic.total_up)} ↑ / ${formatBytes(traffic.total_down)} ↓`} />
         <Metric icon={Users} tone="blue" label={text('客户端')} value={String(counts.clients)} sub={`${counts.clients_active} ${text('活跃')} · ${counts.clients_expired} ${text('过期')} · ${counts.clients_limited} ${text('受限')}`} />
         <Metric icon={Shield} tone="emerald" label={text('入站')} value={String(counts.inbounds)} sub={`${counts.inbounds_enabled} ${text('已启用')}`} />
-        <Metric icon={Activity} tone="violet" label={text('当前速率')} value={trafficHidden ? trafficPlaceholder : `${formatBytes(traffic.rate_total)}/s`} sub={trafficHidden ? trafficPlaceholderSub : `${formatBytes(traffic.rate_up)}/s ↑ / ${formatBytes(traffic.rate_down)}/s ↓`} />
+        <Metric
+          icon={Activity}
+          tone={trafficLoading ? 'slate' : trafficUnavailable ? 'rose' : trafficStatusTone(trafficStatus?.overall)}
+          label={text('当前速率')}
+          value={trafficHidden ? trafficPlaceholder : `${formatBytes(traffic.rate_total)}/s`}
+          sub={trafficHidden ? trafficPlaceholderSub : trafficRateSummary(traffic.rate_up, traffic.rate_down, trafficStatus?.overall, trafficStatus?.engines, text)}
+        />
         <Metric icon={Network} tone="amber" label={text('出站')} value={String(counts.outbounds)} sub={`${counts.outbounds_enabled} ${text('已启用')}`} />
         <Metric icon={Activity} tone="slate" label={text('路由规则')} value={String(counts.routing_rules)} sub={`${counts.routing_enabled} ${text('已启用')}`} />
         <Metric icon={Activity} tone={xray.data?.status === 'running' ? 'emerald' : 'rose'} label="Xray" value={text(serviceLabel(xray.data?.status))} sub={text(versionLabel(xray.data?.version))} />
         <Metric icon={Activity} tone={singbox.data?.status === 'running' ? 'emerald' : 'rose'} label="sing-box" value={text(serviceLabel(singbox.data?.status))} sub={text(versionLabel(singbox.data?.version))} />
-        <Metric icon={Activity} tone={trafficLoading ? 'slate' : trafficUnavailable ? 'rose' : trafficStatusTone(trafficStatus?.overall)} label={text('统计状态')} value={trafficHidden ? trafficPlaceholder : trafficStatusLabel(trafficStatus?.overall, text)} sub={trafficHidden ? trafficPlaceholderSub : engineStatusSummary(trafficStatus?.engines, text)} />
       </div>
       <Card className="p-5">
         <h2 className="section-title mb-4">{text('最近生成状态')}</h2>
@@ -284,6 +289,15 @@ function trafficStatusTone(status: string | undefined): MetricTone {
 export function engineStatusSummary(engines: Record<string, string> | undefined, text: (value: string) => string) {
   if (!engines) return text('等待采样');
   return Object.entries(engines).map(([engine, status]) => `${engine}: ${trafficStatusLabel(status, text)}`).join(' · ');
+}
+
+export function trafficRateSummary(rateUp: number, rateDown: number, status: string | undefined, engines: Record<string, string> | undefined, text: (value: string) => string) {
+  const rate = `${formatBytes(rateUp)}/s ↑ / ${formatBytes(rateDown)}/s ↓`;
+  const statusLabel = trafficStatusLabel(status, text);
+  if (!status || status === 'ok') {
+    return `${rate} · ${statusLabel}`;
+  }
+  return `${rate} · ${statusLabel} · ${engineStatusSummary(engines, text)}`;
 }
 
 function refreshOverview(queries: Array<{ refetch: () => unknown }>) {

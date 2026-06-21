@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { engineStatusSummary, trafficStatusLabel, validationStatusLabel, validationSummary } from './OverviewPage';
+import { engineStatusSummary, trafficRateSummary, trafficStatusLabel, validationStatusLabel, validationSummary } from './OverviewPage';
 
 const text = (value: string) => value;
 
@@ -17,6 +17,11 @@ describe('OverviewPage traffic status labels', () => {
   it('distinguishes waiting and unavailable labels', () => {
     expect(trafficStatusLabel('waiting', text)).toBe('等待采样');
     expect(trafficStatusLabel('unavailable', text)).toBe('统计接口不可用');
+  });
+
+  it('folds traffic status into the current rate summary', () => {
+    expect(trafficRateSummary(1024, 2048, 'ok', { xray: 'ok' }, text)).toBe('1.0 KB/s ↑ / 2.0 KB/s ↓ · 统计正常');
+    expect(trafficRateSummary(0, 0, 'unavailable', { xray: 'unavailable', singbox: 'not_configured' }, text)).toBe('0 B/s ↑ / 0 B/s ↓ · 统计接口不可用 · xray: 统计接口不可用 · singbox: 未配置对应核心入站');
   });
 });
 
