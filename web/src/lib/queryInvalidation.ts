@@ -33,6 +33,10 @@ export function refreshCertificateApplyDependencies(queryClient: QueryClient) {
   invalidateQueryKeys(queryClient, [['cert-status'], ['certificates'], ['certificate-inbounds'], ['inbounds'], ['dashboard-summary']]);
 }
 
+export function refreshCertificateOperationDependencies(queryClient: QueryClient) {
+  invalidateQueryKeys(queryClient, [['certificate-operations']]);
+}
+
 export function refreshUpdateDependencies(queryClient: QueryClient) {
   invalidateQueryKeys(queryClient, [['update-status'], ['update-logs']]);
 }

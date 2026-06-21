@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { translateElement, translateText } from './i18n';
+import { createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { describe, expect, it, vi } from 'vitest';
+import { I18nProvider, translateElement, translateText } from './i18n';
 
 describe('i18n text translation', () => {
   it('keeps Chinese text in Chinese mode', () => {
@@ -82,5 +84,20 @@ describe('i18n text translation', () => {
     expect(host.firstChild?.textContent).toBe('Service status');
     expect(diagnostic.textContent).toBe('错误: /etc/migate/cert.pem 证书不可用');
     expect(diagnostic.title).toBe('错误详情');
+  });
+
+  it('does not install a DOM mutation observer for implicit page translation', () => {
+    const original = globalThis.MutationObserver;
+    const observer = vi.fn();
+    globalThis.MutationObserver = observer as never;
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      root.render(createElement(I18nProvider, null, createElement('div', null, '概览')));
+      expect(observer).not.toHaveBeenCalled();
+    } finally {
+      root.unmount();
+      globalThis.MutationObserver = original;
+    }
   });
 });

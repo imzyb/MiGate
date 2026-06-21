@@ -29,6 +29,8 @@ type countingSummaryStore struct {
 	listOutboundsErr        error
 	listRulesErr            error
 	listInboundsCalls       int
+	listInboundTrafficCalls int
+	validationHashCalls     int
 	listTrafficStatesCalls  int
 	listTrafficSamplesCalls int
 }
@@ -42,7 +44,19 @@ func (s *countingSummaryStore) ListInbounds(ctx context.Context) ([]db.Inbound, 
 }
 
 func (s *countingSummaryStore) ListInboundTraffic(ctx context.Context) ([]db.Inbound, error) {
-	return s.ListInbounds(ctx)
+	s.listInboundTrafficCalls++
+	if s.listInboundsErr != nil {
+		return nil, s.listInboundsErr
+	}
+	return s.inbounds, nil
+}
+
+func (s *countingSummaryStore) ValidationConfigHash(ctx context.Context) (string, error) {
+	s.validationHashCalls++
+	if s.listInboundsErr != nil {
+		return "", s.listInboundsErr
+	}
+	return (validationSnapshot{inbounds: s.inbounds, outbounds: s.outbounds, rules: s.rules}).cacheKey(), nil
 }
 
 func (s *countingSummaryStore) InboundExists(ctx context.Context, id int64) (bool, error) {
@@ -234,8 +248,8 @@ func TestTrafficViewCacheSharesInboundsAndStatesAcrossHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cached traffic view: %v", err)
 	}
-	if store.listInboundsCalls != 1 || store.listTrafficStatesCalls != 1 {
-		t.Fatalf("expected cache hit to avoid repeated scans, inbounds=%d states=%d", store.listInboundsCalls, store.listTrafficStatesCalls)
+	if store.listInboundTrafficCalls != 1 || store.listInboundsCalls != 0 || store.listTrafficStatesCalls != 1 {
+		t.Fatalf("expected cache hit to avoid repeated scans, traffic_inbounds=%d inbounds=%d states=%d", store.listInboundTrafficCalls, store.listInboundsCalls, store.listTrafficStatesCalls)
 	}
 	if first.trafficByInbound[1].Up != 10 || second.trafficByClient[10].Down != 20 {
 		t.Fatalf("unexpected cached traffic view: first=%+v second=%+v", first, second)
@@ -245,8 +259,8 @@ func TestTrafficViewCacheSharesInboundsAndStatesAcrossHandlers(t *testing.T) {
 	if _, err := cache.get(context.Background(), store); err != nil {
 		t.Fatalf("expired traffic view: %v", err)
 	}
-	if store.listInboundsCalls != 2 || store.listTrafficStatesCalls != 2 {
-		t.Fatalf("expected cache expiry to refresh scans, inbounds=%d states=%d", store.listInboundsCalls, store.listTrafficStatesCalls)
+	if store.listInboundTrafficCalls != 2 || store.listInboundsCalls != 0 || store.listTrafficStatesCalls != 2 {
+		t.Fatalf("expected cache expiry to refresh lightweight scans, traffic_inbounds=%d inbounds=%d states=%d", store.listInboundTrafficCalls, store.listInboundsCalls, store.listTrafficStatesCalls)
 	}
 }
 
@@ -411,7 +425,7 @@ func TestDashboardSummaryCacheHitsExpiresAndRetriesErrors(t *testing.T) {
 		}},
 		outbounds: []db.Outbound{{ID: 1, Tag: "direct", Protocol: "freedom", Enabled: true}},
 	}
-	cache := newDashboardSummaryCache(5 * time.Second)
+	cache := newDashboardSummaryCache(5*time.Second, 30*time.Second)
 	cfg := &routerConfig{store: store, singboxRuntime: fixedSingboxRuntime{capability: singbox.Capability{V2RayAPIStats: true, Checked: true}}}
 	now := time.Unix(100, 0)
 	cache.now = func() time.Time { return now }
@@ -424,8 +438,8 @@ func TestDashboardSummaryCacheHitsExpiresAndRetriesErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cached summary: %v", err)
 	}
-	if store.listInboundsCalls != 1 {
-		t.Fatalf("expected first build only before expiry, got %d ListInbounds calls", store.listInboundsCalls)
+	if store.listInboundsCalls != 1 || store.listInboundTrafficCalls != 1 || store.validationHashCalls != 1 {
+		t.Fatalf("expected first build to read hash, full validation, and lightweight summary once, full=%d light=%d hash=%d", store.listInboundsCalls, store.listInboundTrafficCalls, store.validationHashCalls)
 	}
 	if first["generated_at"] != second["generated_at"] {
 		t.Fatalf("expected cached generated_at to be reused: first=%v second=%v", first["generated_at"], second["generated_at"])
@@ -435,8 +449,8 @@ func TestDashboardSummaryCacheHitsExpiresAndRetriesErrors(t *testing.T) {
 	if _, err := cache.get(context.Background(), cfg); err != nil {
 		t.Fatalf("expired summary: %v", err)
 	}
-	if store.listInboundsCalls != 2 {
-		t.Fatalf("expected cache expiry to rebuild summary, got %d ListInbounds calls", store.listInboundsCalls)
+	if store.listInboundsCalls != 1 || store.listInboundTrafficCalls != 2 || store.validationHashCalls != 2 {
+		t.Fatalf("expected summary expiry with unchanged validation hash to avoid full validation snapshot, full=%d light=%d hash=%d", store.listInboundsCalls, store.listInboundTrafficCalls, store.validationHashCalls)
 	}
 
 	failing := &countingSummaryStore{listInboundsErr: errors.New("boom")}
@@ -448,12 +462,12 @@ func TestDashboardSummaryCacheHitsExpiresAndRetriesErrors(t *testing.T) {
 	if _, err := failingCache.get(context.Background(), failingCfg); err == nil {
 		t.Fatal("expected retry to call failing store again")
 	}
-	if failing.listInboundsCalls != 2 {
-		t.Fatalf("expected failed summaries not to be cached, got %d calls", failing.listInboundsCalls)
+	if failing.listInboundTrafficCalls != 2 {
+		t.Fatalf("expected failed summaries not to be cached, got %d lightweight calls", failing.listInboundTrafficCalls)
 	}
 }
 
-func TestDashboardSummaryValidationCacheRefreshesWhenSnapshotChanges(t *testing.T) {
+func TestDashboardSummaryValidationCacheRefreshesWhenLightConfigChanges(t *testing.T) {
 	store := &countingSummaryStore{
 		outbounds: []db.Outbound{{ID: 1, Tag: "direct", Protocol: "freedom", Enabled: true}},
 	}
@@ -488,7 +502,7 @@ func TestDashboardSummaryValidationCacheRefreshesWhenSnapshotChanges(t *testing.
 	}
 	secondValidation := second["validation"].(map[string]configValidationResult)
 	if secondValidation["singbox"].Inbounds == firstValidation["singbox"].Inbounds {
-		t.Fatalf("expected validation cache to refresh for changed snapshot, first=%+v second=%+v", firstValidation["singbox"], secondValidation["singbox"])
+		t.Fatalf("expected validation cache to refresh for changed lightweight config key, first=%+v second=%+v", firstValidation["singbox"], secondValidation["singbox"])
 	}
 	if secondValidation["singbox"].Inbounds != 1 {
 		t.Fatalf("expected changed snapshot to rebuild singbox validation, got %+v", secondValidation["singbox"])
@@ -569,6 +583,92 @@ func TestDashboardSummaryValidationCacheReusesWhenOnlyRuntimeTrafficChanges(t *t
 	}
 	if !cache.validationExpiresAt.Equal(firstValidationExpiresAt) {
 		t.Fatalf("expected validation cache to be reused for runtime-only traffic changes, first expiry=%s second expiry=%s", firstValidationExpiresAt, cache.validationExpiresAt)
+	}
+	if store.listInboundsCalls != 1 || store.listInboundTrafficCalls != 2 {
+		t.Fatalf("expected runtime-only summary refresh to reuse validation without full snapshot, full=%d light=%d", store.listInboundsCalls, store.listInboundTrafficCalls)
+	}
+}
+
+func TestDashboardSummaryValidationCacheRefreshesWhenFullConfigOnlyFieldsChange(t *testing.T) {
+	baseInbound := db.Inbound{
+		ID:             1,
+		UUID:           "inbound-uuid",
+		Remark:         "edge",
+		Protocol:       "vless",
+		Core:           db.CoreXray,
+		Port:           443,
+		Network:        "ws",
+		Security:       "tls",
+		Enabled:        true,
+		WsPath:         "/ws",
+		TLSCertFile:    "/cert.pem",
+		TLSKeyFile:     "/key.pem",
+		RealityDest:    "example.com:443",
+		RealityShortID: "abcd",
+		Clients: []db.Client{{
+			ID:           10,
+			InboundID:    1,
+			UUID:         "client-uuid",
+			CredentialID: "client-credential",
+			Password:     "client-password",
+			StatsKey:     "client-stats",
+			Email:        "client@example.com",
+			Enabled:      true,
+		}},
+	}
+	cases := []struct {
+		name   string
+		change func(*db.Inbound)
+	}{
+		{name: "ws path", change: func(inbound *db.Inbound) { inbound.WsPath = "/changed" }},
+		{name: "tls cert", change: func(inbound *db.Inbound) { inbound.TLSCertFile = "/changed-cert.pem" }},
+		{name: "tls key", change: func(inbound *db.Inbound) { inbound.TLSKeyFile = "/changed-key.pem" }},
+		{name: "reality dest", change: func(inbound *db.Inbound) { inbound.RealityDest = "changed.example.com:443" }},
+		{name: "reality short id", change: func(inbound *db.Inbound) { inbound.RealityShortID = "dcba" }},
+		{name: "client credential", change: func(inbound *db.Inbound) { inbound.Clients[0].CredentialID = "changed-credential" }},
+		{name: "client password", change: func(inbound *db.Inbound) { inbound.Clients[0].Password = "changed-password" }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			inbound := baseInbound
+			inbound.Clients = append([]db.Client(nil), baseInbound.Clients...)
+			store := &countingSummaryStore{
+				inbounds:  []db.Inbound{inbound},
+				outbounds: []db.Outbound{{ID: 1, Tag: "direct", Protocol: "freedom", Enabled: true}},
+			}
+			cache := newDashboardSummaryCache(2*time.Second, 30*time.Second)
+			cfg := &routerConfig{store: store, singboxRuntime: fixedSingboxRuntime{capability: singbox.Capability{V2RayAPIStats: true, Checked: true}}}
+			now := time.Unix(100, 0)
+			cache.now = func() time.Time { return now }
+
+			if _, err := cache.get(context.Background(), cfg); err != nil {
+				t.Fatalf("first summary: %v", err)
+			}
+			firstValidationExpiresAt := cache.validationExpiresAt
+			firstSnapshotKey := cache.validationKey
+			changed := store.inbounds[0]
+			changed.Clients = append([]db.Client(nil), store.inbounds[0].Clients...)
+			tc.change(&changed)
+			store.inbounds[0] = changed
+			changedSnapshot := validationSnapshot{inbounds: store.inbounds, outbounds: store.outbounds, rules: store.rules}
+			if changedSnapshot.cacheKey() == firstSnapshotKey {
+				t.Fatalf("%s did not change full validation key", tc.name)
+			}
+			now = now.Add(3 * time.Second)
+
+			if _, err := cache.get(context.Background(), cfg); err != nil {
+				t.Fatalf("second summary: %v", err)
+			}
+			if !cache.validationExpiresAt.After(firstValidationExpiresAt) {
+				t.Fatalf("expected %s change to rebuild validation cache, first expiry=%s second expiry=%s", tc.name, firstValidationExpiresAt, cache.validationExpiresAt)
+			}
+			if cache.validationKey != changedSnapshot.cacheKey() {
+				t.Fatalf("expected %s change to store new full validation key", tc.name)
+			}
+			if store.listInboundsCalls != 2 || store.listInboundTrafficCalls != 2 || store.validationHashCalls != 2 {
+				t.Fatalf("expected hidden config hash change to read full snapshot inside validation TTL, full=%d light=%d hash=%d", store.listInboundsCalls, store.listInboundTrafficCalls, store.validationHashCalls)
+			}
+		})
 	}
 }
 
@@ -658,6 +758,60 @@ func TestDashboardValidationCacheKeyChangesForConfigFields(t *testing.T) {
 				t.Fatalf("expected %s change to invalidate validation cache key", tc.name)
 			}
 		})
+	}
+}
+
+func TestStoreValidationConfigHashMatchesDashboardSnapshotKey(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	inbound, err := store.CreateInbound(ctx, db.CreateInboundParams{
+		Remark:         "hash",
+		Protocol:       "vless",
+		Port:           28443,
+		Network:        "ws",
+		Security:       "tls",
+		WsPath:         "/ws",
+		TLSCertFile:    "/cert.pem",
+		TLSKeyFile:     "/key.pem",
+		RealityDest:    "example.com:443",
+		RealityShortID: "abcd",
+	})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	if _, err := store.CreateClient(ctx, db.CreateClientParams{InboundID: inbound.ID, Email: "client@example.com", Password: "secret"}); err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	outbound, err := store.CreateOutbound(ctx, db.CreateOutboundParams{Tag: "proxy", Remark: "proxy", Protocol: "socks", Address: "127.0.0.1", Port: 1080, Username: "user", Password: "pass"})
+	if err != nil {
+		t.Fatalf("create outbound: %v", err)
+	}
+	if _, err := store.CreateRoutingRule(ctx, db.CreateRoutingRuleParams{InboundID: inbound.ID, OutboundID: outbound.ID, OutboundTag: outbound.Tag, Domain: "example.com", Enabled: true}); err != nil {
+		t.Fatalf("create routing rule: %v", err)
+	}
+	inbounds, err := store.ListInbounds(ctx)
+	if err != nil {
+		t.Fatalf("list inbounds: %v", err)
+	}
+	outbounds, err := store.ListOutbounds(ctx)
+	if err != nil {
+		t.Fatalf("list outbounds: %v", err)
+	}
+	rules, err := store.ListRoutingRules(ctx)
+	if err != nil {
+		t.Fatalf("list rules: %v", err)
+	}
+	want := (validationSnapshot{inbounds: inbounds, outbounds: outbounds, rules: rules}).cacheKey()
+	got, err := store.ValidationConfigHash(ctx)
+	if err != nil {
+		t.Fatalf("validation config hash: %v", err)
+	}
+	if got != want {
+		t.Fatalf("validation config hash mismatch\ngot  %s\nwant %s", got, want)
 	}
 }
 

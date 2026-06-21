@@ -664,34 +664,42 @@ func (c *dashboardSummaryCache) get(ctx context.Context, cfg *routerConfig) (map
 }
 
 func (c *dashboardSummaryCache) build(ctx context.Context, cfg *routerConfig) (map[string]interface{}, error) {
-	summary, snapshot, err := buildDashboardSummaryBase(ctx, cfg)
+	summary, base, err := buildDashboardSummaryBase(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
 	now := c.now()
-	snapshotKey := snapshot.cacheKey()
-	validation := c.cachedValidation(snapshotKey)
-	if validation == nil {
-		built := buildDashboardValidation(ctx, cfg, snapshot)
-		validation = &built
-		c.mu.Lock()
-		c.validationValue = built
-		c.validationKey = snapshotKey
-		c.validationExpiresAt = now.Add(c.validationTTL)
-		c.mu.Unlock()
+	configHash, err := cfg.store.ValidationConfigHash(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("validation_config_hash_failed")
 	}
+	if validation := c.cachedValidation(configHash); validation != nil {
+		summary["validation"] = cloneValidationMap(*validation)
+		return summary, nil
+	}
+	snapshot, err := buildDashboardValidationSnapshot(ctx, cfg, base)
+	if err != nil {
+		return nil, err
+	}
+	built := buildDashboardValidation(ctx, cfg, snapshot)
+	validation := &built
+	c.mu.Lock()
+	c.validationValue = built
+	c.validationKey = configHash
+	c.validationExpiresAt = now.Add(c.validationTTL)
+	c.mu.Unlock()
 	summary["validation"] = cloneValidationMap(*validation)
 	return summary, nil
 }
 
-func (c *dashboardSummaryCache) cachedValidation(snapshotKey string) *map[string]configValidationResult {
+func (c *dashboardSummaryCache) cachedValidation(configHash string) *map[string]configValidationResult {
 	if c == nil || c.validationTTL <= 0 {
 		return nil
 	}
 	now := c.now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.validationValue == nil || c.validationKey != snapshotKey || !now.Before(c.validationExpiresAt) {
+	if c.validationValue == nil || c.validationKey != configHash || !now.Before(c.validationExpiresAt) {
 		return nil
 	}
 	value := cloneValidationMap(c.validationValue)
@@ -699,7 +707,11 @@ func (c *dashboardSummaryCache) cachedValidation(snapshotKey string) *map[string
 }
 
 func buildDashboardSummary(ctx context.Context, cfg *routerConfig) (map[string]interface{}, error) {
-	summary, snapshot, err := buildDashboardSummaryBase(ctx, cfg)
+	summary, base, err := buildDashboardSummaryBase(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err := buildDashboardValidationSnapshot(ctx, cfg, base)
 	if err != nil {
 		return nil, err
 	}
@@ -707,22 +719,28 @@ func buildDashboardSummary(ctx context.Context, cfg *routerConfig) (map[string]i
 	return summary, nil
 }
 
-func buildDashboardSummaryBase(ctx context.Context, cfg *routerConfig) (map[string]interface{}, validationSnapshot, error) {
+type dashboardSummaryBase struct {
+	inbounds  []db.Inbound
+	outbounds []db.Outbound
+	rules     []db.RoutingRule
+}
+
+func buildDashboardSummaryBase(ctx context.Context, cfg *routerConfig) (map[string]interface{}, dashboardSummaryBase, error) {
 	if cfg == nil || cfg.store == nil {
-		return nil, validationSnapshot{}, fmt.Errorf("store_unavailable")
+		return nil, dashboardSummaryBase{}, fmt.Errorf("store_unavailable")
 	}
 	store := cfg.store
-	inbounds, err := store.ListInbounds(ctx)
+	inbounds, err := store.ListInboundTraffic(ctx)
 	if err != nil {
-		return nil, validationSnapshot{}, fmt.Errorf("list_inbounds_failed")
+		return nil, dashboardSummaryBase{}, fmt.Errorf("list_inbounds_failed")
 	}
 	outbounds, err := store.ListOutbounds(ctx)
 	if err != nil {
-		return nil, validationSnapshot{}, fmt.Errorf("list_outbounds_failed")
+		return nil, dashboardSummaryBase{}, fmt.Errorf("list_outbounds_failed")
 	}
 	rules, err := store.ListRoutingRules(ctx)
 	if err != nil {
-		return nil, validationSnapshot{}, fmt.Errorf("list_routing_rules_failed")
+		return nil, dashboardSummaryBase{}, fmt.Errorf("list_routing_rules_failed")
 	}
 	now := time.Now().Unix()
 	clientCount := 0
@@ -766,7 +784,6 @@ func buildDashboardSummaryBase(ctx context.Context, cfg *routerConfig) (map[stri
 			enabledRules++
 		}
 	}
-	snapshot := validationSnapshot{inbounds: inbounds, outbounds: outbounds, rules: rules}
 	return map[string]interface{}{
 		"generated_at": time.Now().UTC().Format(time.RFC3339),
 		"counts": map[string]int{
@@ -783,7 +800,15 @@ func buildDashboardSummaryBase(ctx context.Context, cfg *routerConfig) (map[stri
 		},
 		"protocols":  protocols,
 		"validation": map[string]configValidationResult{},
-	}, snapshot, nil
+	}, dashboardSummaryBase{inbounds: inbounds, outbounds: outbounds, rules: rules}, nil
+}
+
+func buildDashboardValidationSnapshot(ctx context.Context, cfg *routerConfig, base dashboardSummaryBase) (validationSnapshot, error) {
+	inbounds, err := cfg.store.ListInbounds(ctx)
+	if err != nil {
+		return validationSnapshot{}, fmt.Errorf("list_inbounds_failed")
+	}
+	return validationSnapshot{inbounds: inbounds, outbounds: base.outbounds, rules: base.rules}, nil
 }
 
 func buildDashboardValidation(ctx context.Context, cfg *routerConfig, snapshot validationSnapshot) map[string]configValidationResult {

@@ -111,6 +111,14 @@ type socks5PoolRegion struct {
 	Count int    `json:"count"`
 }
 
+type proxyPoolListOptions struct {
+	Country string
+	Summary bool
+	Page    int
+	PerPage int
+	Legacy  bool
+}
+
 type socks5PoolCache struct {
 	mu        sync.Mutex
 	proxies   []socks5PoolProxy
@@ -455,18 +463,84 @@ func proxyPoolListHandler(load func(context.Context) ([]socks5PoolProxy, time.Ti
 		writeJSONError(w, http.StatusBadGateway, "pool_fetch_failed", map[string]interface{}{"cache_status": cacheStatus, "detail": err.Error()})
 		return
 	}
-	country := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("country")))
-	filtered := make([]socks5PoolProxy, 0, len(proxies))
-	for _, proxy := range proxies {
-		if country == "" || proxy.CountryCode == country {
-			filtered = append(filtered, proxy)
-		}
+	options := proxyPoolListOptionsFromRequest(r)
+	filtered := filterProxyPool(proxies, options.Country)
+	if options.Legacy {
+		options.PerPage = -1
 	}
+	paged := paginateProxyPool(filtered, options.Page, options.PerPage)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"regions": socks5PoolRegions(proxies), "proxies": filtered,
+		"regions": socks5PoolRegions(proxies), "proxies": paged,
+		"total": len(filtered), "page": options.Page, "per_page": options.PerPage,
 		"cache_status": cacheStatus, "cache_updated_at": updatedAt.Format(time.RFC3339),
 		"next_refresh_at": nextSocks5PoolRefresh(time.Now()).Format(time.RFC3339),
 	})
+}
+
+func proxyPoolListOptionsFromRequest(r *http.Request) proxyPoolListOptions {
+	query := r.URL.Query()
+	options := proxyPoolListOptions{
+		Country: strings.ToUpper(strings.TrimSpace(query.Get("country"))),
+		Summary: queryBool(r, "summary"),
+		Page:    1,
+		PerPage: 100,
+	}
+	hasPaging := false
+	if rawPage := strings.TrimSpace(query.Get("page")); rawPage != "" {
+		if page, err := strconv.Atoi(rawPage); err == nil && page > 0 {
+			options.Page = page
+		}
+		hasPaging = true
+	}
+	if rawPerPage := strings.TrimSpace(query.Get("per_page")); rawPerPage != "" {
+		if perPage, err := strconv.Atoi(rawPerPage); err == nil && perPage > 0 {
+			options.PerPage = perPage
+		}
+		hasPaging = true
+	}
+	if options.Summary {
+		options.PerPage = 0
+	} else if !hasPaging {
+		options.Legacy = true
+	}
+	if options.PerPage > 200 {
+		options.PerPage = 200
+	}
+	return options
+}
+
+func filterProxyPool(proxies []socks5PoolProxy, country string) []socks5PoolProxy {
+	if country == "" {
+		return append([]socks5PoolProxy(nil), proxies...)
+	}
+	filtered := make([]socks5PoolProxy, 0, len(proxies))
+	for _, proxy := range proxies {
+		if proxy.CountryCode == country {
+			filtered = append(filtered, proxy)
+		}
+	}
+	return filtered
+}
+
+func paginateProxyPool(proxies []socks5PoolProxy, page, perPage int) []socks5PoolProxy {
+	if perPage < 0 {
+		return append([]socks5PoolProxy(nil), proxies...)
+	}
+	if perPage == 0 {
+		return []socks5PoolProxy{}
+	}
+	if page <= 0 {
+		page = 1
+	}
+	start := (page - 1) * perPage
+	if start >= len(proxies) {
+		return []socks5PoolProxy{}
+	}
+	end := start + perPage
+	if end > len(proxies) {
+		end = len(proxies)
+	}
+	return proxies[start:end]
 }
 
 func socks5PoolPingHandler(w http.ResponseWriter, r *http.Request) {

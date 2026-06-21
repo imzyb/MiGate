@@ -3,8 +3,10 @@ package db
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
@@ -643,7 +645,7 @@ ORDER BY id ASC
 	}
 
 	clientRows, err := s.db.QueryContext(ctx, `
-SELECT id, inbound_id, uuid, credential_id, password, subscription_token, stats_key, email, enabled, up, down, traffic_limit, expiry_at
+SELECT id, inbound_id, stats_key, email, enabled, up, down, traffic_limit, expiry_at
 FROM clients
 ORDER BY id ASC
 `)
@@ -654,7 +656,7 @@ ORDER BY id ASC
 	for clientRows.Next() {
 		var client Client
 		var enabled int
-		if err := clientRows.Scan(&client.ID, &client.InboundID, &client.UUID, &client.CredentialID, &client.Password, &client.SubscriptionToken, &client.StatsKey, &client.Email, &enabled, &client.Up, &client.Down, &client.TrafficLimit, &client.ExpiryAt); err != nil {
+		if err := clientRows.Scan(&client.ID, &client.InboundID, &client.StatsKey, &client.Email, &enabled, &client.Up, &client.Down, &client.TrafficLimit, &client.ExpiryAt); err != nil {
 			return nil, err
 		}
 		client.Enabled = enabled != 0
@@ -666,6 +668,230 @@ ORDER BY id ASC
 		return nil, err
 	}
 	return inbounds, nil
+}
+
+func (s *Store) ValidationConfigHash(ctx context.Context) (string, error) {
+	inbounds, err := s.validationInboundKeys(ctx)
+	if err != nil {
+		return "", err
+	}
+	outbounds, err := s.validationOutboundKeys(ctx)
+	if err != nil {
+		return "", err
+	}
+	rules, err := s.validationRoutingRuleKeys(ctx)
+	if err != nil {
+		return "", err
+	}
+	payload, err := json.Marshal(validationConfigHashPayload{Inbounds: inbounds, Outbounds: outbounds, Rules: rules})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(payload)
+	return fmt.Sprintf("%x", sum[:]), nil
+}
+
+type validationConfigHashPayload struct {
+	Inbounds  []validationInboundHashKey     `json:"inbounds"`
+	Outbounds []validationOutboundHashKey    `json:"outbounds"`
+	Rules     []validationRoutingRuleHashKey `json:"rules"`
+}
+
+type validationInboundHashKey struct {
+	ID                    int64                     `json:"id"`
+	UUID                  string                    `json:"uuid"`
+	Remark                string                    `json:"remark"`
+	Protocol              string                    `json:"protocol"`
+	Core                  string                    `json:"core"`
+	Port                  int                       `json:"port"`
+	Network               string                    `json:"network"`
+	Security              string                    `json:"security"`
+	Enabled               bool                      `json:"enabled"`
+	WsPath                string                    `json:"ws_path"`
+	WsHost                string                    `json:"ws_host"`
+	GrpcServiceName       string                    `json:"grpc_service_name"`
+	RealityDest           string                    `json:"reality_dest"`
+	RealityServerNames    string                    `json:"reality_server_names"`
+	RealityShortID        string                    `json:"reality_short_id"`
+	RealityPrivateKey     string                    `json:"reality_private_key"`
+	RealityPublicKey      string                    `json:"reality_public_key"`
+	SSMethod              string                    `json:"ss_method"`
+	TLSCertFile           string                    `json:"tls_cert_file"`
+	TLSKeyFile            string                    `json:"tls_key_file"`
+	TLSSNI                string                    `json:"tls_sni"`
+	TLSFingerprint        string                    `json:"tls_fingerprint"`
+	TLSALPN               string                    `json:"tls_alpn"`
+	XHTTPPath             string                    `json:"xhttp_path"`
+	XHTTPMode             string                    `json:"xhttp_mode"`
+	Hy2UpMbps             int                       `json:"hy2_up_mbps"`
+	Hy2DownMbps           int                       `json:"hy2_down_mbps"`
+	Hy2Obfs               string                    `json:"hy2_obfs"`
+	Hy2ObfsPassword       string                    `json:"hy2_obfs_password"`
+	Hy2MPort              string                    `json:"hy2_mport"`
+	TuicCongestionControl string                    `json:"tuic_congestion_control"`
+	TuicZeroRTT           bool                      `json:"tuic_zero_rtt"`
+	WgPrivateKey          string                    `json:"wg_private_key"`
+	WgAddress             string                    `json:"wg_address"`
+	WgPeerPublicKey       string                    `json:"wg_peer_public_key"`
+	WgAllowedIPs          string                    `json:"wg_allowed_ips"`
+	WgEndpoint            string                    `json:"wg_endpoint"`
+	WgPresharedKey        string                    `json:"wg_preshared_key"`
+	WgMTU                 int                       `json:"wg_mtu"`
+	ShadowTLSVersion      int                       `json:"shadowtls_version"`
+	ShadowTLSPassword     string                    `json:"shadowtls_password"`
+	Clients               []validationClientHashKey `json:"clients"`
+}
+
+type validationClientHashKey struct {
+	ID           int64  `json:"id"`
+	InboundID    int64  `json:"inbound_id"`
+	UUID         string `json:"uuid"`
+	CredentialID string `json:"credential_id"`
+	Password     string `json:"password"`
+	StatsKey     string `json:"stats_key"`
+	Email        string `json:"email"`
+	Enabled      bool   `json:"enabled"`
+}
+
+type validationOutboundHashKey struct {
+	ID             int64    `json:"id"`
+	Tag            string   `json:"tag"`
+	Remark         string   `json:"remark"`
+	Protocol       string   `json:"protocol"`
+	Address        string   `json:"address"`
+	Port           int      `json:"port"`
+	Username       string   `json:"username"`
+	Password       string   `json:"password"`
+	SupportedCores []string `json:"supported_cores"`
+	Enabled        bool     `json:"enabled"`
+	Sort           int      `json:"sort"`
+}
+
+type validationRoutingRuleHashKey struct {
+	ID          int64  `json:"id"`
+	InboundID   int64  `json:"inbound_id"`
+	InboundTag  string `json:"inbound_tag"`
+	ClientID    int64  `json:"client_id"`
+	ClientEmail string `json:"client_email"`
+	OutboundID  int64  `json:"outbound_id"`
+	OutboundTag string `json:"outbound_tag"`
+	Domain      string `json:"domain"`
+	IP          string `json:"ip"`
+	RuleSet     string `json:"rule_set"`
+	Protocol    string `json:"protocol"`
+	Enabled     bool   `json:"enabled"`
+	Sort        int    `json:"sort"`
+}
+
+func (s *Store) validationInboundKeys(ctx context.Context) ([]validationInboundHashKey, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, uuid, remark, protocol, core, port, network, security, enabled,
+  ws_path, ws_host, grpc_service_name, reality_dest, reality_server_names, reality_short_id, reality_private_key, reality_public_key, ss_method,
+  tls_cert_file, tls_key_file, tls_sni, tls_fingerprint, tls_alpn, xhttp_path, xhttp_mode,
+  hy2_up_mbps, hy2_down_mbps, hy2_obfs, hy2_obfs_password, hy2_mport,
+  tuic_congestion_control, tuic_zero_rtt,
+  wg_private_key, wg_address, wg_peer_public_key, wg_allowed_ips, wg_endpoint, wg_preshared_key, wg_mtu,
+  shadowtls_version, shadowtls_password
+FROM inbounds
+ORDER BY id ASC
+`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	keys := []validationInboundHashKey{}
+	byID := map[int64]int{}
+	for rows.Next() {
+		var key validationInboundHashKey
+		var enabled, tuicZeroRTT int
+		if err := rows.Scan(&key.ID, &key.UUID, &key.Remark, &key.Protocol, &key.Core, &key.Port, &key.Network, &key.Security, &enabled,
+			&key.WsPath, &key.WsHost, &key.GrpcServiceName, &key.RealityDest, &key.RealityServerNames, &key.RealityShortID, &key.RealityPrivateKey, &key.RealityPublicKey, &key.SSMethod,
+			&key.TLSCertFile, &key.TLSKeyFile, &key.TLSSNI, &key.TLSFingerprint, &key.TLSALPN, &key.XHTTPPath, &key.XHTTPMode,
+			&key.Hy2UpMbps, &key.Hy2DownMbps, &key.Hy2Obfs, &key.Hy2ObfsPassword, &key.Hy2MPort,
+			&key.TuicCongestionControl, &tuicZeroRTT,
+			&key.WgPrivateKey, &key.WgAddress, &key.WgPeerPublicKey, &key.WgAllowedIPs, &key.WgEndpoint, &key.WgPresharedKey, &key.WgMTU,
+			&key.ShadowTLSVersion, &key.ShadowTLSPassword); err != nil {
+			return nil, err
+		}
+		key.Enabled = enabled != 0
+		key.TuicZeroRTT = tuicZeroRTT != 0
+		if key.Core == "" {
+			key.Core = InferInboundCore(key.Protocol)
+		}
+		key.Clients = []validationClientHashKey{}
+		byID[key.ID] = len(keys)
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	clientRows, err := s.db.QueryContext(ctx, `
+SELECT id, inbound_id, uuid, credential_id, password, stats_key, email, enabled
+FROM clients
+ORDER BY id ASC
+`)
+	if err != nil {
+		return nil, err
+	}
+	defer clientRows.Close()
+	for clientRows.Next() {
+		var client validationClientHashKey
+		var enabled int
+		if err := clientRows.Scan(&client.ID, &client.InboundID, &client.UUID, &client.CredentialID, &client.Password, &client.StatsKey, &client.Email, &enabled); err != nil {
+			return nil, err
+		}
+		client.Enabled = enabled != 0
+		if idx, ok := byID[client.InboundID]; ok {
+			keys[idx].Clients = append(keys[idx].Clients, client)
+		}
+	}
+	return keys, clientRows.Err()
+}
+
+func (s *Store) validationOutboundKeys(ctx context.Context) ([]validationOutboundHashKey, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, tag, remark, protocol, address, port, username, password, enabled, sort FROM outbounds ORDER BY sort ASC, id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	keys := []validationOutboundHashKey{}
+	for rows.Next() {
+		var key validationOutboundHashKey
+		var enabled int
+		if err := rows.Scan(&key.ID, &key.Tag, &key.Remark, &key.Protocol, &key.Address, &key.Port, &key.Username, &key.Password, &enabled, &key.Sort); err != nil {
+			return nil, err
+		}
+		key.Enabled = enabled != 0
+		key.SupportedCores = OutboundProtocolSupportedCores(key.Protocol)
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
+func (s *Store) validationRoutingRuleKeys(ctx context.Context) ([]validationRoutingRuleHashKey, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, inbound_id, inbound_tag, client_id, client_email, outbound_id, outbound_tag, domain, ip, rule_set, protocol, enabled, sort FROM routing_rules ORDER BY sort ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	keys := []validationRoutingRuleHashKey{}
+	for rows.Next() {
+		var key validationRoutingRuleHashKey
+		var inboundID, clientID sql.NullInt64
+		var enabled int
+		if err := rows.Scan(&key.ID, &inboundID, &key.InboundTag, &clientID, &key.ClientEmail, &key.OutboundID, &key.OutboundTag, &key.Domain, &key.IP, &key.RuleSet, &key.Protocol, &enabled, &key.Sort); err != nil {
+			return nil, err
+		}
+		if inboundID.Valid {
+			key.InboundID = inboundID.Int64
+		}
+		if clientID.Valid {
+			key.ClientID = clientID.Int64
+		}
+		key.Enabled = enabled != 0
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
 }
 
 func (s *Store) InboundExists(ctx context.Context, id int64) (bool, error) {

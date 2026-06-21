@@ -10,7 +10,7 @@ import type { CertificateOperation, CertificatePreflight, Inbound, ManagedCertif
 import { Card, EmptyState, Field, LoadingBlock, SpinnerButton, useConfirm, useToast } from '../components/ui';
 import { serviceLabel } from '../lib/format';
 import { useI18n } from '../lib/i18n';
-import { refreshCertificateApplyDependencies, refreshQueries, refreshQuery, refreshSessionDependencies, refreshSettingsDependencies, refreshUpdateDependencies } from '../lib/queryInvalidation';
+import { refreshCertificateApplyDependencies, refreshCertificateOperationDependencies, refreshQueries, refreshQuery, refreshSessionDependencies, refreshSettingsDependencies, refreshUpdateDependencies } from '../lib/queryInvalidation';
 import { PageTitle } from './OverviewPage';
 
 export default function SettingsPage() {
@@ -162,7 +162,7 @@ export default function SettingsPage() {
       setPreflightResult(result.preflight);
       showToast(text('证书申请已完成'), 'success');
       refreshSettingsDependencies(queryClient);
-      queryClient.invalidateQueries({ queryKey: ['certificate-operations'] });
+      refreshCertificateOperationDependencies(queryClient);
     },
     onError: (error) => {
       const preflight = preflightFromAPIError(error);
@@ -177,7 +177,7 @@ export default function SettingsPage() {
       setImportKey('');
       showToast(text('证书已导入'), 'success');
       refreshSettingsDependencies(queryClient);
-      queryClient.invalidateQueries({ queryKey: ['certificate-operations'] });
+      refreshCertificateOperationDependencies(queryClient);
     },
     onError: (error) => showToast(errorMessage(error, text('导入证书失败')), 'error'),
   });
@@ -186,7 +186,7 @@ export default function SettingsPage() {
     onSuccess: (result) => {
       showToast(`${text('续期检查完成')}：${result.renewal?.renewed?.length || 0} ${text('个已续期')}`, 'success');
       refreshSettingsDependencies(queryClient);
-      queryClient.invalidateQueries({ queryKey: ['certificate-operations'] });
+      refreshCertificateOperationDependencies(queryClient);
     },
     onError: (error) => showToast(errorMessage(error, text('续期检查失败')), 'error'),
   });
@@ -195,7 +195,7 @@ export default function SettingsPage() {
     onSuccess: () => {
       showToast(text('证书已应用到入站'), 'success');
       refreshCertificateApplyDependencies(queryClient);
-      queryClient.invalidateQueries({ queryKey: ['certificate-operations'] });
+      refreshCertificateOperationDependencies(queryClient);
     },
     onError: (error) => showToast(errorMessage(error, text('应用证书失败')), 'error'),
   });
@@ -204,7 +204,7 @@ export default function SettingsPage() {
     onSuccess: () => {
       showToast(text('证书已删除'), 'success');
       refreshSettingsDependencies(queryClient);
-      queryClient.invalidateQueries({ queryKey: ['certificate-operations'] });
+      refreshCertificateOperationDependencies(queryClient);
     },
     onError: (error) => showToast(errorMessage(error, text('删除证书失败')), 'error'),
   });

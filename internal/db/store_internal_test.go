@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -38,7 +39,7 @@ func TestStoreCreatesTrafficLookupIndexes(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("index rows: %v", err)
 	}
-	for _, name := range []string{"idx_clients_inbound_email", "idx_clients_credential_id", "idx_inbounds_port", "idx_traffic_samples_lookup", "idx_traffic_samples_scope_time", "idx_traffic_samples_sampled_at"} {
+	for _, name := range []string{"idx_clients_inbound_email", "idx_clients_credential_id", "idx_inbounds_port", "idx_traffic_samples_lookup", "idx_traffic_samples_scope_time", "idx_traffic_samples_sampled_at", "idx_traffic_samples_bucket"} {
 		if !indexes[name] {
 			t.Fatalf("expected index %s to exist, got %#v", name, indexes)
 		}
@@ -47,6 +48,177 @@ func TestStoreCreatesTrafficLookupIndexes(t *testing.T) {
 		if !uniqueIndexes[name] {
 			t.Fatalf("expected index %s to be unique, got %#v", name, uniqueIndexes)
 		}
+	}
+}
+
+func TestStoreConfiguresSQLiteRuntimeForWriteContention(t *testing.T) {
+	store, err := Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	var busyTimeout int
+	if err := store.db.QueryRowContext(context.Background(), `PRAGMA busy_timeout`).Scan(&busyTimeout); err != nil {
+		t.Fatalf("busy_timeout: %v", err)
+	}
+	if busyTimeout < 5000 {
+		t.Fatalf("expected busy_timeout >= 5000, got %d", busyTimeout)
+	}
+	var synchronous int
+	if err := store.db.QueryRowContext(context.Background(), `PRAGMA synchronous`).Scan(&synchronous); err != nil {
+		t.Fatalf("synchronous: %v", err)
+	}
+	if synchronous != 1 {
+		t.Fatalf("expected synchronous NORMAL (1), got %d", synchronous)
+	}
+	if stats := store.db.Stats(); stats.MaxOpenConnections != 1 {
+		t.Fatalf("expected in-memory sqlite to use one connection, got %+v", stats)
+	}
+}
+
+func TestStoreConfiguresSQLitePragmasForEveryFileConnection(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "migate.db")
+	store, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	if stats := store.db.Stats(); stats.MaxOpenConnections != 4 {
+		t.Fatalf("expected file sqlite to allow four open connections, got %+v", stats)
+	}
+	conns := make([]*sql.Conn, 0, 4)
+	for i := 0; i < 4; i++ {
+		conn, err := store.db.Conn(ctx)
+		if err != nil {
+			t.Fatalf("open conn %d: %v", i, err)
+		}
+		conns = append(conns, conn)
+	}
+	defer func() {
+		for _, conn := range conns {
+			conn.Close()
+		}
+	}()
+
+	for i, conn := range conns {
+		assertSQLitePragmasForTest(t, ctx, conn, i)
+	}
+}
+
+type pragmaQuerier interface {
+	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
+}
+
+func assertSQLitePragmasForTest(t *testing.T, ctx context.Context, conn pragmaQuerier, index int) {
+	t.Helper()
+	var foreignKeys int
+	if err := conn.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&foreignKeys); err != nil {
+		t.Fatalf("conn %d foreign_keys: %v", index, err)
+	}
+	if foreignKeys != 1 {
+		t.Fatalf("conn %d expected foreign_keys enabled, got %d", index, foreignKeys)
+	}
+	var busyTimeout int
+	if err := conn.QueryRowContext(ctx, `PRAGMA busy_timeout`).Scan(&busyTimeout); err != nil {
+		t.Fatalf("conn %d busy_timeout: %v", index, err)
+	}
+	if busyTimeout < 5000 {
+		t.Fatalf("conn %d expected busy_timeout >= 5000, got %d", index, busyTimeout)
+	}
+	var synchronous int
+	if err := conn.QueryRowContext(ctx, `PRAGMA synchronous`).Scan(&synchronous); err != nil {
+		t.Fatalf("conn %d synchronous: %v", index, err)
+	}
+	if synchronous != 1 {
+		t.Fatalf("conn %d expected synchronous NORMAL (1), got %d", index, synchronous)
+	}
+	var tempStore int
+	if err := conn.QueryRowContext(ctx, `PRAGMA temp_store`).Scan(&tempStore); err != nil {
+		t.Fatalf("conn %d temp_store: %v", index, err)
+	}
+	if tempStore != 2 {
+		t.Fatalf("conn %d expected temp_store MEMORY (2), got %d", index, tempStore)
+	}
+	var journalMode string
+	if err := conn.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&journalMode); err != nil {
+		t.Fatalf("conn %d journal_mode: %v", index, err)
+	}
+	if strings.ToLower(journalMode) != "wal" {
+		t.Fatalf("conn %d expected journal_mode WAL, got %s", index, journalMode)
+	}
+}
+
+func TestListInboundTrafficUsesLightweightClientFields(t *testing.T) {
+	store, err := Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	inbound, err := store.CreateInbound(ctx, CreateInboundParams{Remark: "light", Protocol: "vless", Port: 28095, Network: "tcp", Security: "none"})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	client, err := store.CreateClient(ctx, CreateClientParams{InboundID: inbound.ID, Email: "light@example.com"})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	light, err := store.ListInboundTraffic(ctx)
+	if err != nil {
+		t.Fatalf("list inbound traffic: %v", err)
+	}
+	if len(light) != 1 || len(light[0].Clients) != 1 {
+		t.Fatalf("expected one lightweight inbound/client, got %+v", light)
+	}
+	got := light[0].Clients[0]
+	if got.UUID != "" || got.CredentialID != "" || got.Password != "" || got.SubscriptionToken != "" {
+		t.Fatalf("lightweight traffic client leaked sensitive fields: %+v", got)
+	}
+	if got.ID != client.ID || got.StatsKey != client.StatsKey || got.Email != client.Email {
+		t.Fatalf("lightweight traffic client lost summary fields: got=%+v want=%+v", got, client)
+	}
+}
+
+func TestTrafficSamplesAreBucketedPerMinute(t *testing.T) {
+	store, err := Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	inbound, err := store.CreateInbound(ctx, CreateInboundParams{Remark: "bucket", Protocol: "vless", Port: 28097, Network: "tcp", Security: "none"})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	client, err := store.CreateClient(ctx, CreateClientParams{InboundID: inbound.ID, Email: "bucket@example.com"})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	firstAt := time.Date(2026, 6, 17, 12, 30, 10, 0, time.UTC)
+	secondAt := firstAt.Add(30 * time.Second)
+	if err := store.ApplyTrafficRawStats(ctx, []TrafficRawStat{{Engine: "xray", ScopeType: "client", ScopeKey: client.StatsKey, RawUp: 100, RawDown: 200, Status: "ok"}}, firstAt); err != nil {
+		t.Fatalf("first sample: %v", err)
+	}
+	if err := store.ApplyTrafficRawStats(ctx, []TrafficRawStat{{Engine: "xray", ScopeType: "client", ScopeKey: client.StatsKey, RawUp: 150, RawDown: 260, Status: "ok"}}, secondAt); err != nil {
+		t.Fatalf("second sample: %v", err)
+	}
+	samples, err := store.ListTrafficSamples(ctx, "client", firstAt.Add(-time.Minute), 100)
+	if err != nil {
+		t.Fatalf("list samples: %v", err)
+	}
+	if len(samples) != 1 {
+		t.Fatalf("expected samples in one minute bucket to merge, got %+v", samples)
+	}
+	if samples[0].SampledAt != firstAt.Truncate(time.Minute).Format(time.RFC3339Nano) {
+		t.Fatalf("expected minute bucket timestamp, got %+v", samples[0])
+	}
+	if samples[0].TotalUp != 50 || samples[0].TotalDown != 60 {
+		t.Fatalf("expected bucket to keep latest total delta, got %+v", samples[0])
 	}
 }
 
@@ -81,7 +253,7 @@ func TestTrafficSamplesCleanupIsThrottled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list samples after cleanup trigger: %v", err)
 	}
-	if len(samples) != 1 || samples[0].SampledAt != newAt.UTC().Format(time.RFC3339Nano) {
+	if len(samples) != 1 || samples[0].SampledAt != newAt.UTC().Truncate(time.Minute).Format(time.RFC3339Nano) {
 		t.Fatalf("expected first new sample to prune old samples, got %+v", samples)
 	}
 	staleAt := newAt.Add(-8 * 24 * time.Hour)

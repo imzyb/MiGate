@@ -1307,35 +1307,6 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>(() => (localStorage.getItem('migate-lang') as Lang) || 'zh');
   useEffect(() => {
     document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
-    translateElement(document.body, lang);
-    if (lang !== 'en') return undefined;
-
-    let scheduled = false;
-    const pending = new Set<HTMLElement>();
-    const run = () => {
-      scheduled = false;
-      for (const node of pending) {
-        translateElement(node, lang);
-      }
-      pending.clear();
-    };
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        for (const node of mutation.addedNodes) {
-          if (node instanceof HTMLElement) {
-            pending.add(node);
-          } else if (node.parentElement) {
-            pending.add(node.parentElement);
-          }
-        }
-      }
-      if (pending.size === 0) return;
-      if (scheduled) return;
-      scheduled = true;
-      window.requestAnimationFrame(run);
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => observer.disconnect();
   }, [lang]);
   const value = useMemo(
     () => ({

@@ -1,4 +1,4 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Edit2, Gauge, Plus, Power, RefreshCw, Rss, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { getAPIErrorMessage } from '../api/client';
 import { api } from '../api/endpoints';
-import type { Outbound, OutboundSubscription, OutboundSubscriptionPreview, PingResult, ProxyPoolProxy, ProxyPoolResponse } from '../api/types';
+import type { Outbound, OutboundSubscription, OutboundSubscriptionPreview, PingResult, ProxyPoolProxy } from '../api/types';
 import { EmptyState, Field, FieldError, LoadingBlock, Modal, SpinnerButton, StatusBadge, toggleButtonClass, useConfirm, useToast } from '../components/ui';
 import { coreLabel, outboundSupportedCores, outboundSupportLevel, outboundSupportLevelLabel } from '../lib/cores';
 import { useI18n } from '../lib/i18n';
@@ -27,7 +27,7 @@ const schema = z.object({
 type InputValues = z.input<typeof schema>;
 type Values = z.output<typeof schema>;
 type ProxyPoolType = 'socks5' | 'http' | 'https';
-const proxyPoolTypes: ProxyPoolType[] = ['socks5', 'http', 'https'];
+const proxyPoolPageSize = 100;
 const subscriptionSchema = z.object({
   remark: z.string().optional(),
   url: z.string().min(1, '请输入订阅 URL'),
@@ -59,16 +59,6 @@ export default function OutboundsPage() {
   const defaultItems = items.filter(isFixedDefaultOutbound);
   const customItems = items.filter((item) => !isFixedDefaultOutbound(item));
   const reorderableItems = customItems.filter(isReorderableOutbound);
-  const hasPoolOutbounds = customItems.some((item) => Boolean(outboundPoolType(item)));
-  const poolLookups = useQueries({
-    queries: proxyPoolTypes.map((type) => ({
-      queryKey: ['proxy-pool', type, ''],
-      queryFn: () => api.proxyPool(type),
-      enabled: hasPoolOutbounds,
-      staleTime: 60_000,
-    })),
-  });
-  const proxyLookup = useMemo(() => buildProxyLookup(poolLookups.map((result) => result.data)), [poolLookups]);
 
   const toggle = useMutation({
     mutationFn: (item: Outbound) => api.toggleOutbound(item, !item.enabled),
@@ -228,7 +218,7 @@ export default function OutboundsPage() {
                   <CoreBadges item={item} text={text} />
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-panel-muted">
-                  {outboundMetaParts(item, text, proxyLookup.get(outboundLookupKey(item))).map((part) => <span key={part}>{part}</span>)}
+                  {outboundMetaParts(item, text).map((part) => <span key={part}>{part}</span>)}
                   <span>{formatLatency(latency[item.id], text)}</span>
                 </div>
               </div>
@@ -251,7 +241,7 @@ export default function OutboundsPage() {
                   <StatusBadge enabled={item.enabled} />
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-panel-muted">
-                  {outboundMetaParts(item, text, proxyLookup.get(outboundLookupKey(item))).slice(1).map((part) => <span key={part}>{part}</span>)}
+                  {outboundMetaParts(item, text).slice(1).map((part) => <span key={part}>{part}</span>)}
                   <span>{formatLatency(latency[item.id], text)}</span>
                 </div>
               </div>
@@ -547,10 +537,15 @@ function ProxyPoolModal({ open, onClose, onImported }: { open: boolean; onClose:
   const { text } = useI18n();
   const [poolType, setPoolType] = useState<ProxyPoolType>('socks5');
   const [country, setCountry] = useState('');
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<ProxyPoolProxy | null>(null);
   const [latency, setLatency] = useState<Record<string, PingResult>>({});
-  const pool = useQuery({ queryKey: ['proxy-pool', poolType, country], queryFn: () => api.proxyPool(poolType, country), enabled: open, staleTime: 60_000 });
-  const regions = useMemo(() => [...(pool.data?.regions || [])].sort((a, b) => b.count - a.count), [pool.data]);
+  const poolSummary = useQuery({ queryKey: ['proxy-pool', poolType, 'summary'], queryFn: () => api.proxyPool(poolType, { summary: true }), enabled: open, staleTime: 60_000 });
+  const pool = useQuery({ queryKey: ['proxy-pool', poolType, country, page, proxyPoolPageSize], queryFn: () => api.proxyPool(poolType, { country, page, per_page: proxyPoolPageSize }), enabled: open, staleTime: 60_000 });
+  const regions = useMemo(() => [...(poolSummary.data?.regions || [])].sort((a, b) => b.count - a.count), [poolSummary.data]);
+  const total = pool.data?.total || 0;
+  const hasPrev = page > 1;
+  const hasNext = page * proxyPoolPageSize < total;
   const ping = useMutation({
     mutationFn: (proxy: Pick<ProxyPoolProxy, 'address' | 'port'>) => api.pingProxyPool(poolType, proxy),
     onSuccess: (result, proxy) => setLatency((prev) => ({ ...prev, [proxyKey(proxy)]: result })),
@@ -586,6 +581,7 @@ function ProxyPoolModal({ open, onClose, onImported }: { open: boolean; onClose:
               onChange={(event) => {
                 setPoolType(event.target.value as ProxyPoolType);
                 setCountry('');
+                setPage(1);
                 setSelected(null);
                 setLatency({});
               }}
@@ -596,15 +592,16 @@ function ProxyPoolModal({ open, onClose, onImported }: { open: boolean; onClose:
             </select>
           </Field>
           <Field label={text('国家/地区')}>
-            <select value={country} onChange={(event) => { setCountry(event.target.value); setSelected(null); }}>
+            <select value={country} onChange={(event) => { setCountry(event.target.value); setPage(1); setSelected(null); }}>
               <option value="">{text('全部地区')}</option>
               {regions.map((region) => <option key={region.code} value={region.code}>{region.name || region.code} ({region.count})</option>)}
             </select>
           </Field>
           <div className="rounded-lg bg-panel-soft p-3 text-xs leading-6 text-panel-muted">
-            <div>{text('缓存')}：{pool.data?.cache_status || '-'}</div>
-            <div>{text('更新')}：{pool.data?.cache_updated_at || '-'}</div>
-            <div>{text('下次刷新')}：{pool.data?.next_refresh_at || '-'}</div>
+            <div>{text('缓存')}：{poolSummary.data?.cache_status || pool.data?.cache_status || '-'}</div>
+            <div>{text('更新')}：{poolSummary.data?.cache_updated_at || pool.data?.cache_updated_at || '-'}</div>
+            <div>{text('下次刷新')}：{poolSummary.data?.next_refresh_at || pool.data?.next_refresh_at || '-'}</div>
+            <div>{text('代理数量')}：{total}</div>
           </div>
           {selected ? <div className="rounded-lg bg-panel-soft p-3 text-xs leading-6"><b>{selected.address}:{selected.port}</b><br />{selected.city || selected.country} {selected.asn} {selected.organization}</div> : null}
         </div>
@@ -625,6 +622,13 @@ function ProxyPoolModal({ open, onClose, onImported }: { open: boolean; onClose:
               </button>
             );
           })}
+          {!pool.isLoading && total > proxyPoolPageSize ? (
+            <div className="flex items-center justify-between gap-2 px-1 py-2 text-xs text-panel-muted">
+              <button className="btn secondary h-8" disabled={!hasPrev} onClick={() => setPage((value) => Math.max(1, value - 1))}>{text('上一页')}</button>
+              <span>{page} / {Math.max(1, Math.ceil(total / proxyPoolPageSize))}</span>
+              <button className="btn secondary h-8" disabled={!hasNext} onClick={() => setPage((value) => value + 1)}>{text('下一页')}</button>
+            </div>
+          ) : null}
           {!pool.isLoading && (pool.data?.proxies || []).length === 0 ? <EmptyState title={text('暂无代理')} /> : null}
         </div>
       </div>
@@ -800,23 +804,6 @@ function outboundPoolType(item: Pick<Outbound, 'tag'>): ProxyPoolType | '' {
   if (item.tag.startsWith('pool-http-')) return 'http';
   if (item.tag.startsWith('pool-socks-')) return 'socks5';
   return '';
-}
-
-function outboundLookupKey(item: Pick<Outbound, 'tag' | 'address' | 'port'>) {
-  const type = outboundPoolType(item);
-  if (!type || !item.address || !item.port) return '';
-  return `${type}:${proxyKey({ address: item.address, port: item.port })}`;
-}
-
-function buildProxyLookup(responses: Array<ProxyPoolResponse | undefined>) {
-  const lookup = new Map<string, ProxyPoolProxy>();
-  responses.forEach((response, index) => {
-    const type = proxyPoolTypes[index];
-    (response?.proxies || []).forEach((proxy) => {
-      lookup.set(`${type}:${proxyKey(proxy)}`, proxy);
-    });
-  });
-  return lookup;
 }
 
 export function outboundRemarkLabel(remark: string, text: (value: string) => string) {

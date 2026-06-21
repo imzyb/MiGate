@@ -197,7 +197,7 @@ func (c *trafficViewCache) get(ctx context.Context, store Store) (trafficView, e
 }
 
 func buildTrafficView(ctx context.Context, store Store) (trafficView, error) {
-	inbounds, err := store.ListInbounds(ctx)
+	inbounds, err := store.ListInboundTraffic(ctx)
 	if err != nil {
 		return trafficView{}, fmt.Errorf("list_inbounds_failed")
 	}
@@ -259,7 +259,7 @@ func trafficSeriesHandler(store Store) http.HandlerFunc {
 			writeJSONError(w, http.StatusInternalServerError, "traffic_samples_failed")
 			return
 		}
-		inbounds, err := store.ListInbounds(r.Context())
+		inbounds, err := store.ListInboundTraffic(r.Context())
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "list_inbounds_failed")
 			return

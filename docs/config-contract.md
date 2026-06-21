@@ -8,6 +8,7 @@ Panel configuration lives at `/etc/migate/panel.json`, is owned by
 MiGate has not shipped a stable public config API yet, so writes are typed and
 conservative, while reads stay upgrade-compatible:
 
+- `panel.json` writes follow a strict schema: only known `Config` fields are emitted.
 - `internal/config.Config` is the only field source.
 - `Load(path)` ignores unknown JSON fields so older or user-extended
   `panel.json` files do not block service startup during an online upgrade.

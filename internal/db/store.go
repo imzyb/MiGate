@@ -21,11 +21,16 @@ type Store struct {
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
-	database, err := sql.Open("sqlite", sqliteDSNWithForeignKeys(path))
+	database, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		return nil, err
 	}
+	configureSQLitePool(database, path)
 	if err := verifyForeignKeysEnabled(ctx, database); err != nil {
+		database.Close()
+		return nil, err
+	}
+	if err := configureSQLitePragmas(ctx, database); err != nil {
 		database.Close()
 		return nil, err
 	}
@@ -34,20 +39,63 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		database.Close()
 		return nil, err
 	}
-	// Enable WAL mode for better concurrent read/write performance
-	_, _ = database.ExecContext(ctx, `PRAGMA journal_mode=WAL`)
 	return store, nil
 }
 
-func sqliteDSNWithForeignKeys(path string) string {
-	if strings.Contains(path, "_pragma=foreign_keys") {
-		return path
+func configureSQLitePool(database *sql.DB, path string) {
+	if isInMemorySQLitePath(path) {
+		database.SetMaxOpenConns(1)
+		database.SetMaxIdleConns(1)
+		return
 	}
+	database.SetMaxOpenConns(4)
+	database.SetMaxIdleConns(4)
+	database.SetConnMaxLifetime(30 * time.Minute)
+}
+
+func configureSQLitePragmas(ctx context.Context, database *sql.DB) error {
+	pragmas := []string{
+		`PRAGMA busy_timeout=5000`,
+		`PRAGMA synchronous=NORMAL`,
+		`PRAGMA temp_store=MEMORY`,
+	}
+	for _, pragma := range pragmas {
+		if _, err := database.ExecContext(ctx, pragma); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sqliteDSN(path string) string {
+	dsn := path
+	pragmas := []string{
+		"foreign_keys(1)",
+		"busy_timeout(5000)",
+		"synchronous(NORMAL)",
+		"temp_store(MEMORY)",
+	}
+	if !isInMemorySQLitePath(path) {
+		pragmas = append(pragmas, "journal_mode(WAL)")
+	}
+	for _, pragma := range pragmas {
+		if !strings.Contains(dsn, "_pragma="+url.QueryEscape(pragma)) && !strings.Contains(dsn, "_pragma="+pragma) {
+			dsn = appendSQLiteQueryParam(dsn, "_pragma", pragma)
+		}
+	}
+	return dsn
+}
+
+func isInMemorySQLitePath(path string) bool {
+	return path == ":memory:" || strings.Contains(path, "mode=memory")
+}
+
+func appendSQLiteQueryParam(dsn, key, value string) string {
 	separator := "?"
-	if strings.Contains(path, "?") {
+	if strings.Contains(dsn, "?") {
 		separator = "&"
 	}
-	return path + separator + "_pragma=" + url.QueryEscape("foreign_keys(1)")
+	return dsn + separator + url.QueryEscape(key) + "=" + url.QueryEscape(value)
 }
 
 func verifyForeignKeysEnabled(ctx context.Context, database *sql.DB) error {

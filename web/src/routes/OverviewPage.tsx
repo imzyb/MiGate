@@ -72,8 +72,8 @@ export default function OverviewPage() {
       <Card className="p-5">
         <h2 className="section-title mb-4">{text('最近生成状态')}</h2>
         <div className="grid gap-3 md:grid-cols-2">
-          <ValidationSummary label="Xray" loading={summary.isLoading} valid={data?.validation.xray.valid} error={summary.error} detail={validationSummary(data?.validation.xray, summary.error)} />
-          <ValidationSummary label="sing-box" loading={summary.isLoading} valid={data?.validation.singbox.valid} error={summary.error} detail={validationSummary(data?.validation.singbox, summary.error)} />
+          <ValidationSummary label="Xray" loading={summary.isLoading} valid={data?.validation.xray.valid} error={summary.error} detail={validationSummary(data?.validation.xray, text, summary.error)} />
+          <ValidationSummary label="sing-box" loading={summary.isLoading} valid={data?.validation.singbox.valid} error={summary.error} detail={validationSummary(data?.validation.singbox, text, summary.error)} />
         </div>
       </Card>
       <div className="grid gap-4 xl:grid-cols-[1.4fr_.9fr]">
@@ -225,22 +225,31 @@ function formatSeriesTime(value: string | undefined) {
 }
 
 function ValidationSummary({ label, loading, valid, error, detail }: { label: string; loading: boolean; valid?: boolean; error: unknown; detail: string }) {
+  const { text } = useI18n();
   const failed = Boolean(error) || valid === false;
   const tone = loading ? 'text-panel-muted' : failed ? 'text-red-700' : valid === true ? 'text-emerald-700' : 'text-panel-muted';
   return (
     <div className="rounded-lg bg-panel-soft p-3 text-sm">
       <div className="flex items-center justify-between gap-3">
         <span className="font-medium">{label}</span>
-        <span className={tone}>{loading ? '生成中' : error ? '不可用' : valid === false ? '失败' : valid === true ? '通过' : '未知'}</span>
+        <span className={tone}>{validationStatusLabel({ loading, valid, error }, text)}</span>
       </div>
       <div className="mt-2 text-xs leading-5 text-panel-muted">{detail}</div>
     </div>
   );
 }
 
-function validationSummary(data: { valid: boolean; inbounds?: number; outbounds?: number; rules?: number; warnings?: string[]; error?: string } | undefined, error?: unknown) {
+export function validationStatusLabel(state: { loading: boolean; valid?: boolean; error?: unknown }, text: (value: string) => string) {
+  if (state.loading) return text('生成中');
+  if (state.error) return text('不可用');
+  if (state.valid === false) return text('失败');
+  if (state.valid === true) return text('通过');
+  return text('未知');
+}
+
+export function validationSummary(data: { valid: boolean; inbounds?: number; outbounds?: number; rules?: number; warnings?: string[]; error?: string } | undefined, text: (value: string) => string, error?: unknown) {
   if (error) return errorText(error);
-  if (!data) return '等待校验结果';
+  if (!data) return text('等待校验结果');
   const parts = [];
   if (data.inbounds != null) parts.push(`inbounds ${data.inbounds}`);
   if (data.outbounds != null) parts.push(`outbounds ${data.outbounds}`);

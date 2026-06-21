@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   refreshQueries,
   refreshQuery,
+  refreshCertificateOperationDependencies,
   refreshSessionDependencies,
   refreshSessionState,
   refreshSettingsDependencies,
@@ -41,11 +42,13 @@ describe('query invalidation helpers', () => {
     const queryClient = { invalidateQueries: vi.fn() };
 
     refreshSettingsDependencies(queryClient as never);
+    refreshCertificateOperationDependencies(queryClient as never);
     refreshUpdateDependencies(queryClient as never);
     refreshSessionDependencies(queryClient as never);
 
     expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['settings'] });
     expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['cert-status'] });
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['certificate-operations'] });
     expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['update-status'] });
     expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['update-logs'] });
     expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['sessions'] });

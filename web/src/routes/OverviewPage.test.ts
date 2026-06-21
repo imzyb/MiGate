@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { engineStatusSummary, trafficStatusLabel } from './OverviewPage';
+import { engineStatusSummary, trafficStatusLabel, validationStatusLabel, validationSummary } from './OverviewPage';
 
 const text = (value: string) => value;
 
@@ -17,5 +17,28 @@ describe('OverviewPage traffic status labels', () => {
   it('distinguishes waiting and unavailable labels', () => {
     expect(trafficStatusLabel('waiting', text)).toBe('等待采样');
     expect(trafficStatusLabel('unavailable', text)).toBe('统计接口不可用');
+  });
+});
+
+describe('OverviewPage validation labels', () => {
+  const enText = (value: string) => ({
+    生成中: 'Generating',
+    不可用: 'Unavailable',
+    失败: 'Failed',
+    通过: 'Passed',
+    未知: 'Unknown',
+    等待校验结果: 'Waiting for validation result',
+  })[value] || value;
+
+  it('uses explicit translations for validation status labels', () => {
+    expect(validationStatusLabel({ loading: true }, enText)).toBe('Generating');
+    expect(validationStatusLabel({ loading: false, error: new Error('boom') }, enText)).toBe('Unavailable');
+    expect(validationStatusLabel({ loading: false, valid: false }, enText)).toBe('Failed');
+    expect(validationStatusLabel({ loading: false, valid: true }, enText)).toBe('Passed');
+    expect(validationStatusLabel({ loading: false }, enText)).toBe('Unknown');
+  });
+
+  it('uses explicit translations for empty validation summary', () => {
+    expect(validationSummary(undefined, enText)).toBe('Waiting for validation result');
   });
 });

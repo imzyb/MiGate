@@ -392,6 +392,13 @@ export interface DashboardSummary {
   };
 }
 
+export interface ProxyPoolQuery {
+  country?: string;
+  summary?: boolean;
+  page?: number;
+  per_page?: number;
+}
+
 export interface TrafficCoverage {
   overall: string;
   ok?: number;
@@ -601,6 +608,9 @@ export interface ProxyPoolProxy {
 export interface ProxyPoolResponse {
   regions: ProxyPoolRegion[];
   proxies: ProxyPoolProxy[];
+  total?: number;
+  page?: number;
+  per_page?: number;
   cache_status: string;
   cache_updated_at: string;
   next_refresh_at: string;

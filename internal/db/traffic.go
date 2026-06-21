@@ -122,6 +122,7 @@ func (s *Store) ApplyTrafficRawStats(ctx context.Context, stats []TrafficRawStat
 	}
 	seenClients := map[string]trafficClientInfo{}
 	seenAt := observedAt.UTC().Format(time.RFC3339Nano)
+	sampleBucketAt := trafficSampleBucket(observedAt).UTC().Format(time.RFC3339Nano)
 	upsertState, err := tx.PrepareContext(ctx, `
 INSERT INTO traffic_states (engine, scope_type, scope_key, total_up, total_down, last_raw_up, last_raw_down, rate_up, rate_down, last_seen_at, status, message)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -140,7 +141,16 @@ ON CONFLICT(engine, scope_type, scope_key) DO UPDATE SET
 		return err
 	}
 	defer upsertState.Close()
-	insertSample, err := tx.PrepareContext(ctx, `INSERT INTO traffic_samples (sampled_at, engine, scope_type, scope_key, total_up, total_down, rate_up, rate_down, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	insertSample, err := tx.PrepareContext(ctx, `
+INSERT INTO traffic_samples (sampled_at, engine, scope_type, scope_key, total_up, total_down, rate_up, rate_down, status)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(sampled_at, engine, scope_type, scope_key) DO UPDATE SET
+  total_up=excluded.total_up,
+  total_down=excluded.total_down,
+  rate_up=excluded.rate_up,
+  rate_down=excluded.rate_down,
+  status=excluded.status
+`)
 	if err != nil {
 		return err
 	}
@@ -189,7 +199,7 @@ ON CONFLICT(engine, scope_type, scope_key) DO UPDATE SET
 		if _, err := upsertState.ExecContext(ctx, raw.Engine, raw.ScopeType, raw.ScopeKey, totalUp, totalDown, raw.RawUp, raw.RawDown, rateUp, rateDown, seenAt, raw.Status, strings.TrimSpace(raw.Message)); err != nil {
 			return err
 		}
-		if _, err := insertSample.ExecContext(ctx, seenAt, raw.Engine, raw.ScopeType, raw.ScopeKey, totalUp, totalDown, rateUp, rateDown, raw.Status); err != nil {
+		if _, err := insertSample.ExecContext(ctx, sampleBucketAt, raw.Engine, raw.ScopeType, raw.ScopeKey, totalUp, totalDown, rateUp, rateDown, raw.Status); err != nil {
 			return err
 		}
 		current.Engine = raw.Engine
@@ -357,7 +367,19 @@ WHERE c.stats_key IN (`+placeholders+`)`, args...)
 	return info, nil
 }
 
-const trafficSamplesCleanupInterval = time.Hour
+const (
+	trafficSampleBucketSize       = time.Minute
+	trafficSamplesHotRetention    = 24 * time.Hour
+	trafficSamplesRetention       = 7 * 24 * time.Hour
+	trafficSamplesCleanupInterval = time.Hour
+)
+
+func trafficSampleBucket(observedAt time.Time) time.Time {
+	if observedAt.IsZero() {
+		observedAt = time.Now().UTC()
+	}
+	return observedAt.UTC().Truncate(trafficSampleBucketSize)
+}
 
 func (s *Store) cleanupTrafficSamples(ctx context.Context, tx *sql.Tx, observedAt time.Time) (func(), error) {
 	s.trafficCleanupMu.Lock()
@@ -369,8 +391,13 @@ func (s *Store) cleanupTrafficSamples(ctx context.Context, tx *sql.Tx, observedA
 	nextCleanup := observedAt.Add(trafficSamplesCleanupInterval)
 	s.nextTrafficSamplesCleanup = nextCleanup
 	s.trafficCleanupMu.Unlock()
-	cutoff := observedAt.Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339Nano)
-	if _, err := tx.ExecContext(ctx, `DELETE FROM traffic_samples WHERE sampled_at < ?`, cutoff); err != nil {
+	cutoff := observedAt.Add(-trafficSamplesRetention).UTC().Format(time.RFC3339Nano)
+	hotCutoff := observedAt.Add(-trafficSamplesHotRetention).UTC().Format(time.RFC3339Nano)
+	if _, err := tx.ExecContext(ctx, `
+DELETE FROM traffic_samples
+WHERE sampled_at < ?
+   OR (sampled_at < ? AND CAST(strftime('%M', sampled_at) AS INTEGER) % 5 <> 0)
+`, cutoff, hotCutoff); err != nil {
 		s.trafficCleanupMu.Lock()
 		if s.nextTrafficSamplesCleanup.Equal(nextCleanup) {
 			s.nextTrafficSamplesCleanup = previousCleanup

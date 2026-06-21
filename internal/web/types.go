@@ -93,6 +93,7 @@ type inboundTrafficView struct {
 type Store interface {
 	ListInbounds(ctx context.Context) ([]db.Inbound, error)
 	ListInboundTraffic(ctx context.Context) ([]db.Inbound, error)
+	ValidationConfigHash(ctx context.Context) (string, error)
 	InboundExists(ctx context.Context, id int64) (bool, error)
 	FindInboundByPort(ctx context.Context, port int, excludeID int64) (db.Inbound, bool, error)
 	GetSubscriptionByClientUUID(ctx context.Context, uuid string) (db.Inbound, db.Client, bool, error)

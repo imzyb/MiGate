@@ -1,4 +1,4 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowRight, ArrowUp, Boxes, Check, Edit2, Plus, Power, Search, Shield, Trash2, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { getAPIErrorMessage } from '../api/client';
 import { api } from '../api/endpoints';
-import type { Inbound, Outbound, ProxyPoolProxy, ProxyPoolResponse, RoutingRule } from '../api/types';
+import type { Inbound, Outbound, RoutingRule } from '../api/types';
 import { EmptyState, Field, LoadingBlock, Modal, SpinnerButton, StatusBadge, toggleButtonClass, useConfirm, useToast } from '../components/ui';
 import { coreLabel, inboundCore, outboundSupportedCores, outboundSupportsCore } from '../lib/cores';
 import { useI18n } from '../lib/i18n';
@@ -31,7 +31,7 @@ const schema = z.object({
 type InputValues = z.input<typeof schema>;
 type Values = z.output<typeof schema>;
 type ProxyPoolType = 'socks5' | 'http' | 'https';
-const proxyPoolTypes: ProxyPoolType[] = ['socks5', 'http', 'https'];
+type ProxyCountry = { country?: string; country_code?: string };
 
 export default function RoutingPage() {
   const queryClient = useQueryClient();
@@ -42,16 +42,6 @@ export default function RoutingPage() {
   const rules = useQuery({ queryKey: ['routing-rules'], queryFn: api.routingRules });
   const outbounds = useQuery({ queryKey: ['outbounds'], queryFn: api.outbounds });
   const inbounds = useQuery({ queryKey: ['inbounds'], queryFn: api.inbounds });
-  const hasPoolOutbounds = (outbounds.data || []).some((item) => Boolean(outboundPoolType(item)));
-  const poolLookups = useQueries({
-    queries: proxyPoolTypes.map((type) => ({
-      queryKey: ['proxy-pool', type, ''],
-      queryFn: () => api.proxyPool(type),
-      enabled: hasPoolOutbounds,
-      staleTime: 60_000,
-    })),
-  });
-  const proxyLookup = useMemo(() => buildProxyLookup(poolLookups.map((result) => result.data)), [poolLookups]);
   const refresh = () => refreshTopologyDependencies(queryClient);
   const remove = useMutation({
     mutationFn: api.deleteRoutingRule,
@@ -127,7 +117,6 @@ export default function RoutingPage() {
         rule={editing}
         outbounds={outbounds.data || []}
         inbounds={inbounds.data || []}
-        proxyLookup={proxyLookup}
         onClose={() => setEditing(null)}
         onSaved={refresh}
       />
@@ -135,11 +124,11 @@ export default function RoutingPage() {
   );
 }
 
-function RoutingModal({ rule, outbounds, inbounds, proxyLookup, onClose, onSaved }: { rule: RoutingRule | null; outbounds: Outbound[]; inbounds: Inbound[]; proxyLookup: Map<string, ProxyPoolProxy>; onClose: () => void; onSaved: () => void }) {
+function RoutingModal({ rule, outbounds, inbounds, onClose, onSaved }: { rule: RoutingRule | null; outbounds: Outbound[]; inbounds: Inbound[]; onClose: () => void; onSaved: () => void }) {
   const { showToast } = useToast();
   const { text } = useI18n();
   const inboundOptions = useMemo(() => inboundSelectionOptions(inbounds), [inbounds]);
-  const initialOutboundOptions = useMemo(() => outboundSelectionOptions(outbounds, proxyLookup), [outbounds, proxyLookup]);
+  const initialOutboundOptions = useMemo(() => outboundSelectionOptions(outbounds), [outbounds]);
   const form = useForm<InputValues, unknown, Values>({
     resolver: zodResolver(schema),
     values: rule
@@ -161,7 +150,7 @@ function RoutingModal({ rule, outbounds, inbounds, proxyLookup, onClose, onSaved
   const watchedInboundTag = form.watch('inbound_tag') || '';
   const watchedInboundID = Number(form.watch('inbound_id') || 0);
   const watchedClientID = Number(form.watch('client_id') || 0);
-  const outboundOptions = useMemo(() => outboundSelectionOptions(outbounds, proxyLookup, inbounds, watchedInboundID, watchedInboundTag, watchedClientID), [outbounds, proxyLookup, inbounds, watchedInboundID, watchedInboundTag, watchedClientID]);
+  const outboundOptions = useMemo(() => outboundSelectionOptions(outbounds, new Map(), inbounds, watchedInboundID, watchedInboundTag, watchedClientID), [outbounds, inbounds, watchedInboundID, watchedInboundTag, watchedClientID]);
   const watchedOutboundTag = form.watch('outbound_tag') || outboundOptions[0]?.tag || 'direct';
   const watchedOutboundID = Number(form.watch('outbound_id') || 0);
   const clientOptions = useMemo(() => clientSelectionOptions(inbounds, watchedInboundID, watchedInboundTag, rule || undefined), [inbounds, watchedInboundID, watchedInboundTag, rule]);
@@ -589,7 +578,7 @@ export function clientSelectionOptions(inbounds: Inbound[], inboundID: number, i
   return options;
 }
 
-export function outboundSelectionOptions(outbounds: Outbound[], proxyLookup = new Map<string, ProxyPoolProxy>(), inbounds: Inbound[] = [], inboundID = 0, inboundTag = '', clientID = 0): OutboundOption[] {
+export function outboundSelectionOptions(outbounds: Outbound[], proxyLookup = new Map<string, ProxyCountry>(), inbounds: Inbound[] = [], inboundID = 0, inboundTag = '', clientID = 0): OutboundOption[] {
   const values = outbounds.length
     ? outbounds
     : [
@@ -702,18 +691,7 @@ function outboundLookupKey(item: Pick<Outbound, 'tag' | 'address' | 'port'>) {
   return `${type}:${item.address}:${item.port}`;
 }
 
-function buildProxyLookup(responses: Array<ProxyPoolResponse | undefined>) {
-  const lookup = new Map<string, ProxyPoolProxy>();
-  responses.forEach((response, index) => {
-    const type = proxyPoolTypes[index];
-    (response?.proxies || []).forEach((proxy) => {
-      lookup.set(`${type}:${proxy.address}:${proxy.port}`, proxy);
-    });
-  });
-  return lookup;
-}
-
-function proxyCountryLabel(proxy?: Pick<ProxyPoolProxy, 'country' | 'country_code'>) {
+function proxyCountryLabel(proxy?: ProxyCountry) {
   return String(proxy?.country || proxy?.country_code || '').trim();
 }
 

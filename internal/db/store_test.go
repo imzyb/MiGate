@@ -3240,8 +3240,8 @@ func TestTrafficScopeStatusDoesNotPolluteRawBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list samples before marker: %v", err)
 	}
-	if len(samples) != 2 {
-		t.Fatalf("expected two client samples before marker, got %+v", samples)
+	if len(samples) != 1 {
+		t.Fatalf("expected one bucketed client sample before marker, got %+v", samples)
 	}
 	markerAt := t0.Add(20 * time.Second)
 	if err := store.MarkTrafficScopeStatus(ctx, []db.TrafficStatusMarker{
@@ -3279,7 +3279,7 @@ func TestTrafficScopeStatusDoesNotPolluteRawBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list samples after marker: %v", err)
 	}
-	if len(samples) != 2 {
+	if len(samples) != 1 {
 		t.Fatalf("status marker must not write traffic sample, got %+v", samples)
 	}
 	if err := store.ApplyTrafficRawStats(ctx, raw(1200, 2600), t0.Add(30*time.Second)); err != nil {
@@ -3297,8 +3297,8 @@ func TestTrafficScopeStatusDoesNotPolluteRawBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list samples after recovery: %v", err)
 	}
-	if len(samples) != 3 {
-		t.Fatalf("expected one recovered client sample after marker, got %+v", samples)
+	if len(samples) != 2 || samples[1].TotalUp != 200 || samples[1].TotalDown != 600 {
+		t.Fatalf("expected one recovered client bucket after marker, got %+v", samples)
 	}
 }
 
@@ -3358,8 +3358,8 @@ func TestApplyTrafficRawStatsBatchesClientSamplesAndTotals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list samples: %v", err)
 	}
-	if len(samples) != 4 {
-		t.Fatalf("expected two client samples for each batch, got %+v", samples)
+	if len(samples) != 2 {
+		t.Fatalf("expected one bucketed sample per client, got %+v", samples)
 	}
 	usage, found, err := store.GetClientTrafficUsageForClient(ctx, clientB.ID)
 	if err != nil {

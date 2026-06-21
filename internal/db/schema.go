@@ -203,6 +203,13 @@ CREATE INDEX IF NOT EXISTS idx_traffic_states_scope ON traffic_states(scope_type
 CREATE INDEX IF NOT EXISTS idx_traffic_samples_lookup ON traffic_samples(scope_type, scope_key, sampled_at);
 CREATE INDEX IF NOT EXISTS idx_traffic_samples_scope_time ON traffic_samples(scope_type, sampled_at);
 CREATE INDEX IF NOT EXISTS idx_traffic_samples_sampled_at ON traffic_samples(sampled_at);
+DELETE FROM traffic_samples
+WHERE id NOT IN (
+  SELECT MAX(id)
+  FROM traffic_samples
+  GROUP BY sampled_at, engine, scope_type, scope_key
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_traffic_samples_bucket ON traffic_samples(sampled_at, engine, scope_type, scope_key);
 CREATE INDEX IF NOT EXISTS idx_certificates_status ON certificates(status);
 CREATE INDEX IF NOT EXISTS idx_certificates_not_after ON certificates(not_after);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_certificates_cert_key ON certificates(cert_path, key_path);
