@@ -653,9 +653,9 @@ func validateSingboxConfig(ctx context.Context, cfg *routerConfig) configValidat
 	return validateSingboxConfigSnapshotWithRuntime(ctx, validationSnapshot{inbounds: inbounds, outbounds: outbounds, rules: rules}, cfg)
 }
 
-func validateSingboxConfigSnapshot(snapshot validationSnapshot) configValidationResult {
+func validateSingboxConfigSnapshotWithOptions(snapshot validationSnapshot, opts singbox.BuildOptions) configValidationResult {
 	result := configValidationResult{Target: "singbox", Valid: true, Warnings: []string{}}
-	cfg, err := singbox.BuildConfigWithOutbounds(snapshot.inbounds, snapshot.outbounds, snapshot.rules)
+	cfg, err := singbox.BuildConfigWithOutboundsOptions(snapshot.inbounds, snapshot.outbounds, snapshot.rules, opts)
 	if err != nil {
 		result.Valid = false
 		result.Error = err.Error()
@@ -739,10 +739,10 @@ func applyBuiltSingboxConfig(built builtSingboxConfig) SingboxApplySummary {
 }
 
 func applySingboxSummary(ctx context.Context, cfg *routerConfig, store Store, strict bool) SingboxApplySummary {
-	if cfg != nil && cfg.singboxApplier != nil {
+	if cfg != nil && cfg.singboxApplier != nil && cfg.singboxApplierSet {
 		return cfg.singboxApplier(ctx, store, cfg.singboxRuntime, strict)
 	}
-	return tryApplySingboxWithRuntime(ctx, store, defaultSingboxRuntime{}, strict)
+	return tryApplySingboxWithRouterConfig(ctx, cfg, store, strict)
 }
 
 func attachSingboxResult(payload map[string]interface{}, summary SingboxApplySummary) map[string]interface{} {
@@ -843,9 +843,10 @@ type builtSingboxConfig struct {
 }
 
 func buildSingboxConfigForRuntime(ctx context.Context, cfg *routerConfig, inbounds []db.Inbound, outbounds []db.Outbound, rules []db.RoutingRule) builtSingboxConfig {
+	opts := singboxOptionsForRouterConfig(cfg)
 	hasSingboxInbound := singbox.HasEnabledSingboxInbound(inbounds)
 	if !hasSingboxInbound {
-		built, err := singbox.BuildConfigWithOutbounds(inbounds, outbounds, rules)
+		built, err := singbox.BuildConfigWithOutboundsOptions(inbounds, outbounds, rules, opts)
 		return builtSingboxConfig{config: built, err: err}
 	}
 	runtime := SingboxRuntime(defaultSingboxRuntime{})
@@ -853,14 +854,14 @@ func buildSingboxConfigForRuntime(ctx context.Context, cfg *routerConfig, inboun
 		runtime = cfg.singboxRuntime
 	}
 	capability := runtime.Capability(ctx)
-	built, err := singbox.BuildConfigWithOutbounds(inbounds, outbounds, rules)
+	built, err := singbox.BuildConfigWithOutboundsOptions(inbounds, outbounds, rules, opts)
 	result := builtSingboxConfig{
 		config: built,
 		err:    err,
 	}
 	if result.config.Experimental == nil && capability.V2RayAPIStats {
 		result.config = singbox.BuildConfigWithOptions(inbounds, singbox.BuildOptions{EnableV2RayAPIStats: true})
-		withOutbounds, buildErr := singbox.BuildConfigWithOutbounds(inbounds, outbounds, rules)
+		withOutbounds, buildErr := singbox.BuildConfigWithOutboundsOptions(inbounds, outbounds, rules, opts)
 		if buildErr != nil {
 			result.err = buildErr
 		} else {
@@ -884,6 +885,22 @@ func tryApplySingbox(ctx context.Context, store Store) SingboxApplySummary {
 }
 
 func tryApplySingboxWithRuntime(ctx context.Context, store Store, runtime SingboxRuntime, strict bool) SingboxApplySummary {
+	return tryApplySingboxWithRuntimeAndConfigDir(ctx, store, runtime, strict, "")
+}
+
+func tryApplySingboxWithRouterConfig(ctx context.Context, cfg *routerConfig, store Store, strict bool) SingboxApplySummary {
+	runtime := SingboxRuntime(defaultSingboxRuntime{})
+	configDir := ""
+	if cfg != nil {
+		if cfg.singboxRuntime != nil {
+			runtime = cfg.singboxRuntime
+		}
+		configDir = cfg.configDir
+	}
+	return tryApplySingboxWithRuntimeAndConfigDir(ctx, store, runtime, strict, configDir)
+}
+
+func tryApplySingboxWithRuntimeAndConfigDir(ctx context.Context, store Store, runtime SingboxRuntime, strict bool, configDir string) SingboxApplySummary {
 	result := newSingboxApplySummary()
 	if !singbox.IsInstalled() {
 		if strict {
@@ -918,7 +935,7 @@ func tryApplySingboxWithRuntime(ctx context.Context, store Store, runtime Singbo
 		result.Detail = err.Error()
 		return result
 	}
-	built := buildSingboxConfigForRuntime(ctx, &routerConfig{singboxRuntime: runtime}, inbounds, outbounds, rules)
+	built := buildSingboxConfigForRuntime(ctx, &routerConfig{singboxRuntime: runtime, configDir: configDir}, inbounds, outbounds, rules)
 	if _, err := os.Stat(singbox.CertFile); os.IsNotExist(err) {
 		if err := singbox.GenerateSelfSignedCert(); err != nil {
 			result.Error = "cert_failed"

@@ -882,6 +882,33 @@ func TestCLIResetPasswordUpdatesConfigAndRestartsService(t *testing.T) {
 	}
 }
 
+func TestCLIEnsureManagementDirectPreservesExistingConfig(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "panel.json")
+	config := `{"panel_port":9999,"database_path":"` + filepath.Join(tmp, "migate.db") + `","management_direct_enabled":false,"management_direct_hosts":["old.example"],"management_direct_ports":[2200]}`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	var out bytes.Buffer
+	exitCode := runCLI([]string{"ensure-management-direct", "--config", configPath, "--host", "103.193.149.217", "--port", "22"}, &out, &bytes.Buffer{}, &fakeRunner{})
+	if exitCode != 0 {
+		t.Fatalf("expected exit 0, got %d: %s", exitCode, out.String())
+	}
+	updated, err := panelcfg.Load(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if updated.ManagementDirectEnabled {
+		t.Fatalf("explicit disabled flag should be preserved: %+v", updated)
+	}
+	if strings.Join(updated.ManagementDirectHosts, ",") != "old.example,103.193.149.217" {
+		t.Fatalf("unexpected hosts: %+v", updated.ManagementDirectHosts)
+	}
+	if len(updated.ManagementDirectPorts) != 2 || updated.ManagementDirectPorts[0] != 22 || updated.ManagementDirectPorts[1] != 2200 {
+		t.Fatalf("unexpected ports: %+v", updated.ManagementDirectPorts)
+	}
+}
+
 func TestCLIURLPublicUsesDetectedIPv4(t *testing.T) {
 	tmp := t.TempDir()
 	oldPath := defaultPanelConfigPath

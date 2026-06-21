@@ -327,6 +327,8 @@ func runCLI(args []string, stdout, stderr io.Writer, runner commandRunner) int {
 		return cliResetPassword(stdout, stderr, runner, m, args[1:])
 	case "hash-password":
 		return cliHashPassword(stdout, stderr, args[1:])
+	case "ensure-management-direct":
+		return cliEnsureManagementDirect(stdout, stderr, args[1:])
 	case "start", "stop":
 		return cliSystemctl(stderr, runner, args[0], paths.PanelService)
 	case "restart":
@@ -370,6 +372,50 @@ func cliHashPassword(stdout, stderr io.Writer, args []string) int {
 	}
 	fmt.Fprintln(stdout, hashed)
 	return 0
+}
+
+func cliEnsureManagementDirect(stdout, stderr io.Writer, args []string) int {
+	fs := flag.NewFlagSet("mg ensure-management-direct", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	configPath := defaultPanelConfigPath
+	hosts := multiFlag{}
+	ports := multiFlag{}
+	fs.StringVar(&configPath, "config", configPath, "panel config path")
+	fs.Var(&hosts, "host", "management host or IP to protect")
+	fs.Var(&ports, "port", "management port to protect")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if strings.TrimSpace(configPath) == "" {
+		fmt.Fprintln(stderr, "config path is required")
+		return 2
+	}
+	parsedPorts := []int{}
+	for _, raw := range ports {
+		var port int
+		if _, err := fmt.Sscanf(strings.TrimSpace(raw), "%d", &port); err != nil {
+			continue
+		}
+		parsedPorts = append(parsedPorts, port)
+	}
+	if _, err := panelcfg.EnsureManagementDirectDefaults(configPath, hosts, parsedPorts); err != nil {
+		fmt.Fprintf(stderr, "ensure management direct: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "management direct defaults ensured")
+	return 0
+}
+
+type multiFlag []string
+
+func (m *multiFlag) String() string { return strings.Join(*m, ",") }
+
+func (m *multiFlag) Set(value string) error {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		*m = append(*m, value)
+	}
+	return nil
 }
 
 func printCLIMenu(w io.Writer, m messages) {
@@ -890,7 +936,7 @@ func routerFromConfig(path string) (http.Handler, func(), error) {
 	opts = append(opts, web.WithStore(store))
 
 	// Build Xray controller for shared use.
-	xrayCtrl := web.NewRealController(store, paths.XrayConfig, execCmd)
+	xrayCtrl := web.NewRealController(store, paths.XrayConfig, execCmd).WithConfigDir(filepath.Dir(path))
 	opts = append(opts, web.WithXrayController(xrayCtrl))
 	statsClient := xray.NewResilientStatsClient(
 		xray.NewCommandStatsClient(paths.XrayBinary, "127.0.0.1:10085"),

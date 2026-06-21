@@ -440,6 +440,103 @@ read_existing_config_defaults() {
   WEB_BASE_PATH="${WEB_BASE_PATH:-/panel}"
 }
 
+detect_ssh_port() {
+  local file="${SSHD_CONFIG_PATH:-/etc/ssh/sshd_config}"
+  local port=""
+  if [ -f "$file" ]; then
+    port="$(sed -nE 's/^[[:space:]]*Port[[:space:]]+([0-9]+).*/\1/p' "$file" 2>/dev/null | tail -1)"
+  fi
+  if is_valid_port "${port:-}"; then
+    printf '%s' "$port"
+  else
+    printf '22'
+  fi
+}
+
+detect_public_ip() {
+  local ip=""
+  if command_exists curl; then
+    ip="$(curl -fsS --max-time 4 https://api.ipify.org 2>/dev/null || true)"
+    if [ -z "$ip" ]; then
+      ip="$(curl -fsS --max-time 4 https://ifconfig.me/ip 2>/dev/null || true)"
+    fi
+  fi
+  if is_valid_public_ip "$ip"; then
+    printf '%s' "$ip"
+  fi
+}
+
+is_valid_public_ip() {
+  local ip="$1"
+  case "$ip" in
+    ''|*[!0-9a-fA-F:.]*) return 1 ;;
+  esac
+  if printf '%s' "$ip" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+    local IFS=. octet
+    for octet in $ip; do
+      [ "$octet" -le 255 ] || return 1
+    done
+    return 0
+  fi
+  case "$ip" in
+    *:*) is_valid_ipv6_literal "$ip" ;;
+    *) return 1 ;;
+  esac
+}
+
+is_valid_ipv6_literal() {
+  local ip="$1" IFS=: part count explicit_count double_colon_count colon_count
+  case "$ip" in
+    ''|*[!0-9a-fA-F:]*|*:::*) return 1 ;;
+  esac
+  case "$ip" in
+    :*) case "$ip" in ::*) ;; *) return 1 ;; esac ;;
+  esac
+  case "$ip" in
+    *:) case "$ip" in *::) ;; *) return 1 ;; esac ;;
+  esac
+  double_colon_count="$(printf '%s' "$ip" | awk -F'::' '{print NF-1}')"
+  colon_count="$(printf '%s' "$ip" | awk -F: '{print NF-1}')"
+  [ "$double_colon_count" -le 1 ] || return 1
+  if [ "$double_colon_count" -eq 0 ]; then
+    [ "$colon_count" -eq 7 ] || return 1
+  else
+    [ "$colon_count" -ge 2 ] || return 1
+  fi
+  count=0
+  explicit_count=0
+  for part in $ip; do
+    count=$((count + 1))
+    [ -z "$part" ] && continue
+    explicit_count=$((explicit_count + 1))
+    [ "${#part}" -le 4 ] || return 1
+    printf '%s' "$part" | grep -Eq '^[0-9A-Fa-f]+$' || return 1
+  done
+  if [ "$double_colon_count" -eq 1 ]; then
+    [ "$explicit_count" -lt 8 ] || return 1
+  fi
+  [ "$count" -le 8 ] || return 1
+  return 0
+}
+
+ensure_management_direct_defaults() {
+  if [ ! -f "$CONFIG_PATH" ] || [ "$DRY_RUN" -eq 1 ]; then
+    return 0
+  fi
+  local ssh_port public_ip args
+  ssh_port="$(detect_ssh_port)"
+  public_ip="$(detect_public_ip)"
+  args=(ensure-management-direct --config "$CONFIG_PATH" --port "$ssh_port")
+  if [ -n "$public_ip" ]; then
+    args+=(--host "$public_ip")
+  fi
+  if "$MIGATE_BIN" "${args[@]}" >/dev/null 2>&1; then
+    log_ok "管理直连保护默认配置已确认。"
+  else
+    log_warn "管理直连保护默认配置补齐失败，请安装后在设置页检查。"
+  fi
+}
+
 port_in_use() {
   local port="$1"
   if command_exists ss; then
@@ -1097,6 +1194,7 @@ write_config() {
   local panel_password_hash
   if [ -f "$CONFIG_PATH" ] && [ "$REGENERATE_CONFIG" -ne 1 ]; then
     log_ok "保留已有配置：$CONFIG_PATH"
+    ensure_management_direct_defaults
     return 0
   fi
   ensure_runtime_dirs
@@ -1111,9 +1209,14 @@ write_config() {
   "panel_username": "$(json_escape "$panel_username")",
   "panel_password": "$(json_escape "$panel_password_hash")",
   "web_base_path": "$(json_escape "$web_base_path")",
-  "database_path": "$(json_escape "$DATA_DIR")/migate.db"
+  "database_path": "$(json_escape "$DATA_DIR")/migate.db",
+  "management_direct_enabled": true,
+  "management_direct_auto_detect": true,
+  "management_direct_hosts": [],
+  "management_direct_ports": [$(detect_ssh_port)]
 }
 JSON
+  ensure_management_direct_defaults
   log_ok "配置已写入：$CONFIG_PATH"
 }
 

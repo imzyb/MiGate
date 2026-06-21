@@ -200,6 +200,23 @@ describe('topology graph helpers', () => {
     expect(graph.edges.some((edge) => edge.source.startsWith('client:') && edge.target.startsWith('outbound:'))).toBe(false);
   });
 
+  it('hides management direct system protection from the topology canvas', () => {
+    const graph = buildTopologyGraph(inbounds, [
+      ...outbounds,
+      { id: 99, tag: 'migate-system-direct', protocol: 'freedom', enabled: true },
+    ], [
+      { id: 610, inbound_tag: '', outbound_id: 99, outbound_tag: 'migate-system-direct', ip: '103.193.149.217', enabled: true },
+      { id: 611, inbound_tag: 'inbound-7-vless', outbound_id: 2, outbound_tag: 'proxy-a', enabled: true },
+    ]);
+
+    expect(graph.nodes.some((node) => node.id.includes('migate-system-direct'))).toBe(false);
+    expect(graph.edges.some((edge) => edge.data?.ruleId === 610 || edge.target.includes('migate-system-direct'))).toBe(false);
+    expect(graph.edges.find((edge) => edge.id.startsWith('rule-611-7'))).toMatchObject({
+      source: 'inbound:7',
+      target: 'outbound:proxy-a',
+    });
+  });
+
   it('creates real client-to-outbound routing edges for client rules', () => {
     const graph = buildTopologyGraph(inbounds, outbounds, [
       { id: 62, inbound_tag: 'inbound-7-vless', client_id: 11, client_email: 'alice@example.com', outbound_id: 1, outbound_tag: 'direct', enabled: true },

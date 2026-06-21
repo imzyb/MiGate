@@ -26,6 +26,11 @@ type Request struct {
 	DatabasePath  *string `json:"database_path"`
 	CertDomain    *string `json:"cert_domain"`
 	CertEmail     *string `json:"cert_email"`
+
+	ManagementDirectEnabled    *bool     `json:"management_direct_enabled"`
+	ManagementDirectAutoDetect *bool     `json:"management_direct_auto_detect"`
+	ManagementDirectHosts      *[]string `json:"management_direct_hosts"`
+	ManagementDirectPorts      *[]int    `json:"management_direct_ports"`
 }
 
 type Response struct {
@@ -38,6 +43,11 @@ type Response struct {
 	CertDomain    string `json:"cert_domain"`
 	CertEmail     string `json:"cert_email"`
 	HasPassword   bool   `json:"has_password"`
+
+	ManagementDirectEnabled    bool     `json:"management_direct_enabled"`
+	ManagementDirectAutoDetect bool     `json:"management_direct_auto_detect"`
+	ManagementDirectHosts      []string `json:"management_direct_hosts"`
+	ManagementDirectPorts      []int    `json:"management_direct_ports"`
 }
 
 func (s Service) Get() (Response, error) {
@@ -100,6 +110,18 @@ func (s Service) apply(cfg panelcfg.Config, req Request) (panelcfg.Config, error
 	if req.CertEmail != nil {
 		cfg.CertEmail = *req.CertEmail
 	}
+	if req.ManagementDirectEnabled != nil {
+		cfg.SetManagementDirectEnabled(*req.ManagementDirectEnabled)
+	}
+	if req.ManagementDirectAutoDetect != nil {
+		cfg.SetManagementDirectAutoDetect(*req.ManagementDirectAutoDetect)
+	}
+	if req.ManagementDirectHosts != nil {
+		cfg.ManagementDirectHosts = panelcfg.NormalizeManagementDirectHosts(*req.ManagementDirectHosts)
+	}
+	if req.ManagementDirectPorts != nil {
+		cfg.ManagementDirectPorts = panelcfg.NormalizeManagementDirectPorts(*req.ManagementDirectPorts)
+	}
 	if req.PanelPassword != nil && *req.PanelPassword != "" {
 		password := *req.PanelPassword
 		if !s.passwordIsHash(password) {
@@ -145,5 +167,10 @@ func responseFromConfig(cfg panelcfg.Config) Response {
 		CertDomain:    cfg.CertDomain,
 		CertEmail:     cfg.CertEmail,
 		HasPassword:   cfg.PanelPassword != "",
+
+		ManagementDirectEnabled:    cfg.ManagementDirectEnabled,
+		ManagementDirectAutoDetect: cfg.ManagementDirectAutoDetect,
+		ManagementDirectHosts:      append([]string(nil), cfg.ManagementDirectHosts...),
+		ManagementDirectPorts:      append([]int(nil), cfg.ManagementDirectPorts...),
 	}
 }

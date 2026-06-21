@@ -840,7 +840,7 @@ func buildDashboardValidationSnapshot(ctx context.Context, cfg *routerConfig, ba
 
 func buildDashboardValidation(ctx context.Context, cfg *routerConfig, snapshot validationSnapshot) map[string]configValidationResult {
 	return map[string]configValidationResult{
-		"xray":    validateXrayConfigSnapshot(snapshot),
+		"xray":    validateXrayConfigSnapshotWithOptions(snapshot, xrayOptionsForRouterConfig(cfg)),
 		"singbox": validateSingboxConfigSnapshotWithRuntime(ctx, snapshot, cfg),
 	}
 }

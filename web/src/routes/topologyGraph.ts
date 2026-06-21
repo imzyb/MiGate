@@ -54,11 +54,15 @@ const outboundX = 760;
 const rowGap = 154;
 const clientGap = 96;
 const outboundGap = 132;
+const systemDirectOutboundTag = 'migate-system-direct';
 
 export function buildTopologyGraph(inbounds: Inbound[], outbounds: Outbound[], routingRules: RoutingRule[]): TopologyGraph {
+  const systemDirectOutboundIds = new Set(outbounds.filter((outbound) => isSystemDirectOutbound(outbound)).map((outbound) => outbound.id));
+  const visibleOutbounds = outbounds.filter((outbound) => !isSystemDirectOutbound(outbound));
+  const visibleRoutingRules = routingRules.filter((rule) => !isSystemDirectRoutingRule(rule, systemDirectOutboundIds));
   const nodes: Array<Node<TopologyNodeData>> = [];
   const edges: Array<Edge<TopologyEdgeData>> = [];
-  const lookup = buildTopologyLookup(inbounds, outbounds);
+  const lookup = buildTopologyLookup(inbounds, visibleOutbounds);
   const missingInboundTargets = new Map<string, { title: string; subtitle?: string }>();
   const missingClientRules: Array<{ rule: RoutingRule; source: RoutingSource }> = [];
   const missingOutboundTargets = new Map<string, { subtitle?: string }>();
@@ -82,12 +86,12 @@ export function buildTopologyGraph(inbounds: Inbound[], outbounds: Outbound[], r
   });
 
   const missingInboundStartY = y;
-  outbounds.forEach((outbound, index) => {
+  visibleOutbounds.forEach((outbound, index) => {
     nodes.push(buildOutboundNode(outbound, index * outboundGap));
   });
 
-  const outboundCount = outbounds.length;
-  routingRules.forEach((rule) => {
+  const outboundCount = visibleOutbounds.length;
+  visibleRoutingRules.forEach((rule) => {
     const outbound = resolveRuleOutbound(rule, lookup.outboundById);
     const missingTarget = !outbound;
     const targetTag = outbound?.tag || missingOutboundTargetKey(rule);
@@ -130,7 +134,7 @@ export function buildTopologyGraph(inbounds: Inbound[], outbounds: Outbound[], r
     });
   });
 
-  const directOutbound = outbounds.find((outbound) => outbound.tag === 'direct');
+  const directOutbound = visibleOutbounds.find((outbound) => outbound.tag === 'direct');
   if (directOutbound) {
     inbounds
       .filter((inbound) => !routedInboundIds.has(inbound.id))
@@ -157,6 +161,14 @@ export function buildTopologyGraph(inbounds: Inbound[], outbounds: Outbound[], r
   });
 
   return { nodes, edges };
+}
+
+function isSystemDirectOutbound(outbound: Pick<Outbound, 'tag'>) {
+  return outbound.tag === systemDirectOutboundTag;
+}
+
+function isSystemDirectRoutingRule(rule: Pick<RoutingRule, 'outbound_id' | 'outbound_tag'>, systemDirectOutboundIds: Set<number>) {
+  return rule.outbound_tag === systemDirectOutboundTag || systemDirectOutboundIds.has(Number(rule.outbound_id || 0));
 }
 
 export function buildInboundTagLookup(inbounds: Inbound[]): Map<string, Inbound> {

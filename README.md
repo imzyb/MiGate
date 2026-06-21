@@ -79,6 +79,7 @@ public domain or address. If MiGate is behind a trusted HTTPS reverse proxy, set
 `trust_proxy` to `true` so Secure cookies and HSTS can use `X-Forwarded-Proto`.
 `migate serve --host 0.0.0.0` remains available only when you intentionally
 override the safer default.
+Management direct protection is documented in `docs/config-contract.md`.
 
 ## Common Commands
 

@@ -483,6 +483,10 @@ export interface Settings {
   cert_domain?: string;
   cert_email?: string;
   has_password?: boolean;
+  management_direct_enabled?: boolean;
+  management_direct_auto_detect?: boolean;
+  management_direct_hosts?: string[] | string;
+  management_direct_ports?: number[] | string;
   [key: string]: unknown;
 }
 

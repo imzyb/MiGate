@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Clock3, ExternalLink, FileKey2, Link2, RefreshCw, RotateCcw, Save, ShieldCheck, ShieldX, Trash2, UploadCloud } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import type { UseFormReturn } from 'react-hook-form';
 import { ApiError, getAPIErrorMessage } from '../api/client';
 import { api } from '../api/endpoints';
@@ -407,7 +407,18 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 export function settingsPayload(current: Settings | undefined, values: Settings): Settings {
-  return { ...current, ...values, panel_password: values.panel_password || '' };
+  const payload: Settings = {
+    ...current,
+    ...values,
+    panel_password: values.panel_password || '',
+  };
+  if (Object.prototype.hasOwnProperty.call(values, 'management_direct_hosts')) {
+    payload.management_direct_hosts = parseTextList(values.management_direct_hosts);
+  }
+  if (Object.prototype.hasOwnProperty.call(values, 'management_direct_ports')) {
+    payload.management_direct_ports = parsePortList(values.management_direct_ports);
+  }
+  return payload;
 }
 
 export function certSettingsPayload(current: Settings | undefined, values: Settings): Settings {
@@ -429,6 +440,27 @@ export function certIssuePayload(values: Settings, current?: { domain?: string; 
 export function parseDomains(value: string | string[]): string[] {
   const items = Array.isArray(value) ? value : value.split(/[\s,，]+/);
   return Array.from(new Set(items.map((item) => item.trim().toLowerCase()).filter(Boolean)));
+}
+
+function parseTextList(value: string[] | string | undefined): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  if (!value) return [];
+  return String(value).split(/[\s,，]+/).map((item) => item.trim()).filter(Boolean);
+}
+
+function parsePortList(value: number[] | string | undefined): number[] | string {
+  if (Array.isArray(value)) return value.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0 && item <= 65535);
+  if (!value) return [];
+  const raw = String(value);
+  const parts = raw.split(/[\s,，]+/).map((item) => item.trim()).filter(Boolean);
+  if (parts.some((item) => !/^\d+$/.test(item))) {
+    return raw;
+  }
+  const ports = parts.map((item) => Number(item));
+  if (ports.some((item) => !Number.isInteger(item) || item < 1 || item > 65535)) {
+    return raw;
+  }
+  return ports;
 }
 
 export function certificateStatusLabel(status?: string) {
@@ -497,6 +529,8 @@ function PanelSettingsCard({
   const webBasePath = settings?.web_base_path || '/';
   const databasePath = settings?.database_path || '-';
   const authState = settings?.has_password ? text('已设置密码') : text('未设置密码');
+  const managementEnabled = form.watch('management_direct_enabled') !== false;
+  const managementAutoDetect = form.watch('management_direct_auto_detect') !== false;
   return (
     <Card className="p-5">
       <form className="panel-config" onSubmit={form.handleSubmit(onSubmit)}>
@@ -537,6 +571,49 @@ function PanelSettingsCard({
               <Field label={text('数据库路径')}><input {...form.register('database_path')} /></Field>
             </div>
           </section>
+
+          <section className="panel-config-section">
+            <div className="panel-config-section-title">{text('高级保护：管理入口直连')}</div>
+            <div className="mt-1 text-xs text-panel-muted">{text('用于避免面板或 SSH 管理入口被代理策略绕回导致无法访问。默认保持开启，一般无需修改。')}</div>
+            <div className="settings-field-grid">
+              <label className="flex items-center gap-2 text-sm font-medium text-panel-text">
+                <input type="checkbox" className="h-4 w-4" checked={managementEnabled} onChange={(event) => form.setValue('management_direct_enabled', event.target.checked, { shouldDirty: true })} />
+                {text('启用保护')}
+              </label>
+              <label className="flex items-center gap-2 text-sm font-medium text-panel-text">
+                <input type="checkbox" className="h-4 w-4" checked={managementAutoDetect} onChange={(event) => form.setValue('management_direct_auto_detect', event.target.checked, { shouldDirty: true })} />
+                {text('自动检测管理入口')}
+              </label>
+              <Field label={text('额外管理 Host/IP')} help={text('高级项；自动检测不足时再填写，用逗号或换行分隔。')}>
+                <Controller
+                  control={form.control}
+                  name="management_direct_hosts"
+                  render={({ field }) => (
+                    <textarea
+                      rows={3}
+                      value={listFieldValue(field.value as string[] | string | undefined)}
+                      onBlur={field.onBlur}
+                      onChange={(event) => field.onChange(event.target.value)}
+                    />
+                  )}
+                />
+              </Field>
+              <Field label={text('额外管理端口')} help={text('高级项；仅填写面板或 SSH 等管理入口。不要加入 80/443，除非它们就是管理入口。')}>
+                <Controller
+                  control={form.control}
+                  name="management_direct_ports"
+                  render={({ field }) => (
+                    <textarea
+                      rows={3}
+                      value={listFieldValue(field.value as number[] | string | undefined)}
+                      onBlur={field.onBlur}
+                      onChange={(event) => field.onChange(event.target.value)}
+                    />
+                  )}
+                />
+              </Field>
+            </div>
+          </section>
         </div>
 
         <div className="panel-config-actions">
@@ -553,6 +630,11 @@ function shortPanelPath(value: ReactNode) {
   if (typeof value !== 'string') return value;
   if (value === '-') return value;
   return shortPath(value);
+}
+
+function listFieldValue(value: string[] | number[] | string | undefined) {
+  if (Array.isArray(value)) return value.join('\n');
+  return value || '';
 }
 
 export function certificateInventorySummary(certificates: ManagedCertificate[], tlsInbounds: Inbound[]) {

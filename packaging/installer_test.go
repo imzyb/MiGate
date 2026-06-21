@@ -63,6 +63,9 @@ func TestInstallerIsProductizedReleaseInstaller(t *testing.T) {
 		"panel_username",
 		"panel_password",
 		"web_base_path",
+		"management_direct_enabled",
+		"management_direct_auto_detect",
+		"ensure-management-direct",
 		"migate-linux-${ARCH}.tar.gz",
 		"enable_systemd_service migate",
 		"systemctl restart migate",
@@ -194,6 +197,76 @@ func TestInstallerPreservesExistingConfigByDefault(t *testing.T) {
 		if !strings.Contains(script, want) {
 			t.Fatalf("installer config preservation contract missing %q", want)
 		}
+	}
+}
+
+func TestInstallerValidatesAutoDetectedManagementIP(t *testing.T) {
+	script := read(t, "packaging", "install.sh")
+	for _, want := range []string{
+		"is_valid_public_ip()",
+		`is_valid_public_ip "$ip"`,
+		`'^([0-9]{1,3}\.){3}[0-9]{1,3}$'`,
+		`[ "$octet" -le 255 ]`,
+		`*:*) is_valid_ipv6_literal "$ip"`,
+		"is_valid_ipv6_literal()",
+		`''|*[!0-9a-fA-F:]*|*:::*) return 1 ;;`,
+		`:*) case "$ip" in ::*) ;; *) return 1 ;; esac ;;`,
+		`*:) case "$ip" in *::) ;; *) return 1 ;; esac ;;`,
+		`double_colon_count="$(printf '%s' "$ip" | awk -F'::' '{print NF-1}')"`,
+		`colon_count="$(printf '%s' "$ip" | awk -F: '{print NF-1}')"`,
+		`[ "$double_colon_count" -le 1 ] || return 1`,
+		`[ "$colon_count" -eq 7 ] || return 1`,
+		`[ "$colon_count" -ge 2 ] || return 1`,
+		`explicit_count=$((explicit_count + 1))`,
+		`[ "$explicit_count" -lt 8 ] || return 1`,
+		`[ "$count" -le 8 ] || return 1`,
+		`*) return 1 ;;`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("installer public IP validation missing %q", want)
+		}
+	}
+}
+
+func TestInstallerPublicIPValidationRejectsMalformedIPv6(t *testing.T) {
+	script := read(t, "packaging", "install.sh")
+	start := strings.Index(script, "is_valid_public_ip()")
+	end := strings.Index(script, "ensure_management_direct_defaults()")
+	if start < 0 || end < 0 || start >= end {
+		t.Fatal("could not extract public IP validation functions")
+	}
+	checker := script[start:end] + `
+expect_valid() {
+  is_valid_public_ip "$1" || { echo "expected valid: $1"; exit 1; }
+}
+expect_invalid() {
+  if is_valid_public_ip "$1"; then
+    echo "expected invalid: $1"
+    exit 1
+  fi
+}
+expect_valid 103.193.149.217
+expect_valid 2001:db8::1
+expect_valid 2606:4700::1111
+expect_valid 2001:db8::
+expect_valid ::1
+expect_valid 2001:0db8:0000:0000:0000:ff00:0042:8329
+expect_invalid 999.1.1.1
+expect_invalid :1
+expect_invalid 2001:db8:
+expect_invalid ::::
+expect_invalid 1::2::3
+expect_invalid 1:2:3:4:5:6:7::8
+expect_invalid 1:2:3:4:5:6:7:8::
+expect_invalid 1:2:3
+`
+	path := filepath.Join(t.TempDir(), "check-ip.sh")
+	if err := os.WriteFile(path, []byte(checker), 0o700); err != nil {
+		t.Fatalf("write checker: %v", err)
+	}
+	out, err := exec.Command("bash", path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("public IP validation checker failed: %v\n%s", err, out)
 	}
 }
 
@@ -1405,7 +1478,7 @@ func newInstallerHarness(t *testing.T, scenario string) *installerHarness {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
-	writeExecutable(t, env.migateBin, "#!/usr/bin/env bash\ncase \"$1\" in version) echo 'MiGate version: v1.0.0' ;; hash-password) echo 'hashed-password' ;; *) echo 'old migate' ;; esac\n")
+	writeExecutable(t, env.migateBin, "#!/usr/bin/env bash\ncase \"$1\" in version) echo 'MiGate version: v1.0.0' ;; hash-password) echo 'hashed-password' ;; ensure-management-direct) echo 'management direct defaults ensured' ;; *) echo 'old migate' ;; esac\n")
 	writeExecutable(t, env.installerBin, "#!/usr/bin/env bash\necho old installer\n")
 	writeExecutable(t, env.uninstallerBin, "#!/usr/bin/env bash\necho old uninstaller\n")
 	if err := os.WriteFile(env.servicePath, []byte("[Service]\nExecStart=old-service\n"), 0644); err != nil {

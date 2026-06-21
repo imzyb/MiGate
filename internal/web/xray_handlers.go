@@ -27,17 +27,17 @@ var (
 	xrayGrpcServiceNamePattern    = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 )
 
-func xrayConfigHandler(store Store) http.HandlerFunc {
+func xrayConfigHandler(cfg *routerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w)
 			return
 		}
-		if store == nil {
+		if cfg == nil || cfg.store == nil {
 			writeJSONError(w, http.StatusServiceUnavailable, "store_unavailable")
 			return
 		}
-		config, _, errCode, detail := buildXrayConfigFromStore(r.Context(), store)
+		config, _, errCode, detail := buildXrayConfigFromRouter(r.Context(), cfg)
 		if errCode != "" {
 			writeJSONError(w, xrayConfigErrorStatus(errCode), errCode, map[string]interface{}{"detail": detail})
 			return
@@ -64,6 +64,17 @@ type xrayConfigCounts struct {
 }
 
 func buildXrayConfigFromStore(ctx context.Context, store Store) (xray.Config, xrayConfigCounts, string, string) {
+	return buildXrayConfigFromStoreWithOptions(ctx, store, xray.BuildOptions{})
+}
+
+func buildXrayConfigFromRouter(ctx context.Context, cfg *routerConfig) (xray.Config, xrayConfigCounts, string, string) {
+	if cfg == nil {
+		return xray.Config{}, xrayConfigCounts{}, "store_unavailable", "store_unavailable"
+	}
+	return buildXrayConfigFromStoreWithOptions(ctx, cfg.store, xrayOptionsForRouterConfig(cfg))
+}
+
+func buildXrayConfigFromStoreWithOptions(ctx context.Context, store Store, opts xray.BuildOptions) (xray.Config, xrayConfigCounts, string, string) {
 	inbounds, err := store.ListInbounds(ctx)
 	if err != nil {
 		return xray.Config{}, xrayConfigCounts{}, "list_inbounds_failed", err.Error()
@@ -76,7 +87,7 @@ func buildXrayConfigFromStore(ctx context.Context, store Store) (xray.Config, xr
 	if err != nil {
 		return xray.Config{}, xrayConfigCounts{}, "list_routing_rules_failed", err.Error()
 	}
-	config, err := xray.BuildConfigWithOutbounds(inbounds, outbounds, rules)
+	config, err := xray.BuildConfigWithOutboundsOptions(inbounds, outbounds, rules, opts)
 	if err != nil {
 		return xray.Config{}, xrayConfigCounts{}, "build_xray_config_failed", err.Error()
 	}
@@ -193,7 +204,7 @@ func buildXrayGeneratedConfigPreview(ctx context.Context, cfg *routerConfig, pat
 		result.Detail = "store_unavailable"
 		return result
 	}
-	config, counts, errCode, detail := buildXrayConfigFromStore(ctx, cfg.store)
+	config, counts, errCode, detail := buildXrayConfigFromRouter(ctx, cfg)
 	result.Inbounds = counts.inbounds
 	result.Outbounds = counts.outbounds
 	result.Rules = counts.rules
@@ -596,7 +607,7 @@ func addXrayDataDiagnostics(ctx context.Context, cfg *routerConfig, result *Xray
 			addXrayDiagnosticAction(result, CoreDiagnosticAction{Code: "xray_route_outbound_unavailable", Severity: "warning", Category: "routing", Message: fmt.Sprintf("将路由规则 %d 的出站改为支持 Xray 且已启用的出站。", rule.ID)})
 		}
 	}
-	if _, _, errCode, detail := buildXrayConfigFromStore(ctx, cfg.store); errCode != "" {
+	if _, _, errCode, detail := buildXrayConfigFromRouter(ctx, cfg); errCode != "" {
 		addUniqueString(&result.Warnings, "xray_generated_config_build_failed")
 		addXrayDiagnosticAction(result, CoreDiagnosticAction{Code: "xray_generated_config_build_failed", Severity: "error", Category: "config", Message: "修复数据库中的 Xray 入站、出站或路由配置后重新应用。"})
 		if detail != "" {
@@ -1146,24 +1157,25 @@ type configValidationResult struct {
 	Rules     int      `json:"rules,omitempty"`
 }
 
-func xrayValidateHandler(store Store) http.HandlerFunc {
+func xrayValidateHandler(cfg *routerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w)
 			return
 		}
-		result := validateXrayConfig(r.Context(), store)
+		result := validateXrayConfig(r.Context(), cfg)
 		writeJSON(w, http.StatusOK, result)
 	}
 }
 
-func validateXrayConfig(ctx context.Context, store Store) configValidationResult {
+func validateXrayConfig(ctx context.Context, cfg *routerConfig) configValidationResult {
 	result := configValidationResult{Target: "xray", Valid: true, Warnings: []string{}}
-	if store == nil {
+	if cfg == nil || cfg.store == nil {
 		result.Valid = false
 		result.Error = "store_unavailable"
 		return result
 	}
+	store := cfg.store
 	inbounds, err := store.ListInbounds(ctx)
 	if err != nil {
 		result.Valid = false
@@ -1182,15 +1194,19 @@ func validateXrayConfig(ctx context.Context, store Store) configValidationResult
 		result.Error = "list_routing_rules_failed"
 		return result
 	}
-	return validateXrayConfigSnapshot(validationSnapshot{inbounds: inbounds, outbounds: outbounds, rules: rules})
+	return validateXrayConfigSnapshotWithOptions(validationSnapshot{inbounds: inbounds, outbounds: outbounds, rules: rules}, xrayOptionsForRouterConfig(cfg))
 }
 
 func validateXrayConfigSnapshot(snapshot validationSnapshot) configValidationResult {
+	return validateXrayConfigSnapshotWithOptions(snapshot, xray.BuildOptions{})
+}
+
+func validateXrayConfigSnapshotWithOptions(snapshot validationSnapshot, opts xray.BuildOptions) configValidationResult {
 	result := configValidationResult{Target: "xray", Valid: true, Warnings: []string{}}
 	inbounds := snapshot.inbounds
 	outbounds := snapshot.outbounds
 	rules := snapshot.rules
-	cfg, err := xray.BuildConfigWithOutbounds(inbounds, outbounds, rules)
+	cfg, err := xray.BuildConfigWithOutboundsOptions(inbounds, outbounds, rules, opts)
 	if err != nil {
 		result.Valid = false
 		result.Error = err.Error()
@@ -1279,7 +1295,12 @@ func xrayApplyHandler(cfg *routerConfig) http.HandlerFunc {
 							"reason":  "singbox_not_installed",
 						}
 					} else {
-						applyResult := singboxApplier(r.Context(), store, singboxRuntime, false)
+						var applyResult SingboxApplySummary
+						if usingDefaultSingboxApplier {
+							applyResult = tryApplySingboxWithRouterConfig(r.Context(), cfg, store, false)
+						} else {
+							applyResult = singboxApplier(r.Context(), store, singboxRuntime, false)
+						}
 						if !applyResult.Applied {
 							singboxResult = map[string]interface{}{
 								"applied":           false,

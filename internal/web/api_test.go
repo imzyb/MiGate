@@ -2145,6 +2145,79 @@ func TestConfigValidateAPIsReturnStructuredResults(t *testing.T) {
 	}
 }
 
+func TestConfigValidateAPIsIncludeManagementDirectRuntimeOptions(t *testing.T) {
+	store := openWebTestStore(t)
+	if _, err := store.CreateInbound(context.Background(), db.CreateInboundParams{Remark: "socks-in", Protocol: "socks", Port: 2080, Network: "tcp", Security: "none"}); err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	outbound, err := store.CreateOutbound(context.Background(), db.CreateOutboundParams{Tag: "proxy", Protocol: "socks", Address: "127.0.0.1", Port: 1080})
+	if err != nil {
+		t.Fatalf("create outbound: %v", err)
+	}
+	if _, err := store.CreateRoutingRule(context.Background(), db.CreateRoutingRuleParams{OutboundID: outbound.ID, OutboundTag: outbound.Tag, Domain: "geosite:geolocation-!cn", Enabled: true}); err != nil {
+		t.Fatalf("create routing rule: %v", err)
+	}
+	dir := t.TempDir()
+	panel := `{"panel_port":9999,"database_path":"/var/lib/migate/migate.db","public_host":"public.example.com","cert_domain":"cert.example.com","management_direct_enabled":true,"management_direct_auto_detect":false,"management_direct_hosts":["103.193.149.217"],"management_direct_ports":[9999]}`
+	if err := os.WriteFile(filepath.Join(dir, "panel.json"), []byte(panel), 0o600); err != nil {
+		t.Fatalf("write panel config: %v", err)
+	}
+	router := web.NewRouter(web.WithStore(store), web.WithConfigDir(dir))
+
+	var xrayConfig xray.Config
+	getJSON(t, router, "/api/xray/config", &xrayConfig)
+	var xrayValidate struct {
+		Valid     bool `json:"valid"`
+		Outbounds int  `json:"outbounds"`
+		Rules     int  `json:"rules"`
+	}
+	getJSON(t, router, "/api/xray/validate", &xrayValidate)
+	xrayRules := 0
+	if xrayConfig.Routing != nil {
+		xrayRules = len(xrayConfig.Routing.Rules)
+	}
+	if !xrayValidate.Valid || xrayValidate.Outbounds != len(xrayConfig.Outbounds) || xrayValidate.Rules != xrayRules {
+		t.Fatalf("xray validate counts must match config, validate=%+v outbounds=%d rules=%d", xrayValidate, len(xrayConfig.Outbounds), xrayRules)
+	}
+	storedRules, err := store.ListRoutingRules(context.Background())
+	if err != nil {
+		t.Fatalf("list routing rules: %v", err)
+	}
+	if len(storedRules) != 1 || storedRules[0].OutboundTag == xray.SystemDirectOutboundTag {
+		t.Fatalf("management direct must not be written as a user routing rule: %+v", storedRules)
+	}
+	if !xrayConfigHasManagementDirect(t, xrayConfig, "103.193.149.217", "9999") {
+		t.Fatalf("xray config missing management direct host+port rule: %+v", xrayConfig.Routing)
+	}
+	if xrayConfigHasManagementDirectDomain(xrayConfig, "public.example.com") || xrayConfigHasManagementDirectDomain(xrayConfig, "cert.example.com") {
+		t.Fatalf("xray auto-detect disabled should not inject public_host/cert_domain: %+v", xrayConfig.Routing)
+	}
+
+	var singboxPreview struct {
+		Generated struct {
+			Config    singbox.Config `json:"config"`
+			Outbounds int            `json:"outbounds"`
+			Rules     int            `json:"rules"`
+		} `json:"generated"`
+	}
+	getJSON(t, router, "/api/singbox/config/preview", &singboxPreview)
+	var singboxValidate struct {
+		Valid     bool `json:"valid"`
+		Outbounds int  `json:"outbounds"`
+		Rules     int  `json:"rules"`
+	}
+	getJSON(t, router, "/api/singbox/validate", &singboxValidate)
+	if !singboxValidate.Valid || singboxValidate.Outbounds != singboxPreview.Generated.Outbounds || singboxValidate.Rules != singboxPreview.Generated.Rules {
+		t.Fatalf("sing-box validate counts must match preview, validate=%+v preview=%+v", singboxValidate, singboxPreview.Generated)
+	}
+	if !singboxConfigHasManagementDirect(t, singboxPreview.Generated.Config, "103.193.149.217/32", 9999) {
+		t.Fatalf("sing-box config missing management direct host+port rule: %+v", singboxPreview.Generated.Config.Route)
+	}
+	if singboxConfigHasManagementDirectDomain(singboxPreview.Generated.Config, "public.example.com") || singboxConfigHasManagementDirectDomain(singboxPreview.Generated.Config, "cert.example.com") {
+		t.Fatalf("sing-box auto-detect disabled should not inject public_host/cert_domain: %+v", singboxPreview.Generated.Config.Route)
+	}
+}
+
 func TestConfigValidateAPIReturnsStructuredInvalidResult(t *testing.T) {
 	router := web.NewRouter()
 	response := httptest.NewRecorder()
@@ -2157,6 +2230,108 @@ func TestConfigValidateAPIReturnsStructuredInvalidResult(t *testing.T) {
 			t.Fatalf("validate response missing %q: %s", want, response.Body.String())
 		}
 	}
+}
+
+func getJSON(t *testing.T, router http.Handler, path string, target interface{}) {
+	t.Helper()
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET %s expected 200, got %d: %s", path, response.Code, response.Body.String())
+	}
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil {
+		t.Fatalf("decode %s: %v\n%s", path, err, response.Body.String())
+	}
+}
+
+func xrayConfigHasManagementDirect(t *testing.T, cfg xray.Config, host string, port string) bool {
+	t.Helper()
+	foundOutbound := false
+	for _, outbound := range cfg.Outbounds {
+		if outbound.Tag == xray.SystemDirectOutboundTag && outbound.Protocol == "freedom" {
+			foundOutbound = true
+		}
+	}
+	if !foundOutbound || cfg.Routing == nil {
+		return false
+	}
+	for _, rule := range cfg.Routing.Rules {
+		if rule.OutboundTag != xray.SystemDirectOutboundTag {
+			continue
+		}
+		if rule.Port != port {
+			t.Fatalf("xray management direct rule must be port-scoped, got %+v", rule)
+		}
+		if strings.Contains(rule.Port, "80") || strings.Contains(rule.Port, "443") {
+			t.Fatalf("xray management direct rule must not include common ports, got %+v", rule)
+		}
+		if len(rule.IP) == 1 && rule.IP[0] == host && len(rule.Domain) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func xrayConfigHasManagementDirectDomain(cfg xray.Config, domain string) bool {
+	if cfg.Routing == nil {
+		return false
+	}
+	for _, rule := range cfg.Routing.Rules {
+		if rule.OutboundTag != xray.SystemDirectOutboundTag {
+			continue
+		}
+		for _, value := range rule.Domain {
+			if value == domain {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func singboxConfigHasManagementDirect(t *testing.T, cfg singbox.Config, cidr string, port int) bool {
+	t.Helper()
+	foundOutbound := false
+	for _, outbound := range cfg.Outbounds {
+		if outbound.Tag == singbox.SystemDirectOutboundTag && outbound.Type == "direct" {
+			foundOutbound = true
+		}
+	}
+	if !foundOutbound || cfg.Route == nil {
+		return false
+	}
+	for _, rule := range cfg.Route.Rules {
+		if rule.Outbound != singbox.SystemDirectOutboundTag {
+			continue
+		}
+		if len(rule.Port) != 1 || rule.Port[0] != port {
+			t.Fatalf("sing-box management direct rule must be port-scoped, got %+v", rule)
+		}
+		if rule.Port[0] == 80 || rule.Port[0] == 443 {
+			t.Fatalf("sing-box management direct rule must not include common ports, got %+v", rule)
+		}
+		if len(rule.IPCIDR) == 1 && rule.IPCIDR[0] == cidr && len(rule.Domain) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func singboxConfigHasManagementDirectDomain(cfg singbox.Config, domain string) bool {
+	if cfg.Route == nil {
+		return false
+	}
+	for _, rule := range cfg.Route.Rules {
+		if rule.Outbound != singbox.SystemDirectOutboundTag {
+			continue
+		}
+		for _, value := range rule.Domain {
+			if value == domain {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func TestSubscriptionEndpointReturnsClientShareLink(t *testing.T) {

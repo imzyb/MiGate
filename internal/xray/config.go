@@ -4,10 +4,15 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 
+	panelcfg "github.com/imzyb/MiGate/internal/config"
 	"github.com/imzyb/MiGate/internal/db"
 )
+
+const SystemDirectOutboundTag = "migate-system-direct"
 
 type Config struct {
 	Log       LogConfig        `json:"log"`
@@ -51,9 +56,20 @@ type RoutingRule struct {
 	User        []string `json:"user,omitempty"`
 	Domain      []string `json:"domain,omitempty"`
 	IP          []string `json:"ip,omitempty"`
+	Port        string   `json:"port,omitempty"`
 	Protocol    []string `json:"protocol,omitempty"`
 	OutboundTag string   `json:"outboundTag,omitempty"`
 	BalancerTag string   `json:"balancerTag,omitempty"`
+}
+
+type BuildOptions struct {
+	ManagementDirect ManagementDirectOptions
+}
+
+type ManagementDirectOptions struct {
+	Enabled bool
+	Hosts   []string
+	Ports   []int
 }
 
 type LogConfig struct {
@@ -97,6 +113,10 @@ func BuildConfig(inbounds []db.Inbound) (Config, error) {
 }
 
 func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, routingRules []db.RoutingRule) (Config, error) {
+	return BuildConfigWithOutboundsOptions(inbounds, outbounds, routingRules, BuildOptions{})
+}
+
+func BuildConfigWithOutboundsOptions(inbounds []db.Inbound, outbounds []db.Outbound, routingRules []db.RoutingRule, opts BuildOptions) (Config, error) {
 	config := Config{
 		Log:       LogConfig{LogLevel: "warning"},
 		Inbounds:  []InboundConfig{},
@@ -124,6 +144,10 @@ func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, ro
 			Tag: "xray-out-0", Protocol: "freedom", Settings: map[string]interface{}{},
 		})
 	}
+	systemRules := xraySystemRoutingRules(opts.ManagementDirect)
+	if len(systemRules) > 0 {
+		config.Outbounds = ensureXraySystemDirectOutbound(config.Outbounds)
+	}
 	if len(routingRules) > 0 {
 		inboundTagsByID := map[int64]string{}
 		inboundTagAliases := map[string]string{}
@@ -148,7 +172,7 @@ func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, ro
 				clientsByID[client.ID] = client
 			}
 		}
-		r := &RoutingConfig{DomainStrategy: "AsIs", Rules: []RoutingRule{}}
+		r := &RoutingConfig{DomainStrategy: "AsIs", Rules: append([]RoutingRule{}, systemRules...)}
 		for _, rule := range routingRules {
 			if !rule.Enabled {
 				continue
@@ -199,8 +223,50 @@ func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, ro
 		if len(r.Rules) > 0 {
 			config.Routing = r
 		}
+	} else if len(systemRules) > 0 {
+		config.Routing = &RoutingConfig{DomainStrategy: "AsIs", Rules: systemRules}
 	}
 	return appendStatsAPIInbound(config), nil
+}
+
+func ensureXraySystemDirectOutbound(outbounds []OutboundConfig) []OutboundConfig {
+	system := OutboundConfig{Tag: SystemDirectOutboundTag, Protocol: "freedom", Settings: map[string]interface{}{}}
+	for i, outbound := range outbounds {
+		if outbound.Tag == SystemDirectOutboundTag {
+			outbounds[i] = system
+			return outbounds
+		}
+	}
+	return append(outbounds, system)
+}
+
+func xraySystemRoutingRules(opts ManagementDirectOptions) []RoutingRule {
+	if !opts.Enabled {
+		return nil
+	}
+	hosts := panelcfg.NormalizeManagementDirectHosts(opts.Hosts)
+	ports := panelcfg.NormalizeManagementDirectPorts(opts.Ports)
+	if len(hosts) == 0 || len(ports) == 0 {
+		return nil
+	}
+	domains := []string{}
+	ips := []string{}
+	for _, host := range hosts {
+		if isCIDROrIP(host) {
+			ips = append(ips, host)
+		} else {
+			domains = append(domains, host)
+		}
+	}
+	port := joinPorts(ports)
+	rules := []RoutingRule{}
+	if len(ips) > 0 {
+		rules = append(rules, RoutingRule{IP: ips, Port: port, OutboundTag: SystemDirectOutboundTag})
+	}
+	if len(domains) > 0 {
+		rules = append(rules, RoutingRule{Domain: domains, Port: port, OutboundTag: SystemDirectOutboundTag})
+	}
+	return rules
 }
 
 func splitRuleValues(value string) []string {
@@ -217,6 +283,22 @@ func splitRuleValues(value string) []string {
 	return values
 }
 
+func joinPorts(ports []int) string {
+	parts := make([]string, 0, len(ports))
+	for _, port := range ports {
+		parts = append(parts, strconv.Itoa(port))
+	}
+	return strings.Join(parts, ",")
+}
+
+func isCIDROrIP(value string) bool {
+	if net.ParseIP(value) != nil {
+		return true
+	}
+	_, _, err := net.ParseCIDR(value)
+	return err == nil
+}
+
 // enableUserStats returns a PolicyConfig that enables per-client traffic stats.
 func enableStatsAPI() *APIConfig {
 	return &APIConfig{Tag: "api", Services: []string{"StatsService"}}
@@ -230,7 +312,8 @@ func appendStatsAPIInbound(config Config) Config {
 	if config.Routing == nil {
 		config.Routing = &RoutingConfig{DomainStrategy: "AsIs", Rules: []RoutingRule{}}
 	}
-	config.Routing.Rules = append(config.Routing.Rules, RoutingRule{InboundTag: []string{"api"}, OutboundTag: "api"})
+	apiRule := RoutingRule{InboundTag: []string{"api"}, OutboundTag: "api"}
+	config.Routing.Rules = append([]RoutingRule{apiRule}, config.Routing.Rules...)
 	return config
 }
 

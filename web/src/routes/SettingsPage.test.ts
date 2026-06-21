@@ -4,11 +4,29 @@ import { certificateInventorySummary, certificateStatusLabel, certIssuePayload, 
 
 describe('settings helpers', () => {
   it('sends an empty password to preserve the existing backend password', () => {
-    expect(settingsPayload({ panel_username: 'admin', panel_password: undefined }, { panel_port: 9999, panel_password: '' })).toMatchObject({
+    expect(settingsPayload({
+      panel_username: 'admin',
+      panel_password: undefined,
+      management_direct_hosts: ['panel.example.com'],
+      management_direct_ports: [22, 9999],
+    }, { panel_port: 9999, panel_password: '' })).toMatchObject({
       panel_username: 'admin',
       panel_port: 9999,
       panel_password: '',
+      management_direct_hosts: ['panel.example.com'],
+      management_direct_ports: [22, 9999],
     });
+  });
+
+  it('keeps invalid management ports visible to backend validation', () => {
+    expect(settingsPayload(undefined, { management_direct_ports: '22, 9999' })).toMatchObject({
+      management_direct_ports: [22, 9999],
+    });
+    for (const value of ['22, 70000, abc', '1e3', '0x16', '22.0']) {
+      expect(settingsPayload(undefined, { management_direct_ports: value })).toMatchObject({
+        management_direct_ports: value,
+      });
+    }
   });
 
   it('uses current form domain and email when issuing certificates', () => {

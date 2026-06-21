@@ -10,12 +10,16 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"strings"
 	"time"
 
+	panelcfg "github.com/imzyb/MiGate/internal/config"
 	"github.com/imzyb/MiGate/internal/db"
 )
+
+const SystemDirectOutboundTag = "migate-system-direct"
 
 // Config is the top-level sing-box configuration.
 type Config struct {
@@ -135,6 +139,7 @@ type RouteRule struct {
 	Inbound  []string `json:"inbound,omitempty"`
 	Domain   []string `json:"domain,omitempty"`
 	IPCIDR   []string `json:"ip_cidr,omitempty"`
+	Port     []int    `json:"port,omitempty"`
 	Protocol []string `json:"protocol,omitempty"`
 	Outbound string   `json:"outbound"`
 }
@@ -157,6 +162,13 @@ type StatsAPIConfig struct {
 
 type BuildOptions struct {
 	EnableV2RayAPIStats bool
+	ManagementDirect    ManagementDirectOptions
+}
+
+type ManagementDirectOptions struct {
+	Enabled bool
+	Hosts   []string
+	Ports   []int
 }
 
 // BuildConfig generates a sing-box configuration for supported inbounds.
@@ -346,7 +358,11 @@ func BuildConfigWithOptions(inbounds []db.Inbound, opts BuildOptions) Config {
 }
 
 func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, routingRules []db.RoutingRule) (Config, error) {
-	cfg := BuildConfigWithOptions(inbounds, BuildOptions{})
+	return BuildConfigWithOutboundsOptions(inbounds, outbounds, routingRules, BuildOptions{})
+}
+
+func BuildConfigWithOutboundsOptions(inbounds []db.Inbound, outbounds []db.Outbound, routingRules []db.RoutingRule, opts BuildOptions) (Config, error) {
+	cfg := BuildConfigWithOptions(inbounds, opts)
 	cfg.Outbounds = []OutboundConfig{}
 	for _, outbound := range outbounds {
 		if !outbound.Enabled || !db.OutboundSupportsCore(outbound, db.CoreSingbox) || isRemovedSingboxOutbound(outbound) {
@@ -360,6 +376,10 @@ func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, ro
 	}
 	if len(cfg.Outbounds) == 0 {
 		cfg.Outbounds = append(cfg.Outbounds, OutboundConfig{Type: "direct", Tag: "singbox-out-0"})
+	}
+	systemRules := singboxSystemRouteRules(opts.ManagementDirect)
+	if len(systemRules) > 0 {
+		cfg.Outbounds = ensureSingboxSystemDirectOutbound(cfg.Outbounds)
 	}
 	if len(routingRules) > 0 {
 		inboundTagsByID := map[int64]string{}
@@ -375,7 +395,7 @@ func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, ro
 				inboundAliases[strings.TrimSpace(inbound.Remark)] = tag
 			}
 		}
-		route := &RouteConfig{}
+		route := &RouteConfig{Rules: append([]RouteRule{}, systemRules...)}
 		for _, rule := range routingRules {
 			if !rule.Enabled {
 				continue
@@ -421,8 +441,49 @@ func BuildConfigWithOutbounds(inbounds []db.Inbound, outbounds []db.Outbound, ro
 		if len(route.Rules) > 0 {
 			cfg.Route = route
 		}
+	} else if len(systemRules) > 0 {
+		cfg.Route = &RouteConfig{Rules: systemRules}
 	}
 	return cfg, nil
+}
+
+func ensureSingboxSystemDirectOutbound(outbounds []OutboundConfig) []OutboundConfig {
+	system := OutboundConfig{Type: "direct", Tag: SystemDirectOutboundTag}
+	for i, outbound := range outbounds {
+		if outbound.Tag == SystemDirectOutboundTag {
+			outbounds[i] = system
+			return outbounds
+		}
+	}
+	return append(outbounds, system)
+}
+
+func singboxSystemRouteRules(opts ManagementDirectOptions) []RouteRule {
+	if !opts.Enabled {
+		return nil
+	}
+	hosts := panelcfg.NormalizeManagementDirectHosts(opts.Hosts)
+	ports := panelcfg.NormalizeManagementDirectPorts(opts.Ports)
+	if len(hosts) == 0 || len(ports) == 0 {
+		return nil
+	}
+	domains := []string{}
+	ipCIDRs := []string{}
+	for _, host := range hosts {
+		if isCIDROrIP(host) {
+			ipCIDRs = append(ipCIDRs, singboxRouteIPCIDR(host))
+		} else {
+			domains = append(domains, host)
+		}
+	}
+	rules := []RouteRule{}
+	if len(ipCIDRs) > 0 {
+		rules = append(rules, RouteRule{IPCIDR: ipCIDRs, Port: ports, Outbound: SystemDirectOutboundTag})
+	}
+	if len(domains) > 0 {
+		rules = append(rules, RouteRule{Domain: domains, Port: ports, Outbound: SystemDirectOutboundTag})
+	}
+	return rules
 }
 
 func isRemovedSingboxOutbound(outbound db.Outbound) bool {
@@ -654,6 +715,28 @@ func splitRuleValues(value string) []string {
 		}
 	}
 	return values
+}
+
+func isCIDROrIP(value string) bool {
+	if net.ParseIP(value) != nil {
+		return true
+	}
+	_, _, err := net.ParseCIDR(value)
+	return err == nil
+}
+
+func singboxRouteIPCIDR(value string) string {
+	if strings.Contains(value, "/") {
+		return value
+	}
+	ip := net.ParseIP(value)
+	if ip == nil {
+		return value
+	}
+	if ip.To4() != nil {
+		return ip.String() + "/32"
+	}
+	return ip.String() + "/128"
 }
 
 func firstNonEmpty(values ...string) string {

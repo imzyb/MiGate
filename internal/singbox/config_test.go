@@ -263,6 +263,168 @@ func TestBuildConfigWithOutboundsUsesSupportedProfilesAndGeneratedTags(t *testin
 	}
 }
 
+func TestBuildConfigWithOutboundsInjectsManagementDirectBeforeUserCatchAll(t *testing.T) {
+	cfg, err := BuildConfigWithOutboundsOptions([]db.Inbound{{
+		ID: 8, Remark: "hy2-in", Protocol: "hysteria2", Port: 21001, Network: "udp", Security: "tls", Enabled: true,
+		Clients: []db.Client{{Email: "user@example.com", UUID: "client-pass", Enabled: true}},
+	}}, []db.Outbound{
+		{ID: 10, Tag: "proxy", Protocol: "socks", Address: "127.0.0.1", Port: 1080, Enabled: true},
+	}, []db.RoutingRule{
+		{ID: 1, OutboundID: 10, OutboundTag: "proxy", Domain: "geosite:geolocation-!cn", Enabled: true},
+	}, BuildOptions{ManagementDirect: ManagementDirectOptions{
+		Enabled: true,
+		Hosts:   []string{"103.193.149.217", "HTTP://Panel.Example.COM:9999/panel/", "[2001:db8::1]", "panel.example.com", ""},
+		Ports:   []int{9999, 22, 9999, 0, 70000},
+	}})
+	if err != nil {
+		t.Fatalf("build config: %v", err)
+	}
+	if cfg.Route == nil || len(cfg.Route.Rules) < 3 {
+		t.Fatalf("expected management and user rules, got %+v", cfg.Route)
+	}
+	ipRule := cfg.Route.Rules[0]
+	if ipRule.Outbound != SystemDirectOutboundTag || strings.Join(ipRule.IPCIDR, ",") != "103.193.149.217/32,2001:db8::1/128" || len(ipRule.Port) != 2 || ipRule.Port[0] != 22 || ipRule.Port[1] != 9999 || len(ipRule.Domain) != 0 {
+		t.Fatalf("expected management IP rule first, got %+v", ipRule)
+	}
+	for _, port := range ipRule.Port {
+		if port == 80 || port == 443 {
+			t.Fatalf("management direct rule must not include common service ports by default, got %+v", ipRule)
+		}
+	}
+	domainRule := cfg.Route.Rules[1]
+	if domainRule.Outbound != SystemDirectOutboundTag || strings.Join(domainRule.Domain, ",") != "panel.example.com" || len(domainRule.Port) != 2 || domainRule.Port[0] != 22 || domainRule.Port[1] != 9999 || len(domainRule.IPCIDR) != 0 {
+		t.Fatalf("expected management domain rule before user rules, got %+v", domainRule)
+	}
+	userRule := cfg.Route.Rules[2]
+	if userRule.Outbound != "singbox-out-10" || strings.Join(userRule.Domain, ",") != "geosite:geolocation-!cn" || len(userRule.Port) != 0 {
+		t.Fatalf("user catch-all should remain routed to proxy outbound, got %+v", userRule)
+	}
+	found := false
+	for _, outbound := range cfg.Outbounds {
+		if outbound.Tag == SystemDirectOutboundTag && outbound.Type == "direct" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("system direct outbound missing: %+v", cfg.Outbounds)
+	}
+	for _, rule := range cfg.Route.Rules {
+		if rule.Outbound == SystemDirectOutboundTag && len(rule.Port) == 0 {
+			t.Fatalf("management direct must not be emitted as a global direct rule: %+v", rule)
+		}
+	}
+}
+
+func TestBuildConfigWithOutboundsKeepsOrdinaryCatchAllOnProxy(t *testing.T) {
+	cfg, err := BuildConfigWithOutboundsOptions([]db.Inbound{{
+		ID: 8, Remark: "hy2-in", Protocol: "hysteria2", Port: 21001, Network: "udp", Security: "tls", Enabled: true,
+		Clients: []db.Client{{Email: "user@example.com", UUID: "client-pass", Enabled: true}},
+	}}, []db.Outbound{
+		{ID: 10, Tag: "socks-proxy", Protocol: "socks", Address: "127.0.0.1", Port: 1081, Enabled: true},
+	}, []db.RoutingRule{
+		{ID: 1, OutboundID: 10, OutboundTag: "socks-proxy", Enabled: true},
+	}, BuildOptions{ManagementDirect: ManagementDirectOptions{
+		Enabled: true,
+		Hosts:   []string{"panel.example.com"},
+		Ports:   []int{9999},
+	}})
+	if err != nil {
+		t.Fatalf("build config: %v", err)
+	}
+	if cfg.Route == nil {
+		t.Fatal("expected route config")
+	}
+	var userRules []RouteRule
+	for _, rule := range cfg.Route.Rules {
+		if rule.Outbound != SystemDirectOutboundTag {
+			userRules = append(userRules, rule)
+			continue
+		}
+		if len(rule.Port) != 1 || rule.Port[0] != 9999 || strings.Join(rule.Domain, ",") != "panel.example.com" {
+			t.Fatalf("management direct must only match management host+port, got %+v", rule)
+		}
+	}
+	if len(userRules) != 1 || userRules[0].Outbound != "singbox-out-10" || len(userRules[0].Domain) != 0 || len(userRules[0].IPCIDR) != 0 || len(userRules[0].Port) != 0 {
+		t.Fatalf("ordinary catch-all should remain routed to proxy outbound, got %+v", userRules)
+	}
+}
+
+func TestBuildConfigWithOutboundsPreservesStatsAPIWithManagementDirect(t *testing.T) {
+	cfg, err := BuildConfigWithOutboundsOptions([]db.Inbound{{
+		ID: 1, Protocol: "hysteria2", Port: 40002, Enabled: true,
+		Clients: []db.Client{{ID: 1, UUID: "client-pass-1", StatsKey: "c_hy2_stats", Email: "user1@test", Enabled: true}},
+	}}, []db.Outbound{
+		{ID: 10, Tag: "proxy", Protocol: "socks", Address: "127.0.0.1", Port: 1080, Enabled: true},
+	}, []db.RoutingRule{
+		{ID: 1, OutboundID: 10, OutboundTag: "proxy", Domain: "geosite:geolocation-!cn", Enabled: true},
+	}, BuildOptions{
+		EnableV2RayAPIStats: true,
+		ManagementDirect: ManagementDirectOptions{
+			Enabled: true,
+			Hosts:   []string{"103.193.149.217"},
+			Ports:   []int{9999},
+		},
+	})
+	if err != nil {
+		t.Fatalf("build config: %v", err)
+	}
+	if cfg.Experimental == nil || cfg.Experimental.V2RayAPI == nil || cfg.Experimental.V2RayAPI.Stats == nil || !cfg.Experimental.V2RayAPI.Stats.Enabled {
+		t.Fatalf("expected stats API to remain enabled, got %+v", cfg.Experimental)
+	}
+	if len(cfg.Route.Rules) == 0 || cfg.Route.Rules[0].Outbound != SystemDirectOutboundTag {
+		t.Fatalf("expected management direct route to remain first, got %+v", cfg.Route)
+	}
+}
+
+func TestBuildConfigWithOutboundsSkipsManagementDirectWhenDisabled(t *testing.T) {
+	cfg, err := BuildConfigWithOutboundsOptions(nil, []db.Outbound{
+		{ID: 10, Tag: "proxy", Protocol: "socks", Address: "127.0.0.1", Port: 1080, Enabled: true},
+	}, []db.RoutingRule{
+		{ID: 1, OutboundID: 10, OutboundTag: "proxy", Domain: "geosite:geolocation-!cn", Enabled: true},
+	}, BuildOptions{ManagementDirect: ManagementDirectOptions{
+		Enabled: false,
+		Hosts:   []string{"103.193.149.217"},
+		Ports:   []int{9999},
+	}})
+	if err != nil {
+		t.Fatalf("build config: %v", err)
+	}
+	if cfg.Route != nil {
+		for _, rule := range cfg.Route.Rules {
+			if rule.Outbound == SystemDirectOutboundTag {
+				t.Fatalf("management rule should not be injected when disabled: %+v", cfg.Route.Rules)
+			}
+		}
+	}
+	for _, outbound := range cfg.Outbounds {
+		if outbound.Tag == SystemDirectOutboundTag {
+			t.Fatalf("system direct outbound should not be injected when no system route uses it: %+v", cfg.Outbounds)
+		}
+	}
+}
+
+func TestBuildConfigWithOutboundsForcesSystemDirectTagToDirect(t *testing.T) {
+	cfg, err := BuildConfigWithOutboundsOptions(nil, []db.Outbound{
+		{ID: 10, Tag: SystemDirectOutboundTag, Protocol: "blackhole", Enabled: true},
+	}, nil, BuildOptions{ManagementDirect: ManagementDirectOptions{
+		Enabled: true,
+		Hosts:   []string{"103.193.149.217"},
+		Ports:   []int{9999},
+	}})
+	if err != nil {
+		t.Fatalf("build config: %v", err)
+	}
+	var matches []OutboundConfig
+	for _, outbound := range cfg.Outbounds {
+		if outbound.Tag == SystemDirectOutboundTag {
+			matches = append(matches, outbound)
+		}
+	}
+	if len(matches) != 1 || matches[0].Type != "direct" {
+		t.Fatalf("system direct tag must resolve to direct outbound, got %+v", matches)
+	}
+}
+
 func TestBuildConfigWithOutboundsSkipsLegacyDNSOutboundForSingbox113(t *testing.T) {
 	cfg, err := BuildConfigWithOutbounds(nil, []db.Outbound{
 		{ID: 3, Tag: "dns", Protocol: "dns", Enabled: true},

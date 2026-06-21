@@ -24,8 +24,18 @@ func userInboundsForTest(inbounds []xray.InboundConfig) []xray.InboundConfig {
 func userRoutingRulesForTest(rules []xray.RoutingRule) []xray.RoutingRule {
 	out := []xray.RoutingRule{}
 	for _, r := range rules {
-		if r.OutboundTag != "api" {
+		if r.OutboundTag != "api" && r.OutboundTag != xray.SystemDirectOutboundTag {
 			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func userOutboundsForTest(outbounds []xray.OutboundConfig) []xray.OutboundConfig {
+	out := []xray.OutboundConfig{}
+	for _, outbound := range outbounds {
+		if outbound.Tag != xray.SystemDirectOutboundTag {
+			out = append(out, outbound)
 		}
 	}
 	return out
@@ -49,7 +59,8 @@ func TestBuildConfigIncludesSupportedProtocolInboundsAndFreedomOutbound(t *testi
 	if len(userInbounds) != 5 {
 		t.Fatalf("expected five enabled user inbounds, got %+v", config.Inbounds)
 	}
-	if len(config.Outbounds) != 1 || config.Outbounds[0].Protocol != "freedom" {
+	userOutbounds := userOutboundsForTest(config.Outbounds)
+	if len(userOutbounds) != 1 || userOutbounds[0].Protocol != "freedom" {
 		t.Fatalf("expected direct freedom outbound, got %+v", config.Outbounds)
 	}
 
@@ -105,7 +116,8 @@ func TestBuildConfigWithOutboundsUsesStoredOutbounds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build config with outbounds: %v", err)
 	}
-	if len(config.Outbounds) != 3 {
+	userOutbounds := userOutboundsForTest(config.Outbounds)
+	if len(userOutbounds) != 3 {
 		t.Fatalf("expected three enabled outbounds, got %+v", config.Outbounds)
 	}
 	encoded, err := json.Marshal(config)
@@ -286,11 +298,11 @@ func TestBuildConfigWithRoutingRules(t *testing.T) {
 	if len(userRules) != 2 {
 		t.Fatalf("expected 2 enabled routing rules, got %d", len(userRules))
 	}
-	if config.Routing.Rules[0].OutboundTag != "xray-out-3" || config.Routing.Rules[0].Domain[0] != "geosite:netflix" {
-		t.Fatalf("unexpected first rule: %+v", config.Routing.Rules[0])
+	if userRules[0].OutboundTag != "xray-out-3" || userRules[0].Domain[0] != "geosite:netflix" {
+		t.Fatalf("unexpected first rule: %+v", userRules[0])
 	}
-	if config.Routing.Rules[1].OutboundTag != "xray-out-2" || config.Routing.Rules[1].Domain[0] != "geosite:malware" {
-		t.Fatalf("unexpected second rule: %+v", config.Routing.Rules[1])
+	if userRules[1].OutboundTag != "xray-out-2" || userRules[1].Domain[0] != "geosite:malware" {
+		t.Fatalf("unexpected second rule: %+v", userRules[1])
 	}
 	// No routing rules
 	config2, err := xray.BuildConfigWithOutbounds(nil, nil, nil)
@@ -299,6 +311,134 @@ func TestBuildConfigWithRoutingRules(t *testing.T) {
 	}
 	if config2.Routing == nil || len(userRoutingRulesForTest(config2.Routing.Rules)) != 0 {
 		t.Fatal("expected no user routing rules when no rules are configured")
+	}
+}
+
+func TestBuildConfigWithOutboundsInjectsManagementDirectBeforeUserCatchAll(t *testing.T) {
+	config, err := xray.BuildConfigWithOutboundsOptions([]db.Inbound{
+		{ID: 8, Remark: "local-socks", Protocol: "socks", Port: 1080, Network: "tcp", Security: "none", Enabled: true, Clients: []db.Client{{Email: "user", Password: "pass", Enabled: true}}},
+	}, []db.Outbound{
+		{ID: 1, Tag: "proxy", Protocol: "vless", Address: "proxy.example.com", Port: 443, Username: "11111111-1111-4111-8111-111111111111", Password: "flow-password", Enabled: true},
+	}, []db.RoutingRule{
+		{ID: 1, OutboundID: 1, OutboundTag: "proxy", Domain: "geosite:geolocation-!cn", Enabled: true},
+	}, xray.BuildOptions{ManagementDirect: xray.ManagementDirectOptions{
+		Enabled: true,
+		Hosts:   []string{"103.193.149.217", "HTTP://Panel.Example.COM:9999/panel/", "[2001:db8::1]", "panel.example.com", ""},
+		Ports:   []int{9999, 22, 9999, 0, 70000},
+	}})
+	if err != nil {
+		t.Fatalf("build config: %v", err)
+	}
+	if len(config.Routing.Rules) < 4 {
+		t.Fatalf("expected api, management and user rules, got %+v", config.Routing.Rules)
+	}
+	if config.Routing.Rules[0].OutboundTag != "api" {
+		t.Fatalf("stats api rule must stay first, got %+v", config.Routing.Rules)
+	}
+	ipRule := config.Routing.Rules[1]
+	if ipRule.OutboundTag != xray.SystemDirectOutboundTag || ipRule.Port != "22,9999" || strings.Join(ipRule.IP, ",") != "103.193.149.217,2001:db8::1" || len(ipRule.Domain) != 0 {
+		t.Fatalf("expected management IP rule before user rules, got %+v", ipRule)
+	}
+	if strings.Contains(ipRule.Port, "80") || strings.Contains(ipRule.Port, "443") {
+		t.Fatalf("management direct rule must not include common service ports by default, got %+v", ipRule)
+	}
+	domainRule := config.Routing.Rules[2]
+	if domainRule.OutboundTag != xray.SystemDirectOutboundTag || domainRule.Port != "22,9999" || strings.Join(domainRule.Domain, ",") != "panel.example.com" || len(domainRule.IP) != 0 {
+		t.Fatalf("expected management domain rule before user rules, got %+v", domainRule)
+	}
+	userRule := config.Routing.Rules[3]
+	if userRule.OutboundTag != "xray-out-1" || strings.Join(userRule.Domain, ",") != "geosite:geolocation-!cn" || userRule.Port != "" {
+		t.Fatalf("user catch-all should remain routed to proxy outbound, got %+v", userRule)
+	}
+	found := false
+	for _, outbound := range config.Outbounds {
+		if outbound.Tag == xray.SystemDirectOutboundTag && outbound.Protocol == "freedom" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("system direct outbound missing: %+v", config.Outbounds)
+	}
+	for _, rule := range config.Routing.Rules {
+		if rule.OutboundTag == xray.SystemDirectOutboundTag && rule.Port == "" {
+			t.Fatalf("management direct must not be emitted as a global direct rule: %+v", rule)
+		}
+	}
+}
+
+func TestBuildConfigWithOutboundsKeepsOrdinaryCatchAllOnProxy(t *testing.T) {
+	config, err := xray.BuildConfigWithOutboundsOptions([]db.Inbound{
+		{ID: 8, Remark: "local-socks", Protocol: "socks", Port: 1080, Network: "tcp", Security: "none", Enabled: true, Clients: []db.Client{{Email: "user", Password: "pass", Enabled: true}}},
+	}, []db.Outbound{
+		{ID: 1, Tag: "vless-proxy", Protocol: "vless", Address: "proxy.example.com", Port: 443, Username: "11111111-1111-4111-8111-111111111111", Password: "flow-password", Enabled: true},
+	}, []db.RoutingRule{
+		{ID: 1, OutboundID: 1, OutboundTag: "vless-proxy", Enabled: true},
+	}, xray.BuildOptions{ManagementDirect: xray.ManagementDirectOptions{
+		Enabled: true,
+		Hosts:   []string{"panel.example.com"},
+		Ports:   []int{9999},
+	}})
+	if err != nil {
+		t.Fatalf("build config: %v", err)
+	}
+	userRules := userRoutingRulesForTest(config.Routing.Rules)
+	if len(userRules) != 1 || userRules[0].OutboundTag != "xray-out-1" || len(userRules[0].Domain) != 0 || len(userRules[0].IP) != 0 || userRules[0].Port != "" {
+		t.Fatalf("ordinary catch-all should remain routed to proxy outbound, got %+v", userRules)
+	}
+	for _, rule := range config.Routing.Rules {
+		if rule.OutboundTag != xray.SystemDirectOutboundTag {
+			continue
+		}
+		if rule.Port != "9999" || strings.Join(rule.Domain, ",") != "panel.example.com" {
+			t.Fatalf("management direct must only match management host+port, got %+v", rule)
+		}
+	}
+}
+
+func TestBuildConfigWithOutboundsSkipsManagementDirectWhenDisabled(t *testing.T) {
+	config, err := xray.BuildConfigWithOutboundsOptions(nil, []db.Outbound{
+		{ID: 1, Tag: "proxy", Protocol: "socks", Address: "127.0.0.1", Port: 1080, Enabled: true},
+	}, []db.RoutingRule{
+		{ID: 1, OutboundID: 1, OutboundTag: "proxy", Domain: "geosite:geolocation-!cn", Enabled: true},
+	}, xray.BuildOptions{ManagementDirect: xray.ManagementDirectOptions{
+		Enabled: false,
+		Hosts:   []string{"103.193.149.217"},
+		Ports:   []int{9999},
+	}})
+	if err != nil {
+		t.Fatalf("build config: %v", err)
+	}
+	for _, rule := range config.Routing.Rules {
+		if rule.OutboundTag == xray.SystemDirectOutboundTag {
+			t.Fatalf("management rule should not be injected when disabled: %+v", config.Routing.Rules)
+		}
+	}
+	for _, outbound := range config.Outbounds {
+		if outbound.Tag == xray.SystemDirectOutboundTag {
+			t.Fatalf("system direct outbound should not be injected when no system route uses it: %+v", config.Outbounds)
+		}
+	}
+}
+
+func TestBuildConfigWithOutboundsForcesSystemDirectTagToFreedom(t *testing.T) {
+	config, err := xray.BuildConfigWithOutboundsOptions(nil, []db.Outbound{
+		{ID: 1, Tag: xray.SystemDirectOutboundTag, Protocol: "blackhole", Enabled: true},
+	}, nil, xray.BuildOptions{ManagementDirect: xray.ManagementDirectOptions{
+		Enabled: true,
+		Hosts:   []string{"103.193.149.217"},
+		Ports:   []int{9999},
+	}})
+	if err != nil {
+		t.Fatalf("build config: %v", err)
+	}
+	var matches []xray.OutboundConfig
+	for _, outbound := range config.Outbounds {
+		if outbound.Tag == xray.SystemDirectOutboundTag {
+			matches = append(matches, outbound)
+		}
+	}
+	if len(matches) != 1 || matches[0].Protocol != "freedom" {
+		t.Fatalf("system direct tag must resolve to freedom outbound, got %+v", matches)
 	}
 }
 

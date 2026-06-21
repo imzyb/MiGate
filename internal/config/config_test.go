@@ -24,6 +24,9 @@ func TestLoadNormalizesExistingValuesWithoutInjectingDefaults(t *testing.T) {
 	if cfg.PanelPort != 0 || cfg.DatabasePath != "" {
 		t.Fatalf("load must not inject write defaults into omitted fields: %+v", cfg)
 	}
+	if !cfg.ManagementDirectEnabled || !cfg.ManagementDirectAutoDetect {
+		t.Fatalf("old config should default management direct on: %+v", cfg)
+	}
 }
 
 func TestSaveAppliesDefaultsAndPanelPermissions(t *testing.T) {
@@ -38,12 +41,120 @@ func TestSaveAppliesDefaultsAndPanelPermissions(t *testing.T) {
 	if cfg.PanelPort != paths.DefaultHTTPPort || cfg.WebPath != "/panel" || cfg.DatabasePath != paths.Database {
 		t.Fatalf("save should persist normalized defaults, got %+v", cfg)
 	}
+	if !cfg.ManagementDirectEnabled || !cfg.ManagementDirectAutoDetect {
+		t.Fatalf("save should persist management direct defaults, got %+v", cfg)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("stat saved config: %v", err)
 	}
 	if got := info.Mode().Perm(); got != 0o640 {
 		t.Fatalf("saved config mode = %03o, want 640", got)
+	}
+}
+
+func TestManagementDirectTargetsNormalizeHostsAndPorts(t *testing.T) {
+	cfg := Normalize(Config{
+		PanelPort:             9999,
+		PublicHost:            "HTTP://Panel.Example.COM:9999/panel/",
+		CertDomain:            "panel.example.com",
+		ManagementDirectHosts: []string{" 103.193.149.217 ", "", "[2001:db8::1]", "panel.example.com:9999"},
+		ManagementDirectPorts: []int{22, 9999, 22, 0, 70000},
+	})
+	hosts, ports := ManagementDirectTargets(cfg)
+	wantHosts := []string{"panel.example.com", "103.193.149.217", "2001:db8::1"}
+	if strings.Join(hosts, ",") != strings.Join(wantHosts, ",") {
+		t.Fatalf("hosts = %+v, want %+v", hosts, wantHosts)
+	}
+	if len(ports) != 2 || ports[0] != 22 || ports[1] != 9999 {
+		t.Fatalf("ports = %+v, want [22 9999]", ports)
+	}
+}
+
+func TestManagementDirectTargetsRespectAutoDetectDisabled(t *testing.T) {
+	cfg := Normalize(Config{
+		PanelPort:                     9999,
+		PublicHost:                    "public.example.com",
+		CertDomain:                    "cert.example.com",
+		ManagementDirectAutoDetect:    false,
+		managementDirectAutoDetectSet: true,
+		ManagementDirectHosts:         []string{"manual.example.com", "manual-two.example.com:9999"},
+		ManagementDirectPorts:         []int{22},
+	})
+	hosts, ports := ManagementDirectTargets(cfg)
+	wantHosts := []string{"manual.example.com", "manual-two.example.com"}
+	if strings.Join(hosts, ",") != strings.Join(wantHosts, ",") {
+		t.Fatalf("auto-detect disabled hosts = %+v, want %+v", hosts, wantHosts)
+	}
+	if len(ports) != 2 || ports[0] != 22 || ports[1] != 9999 {
+		t.Fatalf("ports = %+v, want [22 9999]", ports)
+	}
+}
+
+func TestManagementDirectTargetsAutoDetectIncludesAutomaticAndManualHosts(t *testing.T) {
+	cfg := Normalize(Config{
+		PanelPort:                     9999,
+		PublicHost:                    "HTTP://Panel.Example.COM:9999/panel/",
+		CertDomain:                    "panel.example.com",
+		ManagementDirectAutoDetect:    true,
+		managementDirectAutoDetectSet: true,
+		ManagementDirectHosts:         []string{"103.193.149.217", "manual.example.com", "PANEL.example.com"},
+		ManagementDirectPorts:         []int{22},
+	})
+	hosts, ports := ManagementDirectTargets(cfg)
+	wantHosts := []string{"panel.example.com", "103.193.149.217", "manual.example.com"}
+	if strings.Join(hosts, ",") != strings.Join(wantHosts, ",") {
+		t.Fatalf("auto-detect enabled hosts = %+v, want %+v", hosts, wantHosts)
+	}
+	if len(ports) != 2 || ports[0] != 22 || ports[1] != 9999 {
+		t.Fatalf("ports = %+v, want [22 9999]", ports)
+	}
+}
+
+func TestEnsureManagementDirectDefaultsPreservesExplicitDisabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "panel.json")
+	if err := os.WriteFile(path, []byte(`{"panel_port":9999,"database_path":"/var/lib/migate/migate.db","management_direct_enabled":false,"management_direct_hosts":["old.example"],"management_direct_ports":[2200]}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := EnsureManagementDirectDefaults(path, []string{"old.example", "103.193.149.217"}, []int{22, 2200})
+	if err != nil {
+		t.Fatalf("ensure defaults: %v", err)
+	}
+	if cfg.ManagementDirectEnabled {
+		t.Fatalf("explicit disabled flag should be preserved: %+v", cfg)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if loaded.ManagementDirectEnabled {
+		t.Fatalf("persisted explicit disabled flag should be preserved: %+v", loaded)
+	}
+	if strings.Join(loaded.ManagementDirectHosts, ",") != "old.example,103.193.149.217" {
+		t.Fatalf("unexpected hosts: %+v", loaded.ManagementDirectHosts)
+	}
+	if len(loaded.ManagementDirectPorts) != 2 || loaded.ManagementDirectPorts[0] != 22 || loaded.ManagementDirectPorts[1] != 2200 {
+		t.Fatalf("unexpected ports: %+v", loaded.ManagementDirectPorts)
+	}
+}
+
+func TestEnsureManagementDirectDefaultsRespectsAutoDetectDisabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "panel.json")
+	if err := os.WriteFile(path, []byte(`{"panel_port":9999,"database_path":"/var/lib/migate/migate.db","management_direct_auto_detect":false,"management_direct_hosts":["manual.example"],"management_direct_ports":[2200]}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := EnsureManagementDirectDefaults(path, []string{"103.193.149.217"}, []int{22})
+	if err != nil {
+		t.Fatalf("ensure defaults: %v", err)
+	}
+	if !cfg.ManagementDirectEnabled || cfg.ManagementDirectAutoDetect {
+		t.Fatalf("unexpected management bools: %+v", cfg)
+	}
+	if strings.Join(cfg.ManagementDirectHosts, ",") != "manual.example" {
+		t.Fatalf("auto-detect disabled should not append hosts: %+v", cfg.ManagementDirectHosts)
+	}
+	if len(cfg.ManagementDirectPorts) != 1 || cfg.ManagementDirectPorts[0] != 2200 {
+		t.Fatalf("auto-detect disabled should not append ports: %+v", cfg.ManagementDirectPorts)
 	}
 }
 
@@ -55,6 +166,7 @@ func TestLoadRejectsInvalidExplicitValues(t *testing.T) {
 		{name: "explicit zero port", body: `{"panel_port":0}`},
 		{name: "invalid port", body: `{"panel_port":70000}`},
 		{name: "relative database", body: `{"database_path":"relative.db"}`},
+		{name: "invalid management port", body: `{"management_direct_ports":[0,70000]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "panel.json")

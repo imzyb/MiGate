@@ -101,6 +101,24 @@ func TestBuildSingboxConfigSkipsCapabilityWhenNoSingboxInbound(t *testing.T) {
 	}
 }
 
+func TestBuildSingboxConfigForRuntimeReadsManagementDirectConfigDir(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "panel.json"), []byte(`{"panel_port":9999,"database_path":"/var/lib/migate/migate.db","management_direct_hosts":["103.193.149.217"],"management_direct_ports":[22]}`), 0o600); err != nil {
+		t.Fatalf("write panel config: %v", err)
+	}
+	built := buildSingboxConfigForRuntime(context.Background(), &routerConfig{configDir: configDir}, nil, nil, nil)
+	if built.err != nil {
+		t.Fatalf("build sing-box config: %v", built.err)
+	}
+	if built.config.Route == nil || len(built.config.Route.Rules) == 0 {
+		t.Fatalf("expected management direct route from panel config, got %+v", built.config.Route)
+	}
+	rule := built.config.Route.Rules[0]
+	if rule.Outbound != singbox.SystemDirectOutboundTag || len(rule.IPCIDR) != 1 || rule.IPCIDR[0] != "103.193.149.217/32" {
+		t.Fatalf("unexpected management direct rule: %+v", rule)
+	}
+}
+
 func TestTryApplySingboxBestEffortMissingBinaryIsNotApplied(t *testing.T) {
 	origBinary := singbox.DefaultBinaryPath
 	singbox.DefaultBinaryPath = t.TempDir() + "/missing-sing-box"

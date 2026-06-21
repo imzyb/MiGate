@@ -23,6 +23,7 @@ type CmdRunner func(name string, args ...string) (string, error)
 type RealController struct {
 	store      Store
 	configPath string
+	configDir  string
 	runCmd     CmdRunner
 }
 
@@ -34,6 +35,11 @@ func NewRealController(store Store, configPath string, runCmd CmdRunner) *RealCo
 		configPath = paths.XrayConfig
 	}
 	return &RealController{store: store, configPath: configPath, runCmd: runCmd}
+}
+
+func (c *RealController) WithConfigDir(configDir string) *RealController {
+	c.configDir = strings.TrimSpace(configDir)
+	return c
 }
 
 // Status reports whether the xray binary and systemd service appear to be
@@ -163,7 +169,11 @@ func (c *RealController) Apply(ctx context.Context) XrayApplyResult {
 		return fail("list_routing_rules_failed", err.Error())
 	}
 
-	cfg, err := xray.BuildConfigWithOutbounds(inbounds, outbounds, rules)
+	opts := xray.BuildOptions{}
+	if strings.TrimSpace(c.configDir) != "" {
+		opts = xrayOptionsForRouterConfig(&routerConfig{configDir: c.configDir})
+	}
+	cfg, err := xray.BuildConfigWithOutboundsOptions(inbounds, outbounds, rules, opts)
 	if err != nil {
 		return fail("build_failed", err.Error())
 	}

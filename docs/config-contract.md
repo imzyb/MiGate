@@ -36,6 +36,36 @@ round-tripped by the settings service.
 | `database_path` | `DatabasePath` | `/var/lib/migate/migate.db` | required on save, absolute path, no NUL byte |
 | `cert_domain` | `CertDomain` | empty | compatibility field; trimmed |
 | `cert_email` | `CertEmail` | empty | compatibility field; trimmed |
+| `management_direct_enabled` | `ManagementDirectEnabled` | `true` | boolean |
+| `management_direct_auto_detect` | `ManagementDirectAutoDetect` | `true` | boolean |
+| `management_direct_hosts` | `ManagementDirectHosts` | empty | normalized Host/IP list |
+| `management_direct_ports` | `ManagementDirectPorts` | empty | normalized `1..65535` port list |
+
+## Management Direct
+
+Management direct protects the MiGate panel and SSH-style management entrypoints
+from being routed through user proxy rules. When enabled, generated Xray and
+sing-box configs add an internal direct outbound plus system route rules before
+user routing rules.
+
+The match is precise: only the configured management Host/IP values plus the
+configured management ports are forced direct. By default MiGate uses the panel
+port and auto-detected management hosts from `public_host` and `cert_domain`,
+then appends `management_direct_hosts` and `management_direct_ports`.
+
+This does not change normal SOCKS/VLESS inbound traffic to proxy outbounds.
+User catch-all routing rules are still emitted after the system management
+rules, and they continue to target the configured proxy outbound for ordinary
+destinations.
+
+Do not add `80` or `443` to `management_direct_ports` unless those ports are
+also management entrypoints on the same management Host/IP. Adding a common
+business port means traffic to that Host/IP and port will also be direct.
+
+To disable the protection, set `management_direct_enabled` to `false` or turn it
+off in Settings. To keep the protection but remove auto-detected targets, set
+`management_direct_auto_detect` to `false` and manage the host and port lists
+manually.
 
 ## Certificate Assets
 
