@@ -120,14 +120,14 @@ describe('inbound and client modal credential behavior', () => {
     expect(document.body.textContent).not.toContain('sing-box 配置未生效');
   });
 
-  it('fills the TLS SNI with the settings certificate domain when attaching the certificate', async () => {
+  it('fills the TLS SNI and WS/H2 host with the settings certificate domain when attaching the certificate', async () => {
     apiMock.certStatus.mockResolvedValueOnce({
       issued: true,
       cert_path: '/etc/migate/certs/hkcm.example.kg/fullchain.pem',
       key_path: '/etc/migate/certs/hkcm.example.kg/privkey.key',
       domain: 'hkcm.example.kg',
     });
-    renderModal(<InboundModal inbound={{ ...createDefaultInbound(), id: 8, security: 'tls', tls_sni: 'example.com' }} onClose={() => undefined} onSaved={() => undefined} />);
+    renderModal(<InboundModal inbound={{ ...createDefaultInbound(), id: 8, protocol: 'vmess', network: 'ws', security: 'tls', tls_sni: 'example.com', ws_host: 'example.com' }} onClose={() => undefined} onSaved={() => undefined} />);
 
     await vi.waitFor(() => {
       expect(buttonByText('使用设置页证书')).not.toBeDisabled();
@@ -136,7 +136,27 @@ describe('inbound and client modal credential behavior', () => {
 
     expect(inputByLabel('域名 / SNI').value).toBe('hkcm.example.kg');
     clickButtonByText('高级设置');
+    expect(inputByLabel('WS/H2 主机').value).toBe('hkcm.example.kg');
     expect(inputByLabel('TLS 私钥文件').value).toBe('/etc/migate/certs/hkcm.example.kg/privkey.key');
+  });
+
+  it('keeps a custom WS/H2 host when attaching the settings certificate', async () => {
+    apiMock.certStatus.mockResolvedValueOnce({
+      issued: true,
+      cert_path: '/etc/migate/certs/hkcm.example.kg/fullchain.pem',
+      key_path: '/etc/migate/certs/hkcm.example.kg/privkey.key',
+      domain: 'hkcm.example.kg',
+    });
+    renderModal(<InboundModal inbound={{ ...createDefaultInbound(), id: 9, protocol: 'vmess', network: 'ws', security: 'tls', tls_sni: 'old.example.com', ws_host: 'cdn.example.com' }} onClose={() => undefined} onSaved={() => undefined} />);
+
+    await vi.waitFor(() => {
+      expect(buttonByText('使用设置页证书')).not.toBeDisabled();
+    });
+    clickButtonByText('使用设置页证书');
+    clickButtonByText('高级设置');
+
+    expect(inputByLabel('域名 / SNI').value).toBe('hkcm.example.kg');
+    expect(inputByLabel('WS/H2 主机').value).toBe('cdn.example.com');
   });
 });
 

@@ -4042,9 +4042,13 @@ func TestCertificateAssetsAndInboundUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create inbound: %v", err)
 	}
-	emptySNIInbound, err := store.CreateInbound(ctx, db.CreateInboundParams{Remark: "tls-empty-sni", Protocol: "vless", Port: 28101, Network: "tcp", Security: "tls"})
+	emptySNIInbound, err := store.CreateInbound(ctx, db.CreateInboundParams{Remark: "tls-empty-sni", Protocol: "vless", Port: 28101, Network: "ws", Security: "tls"})
 	if err != nil {
 		t.Fatalf("create empty sni inbound: %v", err)
+	}
+	customHostInbound, err := store.CreateInbound(ctx, db.CreateInboundParams{Remark: "tls-custom-host", Protocol: "vless", Port: 28102, Network: "h2", Security: "tls", TLSSNI: "old.example.com", WsHost: "cdn.example.com"})
+	if err != nil {
+		t.Fatalf("create custom host inbound: %v", err)
 	}
 	cert, err := store.UpsertCertificate(ctx, db.UpsertCertificateParams{
 		Name:             "example.com",
@@ -4067,18 +4071,27 @@ func TestCertificateAssetsAndInboundUsage(t *testing.T) {
 	if _, err := store.RecordCertificateOperation(ctx, db.CertificateOperation{CertificateID: cert.ID, Type: "import", Status: "success"}); err != nil {
 		t.Fatalf("record operation: %v", err)
 	}
-	updated, err := store.ApplyCertificateToInbounds(ctx, cert, []int64{inbound.ID, emptySNIInbound.ID})
+	updated, err := store.ApplyCertificateToInbounds(ctx, cert, []int64{inbound.ID, emptySNIInbound.ID, customHostInbound.ID})
 	if err != nil {
 		t.Fatalf("apply certificate: %v", err)
 	}
-	if len(updated) != 2 || updated[0].TLSCertFile != cert.CertPath || updated[0].TLSKeyFile != cert.KeyPath || updated[0].TLSSNI != "example.com" || updated[1].TLSSNI != "example.com" {
+	if len(updated) != 3 || updated[0].TLSCertFile != cert.CertPath || updated[0].TLSKeyFile != cert.KeyPath || updated[0].TLSSNI != "example.com" || updated[1].TLSSNI != "example.com" {
 		t.Fatalf("unexpected applied inbound: %#v", updated)
+	}
+	if updated[0].WsHost != "" {
+		t.Fatalf("non WS/H2 inbound ws_host = %q, want empty", updated[0].WsHost)
+	}
+	if updated[1].WsHost != "example.com" {
+		t.Fatalf("WS inbound ws_host = %q, want example.com", updated[1].WsHost)
+	}
+	if updated[2].TLSSNI != "example.com" || updated[2].WsHost != "cdn.example.com" {
+		t.Fatalf("custom WS/H2 host should be preserved, got %#v", updated[2])
 	}
 	loaded, err := store.GetCertificate(ctx, cert.ID)
 	if err != nil {
 		t.Fatalf("get certificate: %v", err)
 	}
-	if loaded.UsageCount != 2 || len(loaded.Usages) != 2 || len(loaded.Domains) != 2 || loaded.IssueEmail != "ops@example.com" || loaded.ACMEDirectoryURL == "" || loaded.ChallengeMethod != "http-01" {
+	if loaded.UsageCount != 3 || len(loaded.Usages) != 3 || len(loaded.Domains) != 2 || loaded.IssueEmail != "ops@example.com" || loaded.ACMEDirectoryURL == "" || loaded.ChallengeMethod != "http-01" {
 		t.Fatalf("unexpected usage metadata: %#v", loaded)
 	}
 	ops, err := store.ListCertificateOperations(ctx, cert.ID, 10)

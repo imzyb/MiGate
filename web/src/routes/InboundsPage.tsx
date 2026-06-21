@@ -1011,6 +1011,14 @@ export function hasAttachableSettingCert(cert?: CertStatus | null) {
   return Boolean(cert?.issued && cert.cert_path.trim() && cert.key_path.trim());
 }
 
+export function shouldSyncInboundWSHost(network: string, wsHost: string | undefined, previousTLSSNI: string | undefined): boolean {
+  if (network !== 'ws' && network !== 'h2') return false;
+  const currentHost = String(wsHost || '').trim();
+  if (!currentHost || currentHost === 'example.com') return true;
+  const oldSNI = String(previousTLSSNI || '').trim();
+  return Boolean(oldSNI && currentHost === oldSNI);
+}
+
 function mergeClientTraffic(inbound: Inbound, client: Client): Client {
   const live = inbound.client_traffic?.[String(client.id)] || inbound.client_traffic?.[client.id as unknown as string];
   return {

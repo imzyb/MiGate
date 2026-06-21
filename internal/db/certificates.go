@@ -232,7 +232,11 @@ func (s *Store) ApplyCertificateToInbounds(ctx context.Context, cert Certificate
 		if nextSNI == "" {
 			nextSNI = strings.TrimSpace(existing.TLSSNI)
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE inbounds SET tls_cert_file=?, tls_key_file=?, tls_sni=? WHERE id=?`, cert.CertPath, cert.KeyPath, nextSNI, id); err != nil {
+		nextWSHost := existing.WsHost
+		if nextSNI != "" && shouldSyncCertificateWSHost(existing.Network, existing.WsHost, existing.TLSSNI) {
+			nextWSHost = nextSNI
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE inbounds SET tls_cert_file=?, tls_key_file=?, tls_sni=?, ws_host=? WHERE id=?`, cert.CertPath, cert.KeyPath, nextSNI, nextWSHost, id); err != nil {
 			return nil, err
 		}
 		existing.Enabled = enabled != 0
@@ -242,6 +246,7 @@ func (s *Store) ApplyCertificateToInbounds(ctx context.Context, cert Certificate
 		existing.TLSCertFile = cert.CertPath
 		existing.TLSKeyFile = cert.KeyPath
 		existing.TLSSNI = nextSNI
+		existing.WsHost = nextWSHost
 		existing.Clients = []Client{}
 		updated = append(updated, existing)
 	}
@@ -249,6 +254,19 @@ func (s *Store) ApplyCertificateToInbounds(ctx context.Context, cert Certificate
 		return nil, err
 	}
 	return updated, nil
+}
+
+func shouldSyncCertificateWSHost(network, wsHost, oldSNI string) bool {
+	normalizedNetwork := strings.ToLower(strings.TrimSpace(network))
+	if normalizedNetwork != "ws" && normalizedNetwork != "h2" {
+		return false
+	}
+	currentHost := strings.TrimSpace(wsHost)
+	if currentHost == "" || currentHost == "example.com" {
+		return true
+	}
+	previousSNI := strings.TrimSpace(oldSNI)
+	return previousSNI != "" && currentHost == previousSNI
 }
 
 type certificateScanner interface {

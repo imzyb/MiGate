@@ -30,6 +30,7 @@ import {
   inboundSecurities,
   inboundTemplateOptions,
   sanitizeInboundFormValues,
+  shouldSyncInboundWSHost,
   supportsInboundShareLink,
 } from './InboundsPage';
 import type { InboundTemplateId } from './InboundsPage';
@@ -193,10 +194,16 @@ export function InboundModal({ inbound, onClose, onSaved }: { inbound: Inbound |
   };
   const attachSettingCert = () => {
     if (!canAttachSettingCert || !settingCert) return;
+    const previousTLSSNI = form.getValues('tls_sni');
     form.setValue('tls_cert_file', settingCert.cert_path.trim(), { shouldDirty: true, shouldValidate: true });
     form.setValue('tls_key_file', settingCert.key_path.trim(), { shouldDirty: true, shouldValidate: true });
     const domain = settingCert.domain.trim();
-    if (domain) form.setValue('tls_sni', domain, { shouldDirty: true, shouldValidate: true });
+    if (domain) {
+      form.setValue('tls_sni', domain, { shouldDirty: true, shouldValidate: true });
+      if (shouldSyncInboundWSHost(form.getValues('network') || '', form.getValues('ws_host'), previousTLSSNI)) {
+        form.setValue('ws_host', domain, { shouldDirty: true, shouldValidate: true });
+      }
+    }
     showToast(text('已关联设置中的 TLS 证书'), 'success');
   };
   const clearTLSCert = () => {

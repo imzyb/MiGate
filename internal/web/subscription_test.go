@@ -85,6 +85,37 @@ func TestVMessTLSShareLinkUsesTLSSNIAsEndpointWhenCertificateAttached(t *testing
 	}
 }
 
+func TestVMessTLSWSShareLinkUsesSynchronizedWSHost(t *testing.T) {
+	link, err := shareLink("103.193.149.217", db.Inbound{
+		Protocol:    "vmess",
+		Port:        20001,
+		Network:     "ws",
+		Security:    "tls",
+		WsPath:      "/ray",
+		WsHost:      "hkcm.example.kg",
+		TLSSNI:      "hkcm.example.kg",
+		TLSCertFile: "/etc/migate/certs/hkcm.example.kg/fullchain.pem",
+		TLSKeyFile:  "/etc/migate/certs/hkcm.example.kg/privkey.key",
+	}, db.Client{Email: "phone", UUID: "11111111-1111-4111-8111-111111111111"})
+	if err != nil {
+		t.Fatalf("share link: %v", err)
+	}
+	payload, err := base64.StdEncoding.DecodeString(link[len("vmess://"):])
+	if err != nil {
+		t.Fatalf("decode vmess payload: %v", err)
+	}
+	var data map[string]string
+	if err := json.Unmarshal(payload, &data); err != nil {
+		t.Fatalf("unmarshal vmess payload: %v", err)
+	}
+	if data["add"] != "hkcm.example.kg" || data["host"] != "hkcm.example.kg" {
+		t.Fatalf("vmess TLS WS link should use synchronized certificate domain, got payload %#v", data)
+	}
+	if data["host"] == "example.com" {
+		t.Fatalf("vmess TLS WS host should not keep template default, got payload %#v", data)
+	}
+}
+
 func TestHysteria2ShareLinkKeepsSelfSignedCertificateCompatibility(t *testing.T) {
 	link, err := shareLink("vpn.example.com", db.Inbound{
 		Protocol:        "hysteria2",

@@ -21,6 +21,7 @@ import {
   mergeInboundTraffic,
   resetInboundCapabilitiesForTest,
   sanitizeInboundFormValues,
+  shouldSyncInboundWSHost,
   supportsInboundShareLink,
 } from './InboundsPage';
 import { savedClientLinkActions } from './InboundsPageForms';
@@ -545,6 +546,14 @@ describe('inbound payload helpers', () => {
     expect(hasAttachableSettingCert({ domain: 'example.com', email: 'admin@example.com', issued: true, cert_path: '/etc/migate/certs/example/fullchain.pem', key_path: '' })).toBe(false);
     expect(hasAttachableSettingCert({ domain: 'example.com', email: 'admin@example.com', issued: true, cert_path: '   ', key_path: '/etc/migate/certs/example/privkey.pem' })).toBe(false);
     expect(hasAttachableSettingCert({ domain: 'example.com', email: 'admin@example.com', issued: true, cert_path: '/etc/migate/certs/example/fullchain.pem', key_path: '/etc/migate/certs/example/privkey.pem' })).toBe(true);
+  });
+
+  it('syncs WS/H2 host only for unset, template, or old-SNI values', () => {
+    expect(shouldSyncInboundWSHost('ws', '', 'old.example.com')).toBe(true);
+    expect(shouldSyncInboundWSHost('h2', 'example.com', 'old.example.com')).toBe(true);
+    expect(shouldSyncInboundWSHost('ws', 'old.example.com', 'old.example.com')).toBe(true);
+    expect(shouldSyncInboundWSHost('ws', 'cdn.example.com', 'old.example.com')).toBe(false);
+    expect(shouldSyncInboundWSHost('tcp', 'example.com', 'old.example.com')).toBe(false);
   });
 
   it('merges lightweight traffic refresh without replacing full config fields', () => {
