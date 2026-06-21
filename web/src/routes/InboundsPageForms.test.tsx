@@ -140,6 +140,21 @@ describe('inbound and client modal credential behavior', () => {
     expect(inputByLabel('TLS 私钥文件').value).toBe('/etc/migate/certs/hkcm.example.kg/privkey.key');
   });
 
+  it('shows TLS certificate and private key paths as separate summary rows', () => {
+    renderModal(<InboundModal inbound={{
+      ...createDefaultInbound(),
+      id: 10,
+      security: 'tls',
+      tls_cert_file: '/etc/migate/certs/hkcm.example.kg/fullchain.pem',
+      tls_key_file: '/etc/migate/certs/hkcm.example.kg/privkey.pem',
+    }} onClose={() => undefined} onSaved={() => undefined} />);
+
+    const summary = document.querySelector('.tls-cert-summary');
+    expect(summary?.textContent).toContain('证书：/etc/migate/certs/hkcm.example.kg/fullchain.pem');
+    expect(summary?.textContent).toContain('私钥：/etc/migate/certs/hkcm.example.kg/privkey.pem');
+    expect(summary?.textContent).not.toContain('fullchain.pem / /etc');
+  });
+
   it('keeps a custom WS/H2 host when attaching the settings certificate', async () => {
     apiMock.certStatus.mockResolvedValueOnce({
       issued: true,

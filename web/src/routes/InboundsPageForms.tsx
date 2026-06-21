@@ -257,9 +257,9 @@ export function InboundModal({ inbound, onClose, onSaved }: { inbound: Inbound |
   };
   const currentProtocolSummary = `${protocol || '-'} / ${network || '-'} / ${security || '-'}`;
   const isAutoPort = Number(portValue || 0) === 0;
-  const tlsCertSummary = form.watch('tls_cert_file') && form.watch('tls_key_file')
-    ? `${form.watch('tls_cert_file')} / ${form.watch('tls_key_file')}`
-    : text('未指定证书路径');
+  const tlsCertFile = form.watch('tls_cert_file')?.trim();
+  const tlsKeyFile = form.watch('tls_key_file')?.trim();
+  const hasTLSCertPaths = !!tlsCertFile && !!tlsKeyFile;
   const initialClientCredentialSummary = clientCredentialSummary(clientForm.watch() as ClientValues, inboundCredentialType(protocol), text);
   const templateOptions = useMemo(() => {
     return inboundTemplateOptions().map((template) => {
@@ -470,7 +470,20 @@ export function InboundModal({ inbound, onClose, onSaved }: { inbound: Inbound |
                   <div className="tls-cert-panel">
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-panel-text">{text('当前证书路径')}</div>
-                      <div className="mt-1 break-all text-xs leading-5 text-panel-muted">{tlsCertSummary}</div>
+                      {hasTLSCertPaths ? (
+                        <dl className="tls-cert-summary" aria-label={text('当前证书路径')}>
+                          <div>
+                            <dt>{text('证书：')}</dt>
+                            <dd>{tlsCertFile}</dd>
+                          </div>
+                          <div>
+                            <dt>{text('私钥：')}</dt>
+                            <dd>{tlsKeyFile}</dd>
+                          </div>
+                        </dl>
+                      ) : (
+                        <div className="mt-1 break-all text-xs leading-5 text-panel-muted">{text('未指定证书路径')}</div>
+                      )}
                     </div>
                     <div className="action-row">
                       <button type="button" className="btn secondary h-8" disabled={!canAttachSettingCert} onClick={attachSettingCert}>

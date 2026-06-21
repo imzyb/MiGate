@@ -1044,6 +1044,35 @@ textarea:focus {
   flex-wrap: wrap;
 }
 
+.tls-cert-summary {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  color: rgb(var(--muted));
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.tls-cert-summary div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.tls-cert-summary dt {
+  color: rgb(var(--text));
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.tls-cert-summary dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .credential-summary-panel > div {
   display: grid;
   min-width: 0;
