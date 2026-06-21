@@ -393,6 +393,11 @@ func TestRouterBasePathServesSPAAssetsAndAPI(t *testing.T) {
 	if favicon.Code != http.StatusOK {
 		t.Fatalf("expected base-path favicon 200, got %d: %s", favicon.Code, favicon.Body.String())
 	}
+	rootFavicon := httptest.NewRecorder()
+	router.ServeHTTP(rootFavicon, httptest.NewRequest(http.MethodGet, "/favicon.svg", nil))
+	if rootFavicon.Code != http.StatusOK {
+		t.Fatalf("expected root favicon compatibility 200, got %d: %s", rootFavicon.Code, rootFavicon.Body.String())
+	}
 	outside := httptest.NewRecorder()
 	router.ServeHTTP(outside, httptest.NewRequest(http.MethodGet, "/api/session", nil))
 	if outside.Code != http.StatusNotFound {

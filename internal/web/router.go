@@ -53,6 +53,10 @@ func normalizeBasePath(basePath string) string {
 
 func basePathMiddleware(next http.Handler, basePath string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isRootStaticAsset(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if r.URL.Path == basePath {
 			target := basePath + "/"
 			if r.URL.RawQuery != "" {
@@ -73,6 +77,10 @@ func basePathMiddleware(next http.Handler, basePath string) http.Handler {
 		cloned.URL.RawPath = ""
 		next.ServeHTTP(w, cloned)
 	})
+}
+
+func isRootStaticAsset(path string) bool {
+	return path == "/favicon.svg" || path == "/favicon.ico"
 }
 
 func invalidateCoreCacheAfter(cache *coreStatusCache, keys []string, next http.HandlerFunc) http.HandlerFunc {
