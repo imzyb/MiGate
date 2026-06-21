@@ -18,6 +18,8 @@ const (
 	OutboundSourceManual       = "manual"
 	OutboundSourceSubscription = "subscription"
 	OutboundSourceProxyPool    = "proxy_pool"
+
+	DefaultOutboundSubscriptionUpdateIntervalSeconds = 21600
 )
 
 type Certificate struct {

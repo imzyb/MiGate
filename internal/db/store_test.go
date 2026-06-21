@@ -154,6 +154,33 @@ func TestStoreMaterializesSubscriptionOutboundsAndDisablesMissing(t *testing.T) 
 	}
 }
 
+func TestStoreUsesDefaultOutboundSubscriptionUpdateInterval(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	sub, err := store.CreateOutboundSubscription(context.Background(), db.CreateOutboundSubscriptionParams{
+		Remark: "default interval", URL: "https://example.com/sub", Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("create subscription: %v", err)
+	}
+	if sub.UpdateIntervalSeconds != db.DefaultOutboundSubscriptionUpdateIntervalSeconds {
+		t.Fatalf("expected default interval %d, got %+v", db.DefaultOutboundSubscriptionUpdateIntervalSeconds, sub)
+	}
+	updated, err := store.UpdateOutboundSubscription(context.Background(), sub.ID, db.UpdateOutboundSubscriptionParams{
+		Remark: "default interval", URL: "https://example.com/sub", Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("update subscription: %v", err)
+	}
+	if updated.UpdateIntervalSeconds != db.DefaultOutboundSubscriptionUpdateIntervalSeconds {
+		t.Fatalf("expected updated default interval %d, got %+v", db.DefaultOutboundSubscriptionUpdateIntervalSeconds, updated)
+	}
+}
+
 func TestUpdateOutboundSubscriptionDisabledDisablesMaterializedNodes(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {

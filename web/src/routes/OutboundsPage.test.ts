@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Outbound, OutboundSubscription } from '../api/types';
 import { outboundSupportedCores, outboundSupportLevel, outboundSupportLevelLabel } from '../lib/cores';
-import { customOutboundIds, emptySubscription, formatSubscriptionPreview, isFixedDefaultOutbound, isReorderableOutbound, movedCustomOutboundIds, movedSubscriptionIds, outboundCredentialFields, outboundEnableDisabledReason, outboundFormValues, outboundMetaParts, outboundPasswordLabel, outboundRemarkLabel, outboundToggleTitle, outboundUsernameLabel, sanitizeOutboundValues, subscriptionDisplayName, subscriptionFormValues, subscriptionMetaParts, subscriptionOutboundUpdatePayload, subscriptionSourceLabel } from './OutboundsPage';
+import { customOutboundIds, defaultOutboundSubscriptionUpdateIntervalSeconds, emptySubscription, formatSubscriptionPreview, isFixedDefaultOutbound, isReorderableOutbound, movedCustomOutboundIds, movedSubscriptionIds, outboundCredentialFields, outboundEnableDisabledReason, outboundFormValues, outboundMetaParts, outboundPasswordLabel, outboundRemarkLabel, outboundToggleTitle, outboundUsernameLabel, sanitizeOutboundValues, subscriptionDisplayName, subscriptionFormValues, subscriptionMetaParts, subscriptionOutboundUpdatePayload, subscriptionSourceLabel } from './OutboundsPage';
 
 describe('outbound helpers', () => {
   const outbounds: Outbound[] = [
@@ -156,7 +156,7 @@ describe('outbound helpers', () => {
       { id: 1, remark: 'A', url: 'https://a.example/sub', tag_prefix: 'sub1-', update_interval_seconds: 600, enabled: true, allow_private: false, prepend: false, priority: 0 },
       { id: 2, remark: 'B', url: 'https://b.example/sub', tag_prefix: 'sub2-', update_interval_seconds: 600, enabled: true, allow_private: false, prepend: true, priority: 1 },
     ];
-    expect(emptySubscription(subs)).toMatchObject({ tag_prefix: 'sub3-', update_interval_seconds: 600, enabled: true, allow_private: false, prepend: false });
+    expect(emptySubscription(subs)).toMatchObject({ tag_prefix: 'sub3-', update_interval_seconds: defaultOutboundSubscriptionUpdateIntervalSeconds, enabled: true, allow_private: false, prepend: false });
     expect(movedSubscriptionIds(subs, 1, -1)).toEqual([2, 1]);
     expect(subscriptionFormValues(subs[1])).toMatchObject({ remark: 'B', url: 'https://b.example/sub', tag_prefix: 'sub2-', prepend: true });
   });

@@ -64,7 +64,7 @@ func (s *Store) CreateOutboundSubscription(ctx context.Context, params CreateOut
 	}
 	interval := params.UpdateIntervalSeconds
 	if interval <= 0 {
-		interval = 600
+		interval = DefaultOutboundSubscriptionUpdateIntervalSeconds
 	}
 	var priority int
 	_ = s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(priority)+1, 0) FROM outbound_subscriptions`).Scan(&priority)
@@ -101,7 +101,7 @@ func (s *Store) UpdateOutboundSubscription(ctx context.Context, id int64, params
 	}
 	interval := params.UpdateIntervalSeconds
 	if interval <= 0 {
-		interval = 600
+		interval = DefaultOutboundSubscriptionUpdateIntervalSeconds
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

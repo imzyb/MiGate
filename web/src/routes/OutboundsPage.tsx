@@ -28,11 +28,12 @@ type InputValues = z.input<typeof schema>;
 type Values = z.output<typeof schema>;
 type ProxyPoolType = 'socks5' | 'http' | 'https';
 const proxyPoolPageSize = 100;
+export const defaultOutboundSubscriptionUpdateIntervalSeconds = 21600;
 const subscriptionSchema = z.object({
   remark: z.string().optional(),
   url: z.string().min(1, '请输入订阅 URL'),
   tag_prefix: z.string().optional(),
-  update_interval_seconds: z.coerce.number().min(60).max(86400).default(600),
+  update_interval_seconds: z.coerce.number().min(60).max(86400).default(defaultOutboundSubscriptionUpdateIntervalSeconds),
   enabled: z.boolean().default(true),
   allow_private: z.boolean().default(false),
   prepend: z.boolean().default(false),
@@ -465,7 +466,7 @@ export function emptySubscription(subscriptions: OutboundSubscription[]): Outbou
     remark: '',
     url: '',
     tag_prefix: `sub${subscriptions.length + 1}-`,
-    update_interval_seconds: 600,
+    update_interval_seconds: defaultOutboundSubscriptionUpdateIntervalSeconds,
     enabled: true,
     allow_private: false,
     prepend: false,
@@ -479,7 +480,7 @@ export function subscriptionFormValues(subscription: OutboundSubscription | null
         remark: subscription.remark || '',
         url: subscription.url || '',
         tag_prefix: subscription.tag_prefix || '',
-        update_interval_seconds: Number(subscription.update_interval_seconds || 600),
+        update_interval_seconds: Number(subscription.update_interval_seconds || defaultOutboundSubscriptionUpdateIntervalSeconds),
         enabled: subscription.enabled ?? true,
         allow_private: subscription.allow_private ?? false,
         prepend: subscription.prepend ?? false,
@@ -488,7 +489,7 @@ export function subscriptionFormValues(subscription: OutboundSubscription | null
         remark: '',
         url: '',
         tag_prefix: 'sub1-',
-        update_interval_seconds: 600,
+        update_interval_seconds: defaultOutboundSubscriptionUpdateIntervalSeconds,
         enabled: true,
         allow_private: false,
         prepend: false,

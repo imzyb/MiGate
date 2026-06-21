@@ -96,7 +96,7 @@ func subscriptionRefreshDue(sub db.OutboundSubscription, now time.Time) bool {
 	}
 	intervalSeconds := sub.UpdateIntervalSeconds
 	if intervalSeconds <= 0 {
-		intervalSeconds = 600
+		intervalSeconds = db.DefaultOutboundSubscriptionUpdateIntervalSeconds
 	}
 	base := parseRFC3339(sub.LastAttemptAt)
 	if base.IsZero() {

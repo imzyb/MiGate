@@ -38,6 +38,16 @@ func TestSubscriptionRefreshDueUsesLastFetchedWhenAttemptMissing(t *testing.T) {
 	}
 }
 
+func TestSubscriptionRefreshDueUsesDefaultIntervalWhenMissing(t *testing.T) {
+	now := time.Date(2026, 6, 20, 10, 0, 0, 0, time.UTC)
+	if subscriptionRefreshDue(db.OutboundSubscription{Enabled: true, LastFetchedAt: now.Add(-6*time.Hour + time.Second).Format(time.RFC3339)}, now) {
+		t.Fatal("expected subscription before default interval boundary to be skipped")
+	}
+	if !subscriptionRefreshDue(db.OutboundSubscription{Enabled: true, LastFetchedAt: now.Add(-6 * time.Hour).Format(time.RFC3339)}, now) {
+		t.Fatal("expected subscription at default interval boundary to be due")
+	}
+}
+
 type fakeOutboundSubscriptionStore struct {
 	subs []db.OutboundSubscription
 }

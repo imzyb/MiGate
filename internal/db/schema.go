@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS outbound_subscriptions (
   remark TEXT NOT NULL,
   url TEXT NOT NULL,
   tag_prefix TEXT NOT NULL DEFAULT '',
-  update_interval_seconds INTEGER NOT NULL DEFAULT 600,
+  update_interval_seconds INTEGER NOT NULL DEFAULT 21600,
   enabled INTEGER NOT NULL DEFAULT 1,
   allow_private INTEGER NOT NULL DEFAULT 0,
   prepend INTEGER NOT NULL DEFAULT 0,
