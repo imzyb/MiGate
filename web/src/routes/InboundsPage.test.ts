@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Inbound, InboundCapability } from '../api/types';
 import {
@@ -25,6 +27,23 @@ import { savedClientLinkActions } from './InboundsPageForms';
 
 afterEach(() => {
   resetInboundCapabilitiesForTest();
+});
+
+describe('inbounds page i18n coverage', () => {
+  it('keeps primary page Chinese copy behind explicit text calls', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/routes/InboundsPage.tsx'), 'utf8');
+    const forbidden = [
+      /title="[^"]*[\u4e00-\u9fff]/,
+      /description="[^"]*[\u4e00-\u9fff]/,
+      /placeholder="[^"]*[\u4e00-\u9fff]/,
+      /showToast\('[^']*[\u4e00-\u9fff]/,
+      /<option[^>]*>[^<{]*[\u4e00-\u9fff]/,
+      /<EmptyState\s+title="[^"]*[\u4e00-\u9fff]/,
+    ];
+    for (const pattern of forbidden) {
+      expect(source).not.toMatch(pattern);
+    }
+  });
 });
 
 describe('inbound payload helpers', () => {

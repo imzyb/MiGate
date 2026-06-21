@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -260,6 +262,63 @@ func TestProxyPoolAPISupportsSummaryAndPagination(t *testing.T) {
 	}
 	if strings.Contains(page.Body.String(), `"address":"198.51.100.1"`) || strings.Contains(page.Body.String(), `"address":"203.0.113.1"`) {
 		t.Fatalf("paged response should include only the selected country/page: %s", page.Body.String())
+	}
+}
+
+func TestProxyPoolColdCacheConcurrentSummaryAndPageShareFetch(t *testing.T) {
+	var fetches int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&fetches, 1) == 1 {
+			close(started)
+		}
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"ip":"198.51.100.1","port":1080,"country":"US","country_en":"United States"},
+			{"ip":"198.51.100.2","port":1081,"country":"US","country_en":"United States"}
+		]`))
+	}))
+	defer upstream.Close()
+
+	cache := &web.Socks5PoolCacheForTest{}
+	ready := make(chan struct{}, 2)
+	releaseWait := make(chan struct{})
+	web.SetProxyPoolAfterSingleflightForTest(cache, func() {
+		ready <- struct{}{}
+		<-releaseWait
+	})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	errs := make(chan error, 2)
+	for _, path := range []string{"/api/outbounds/socks5-pool?summary=1", "/api/outbounds/socks5-pool?country=US&page=1&per_page=1"} {
+		go func(path string) {
+			defer wg.Done()
+			resp := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			web.ProxyPoolListHandlerForTest(cache, upstream.URL, "socks", resp, req)
+			if resp.Code != http.StatusOK {
+				errs <- fmt.Errorf("%s returned %d: %s", path, resp.Code, resp.Body.String())
+				return
+			}
+			errs <- nil
+		}(path)
+	}
+	<-ready
+	<-ready
+	close(releaseWait)
+	<-started
+	close(release)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := atomic.LoadInt32(&fetches); got != 1 {
+		t.Fatalf("expected concurrent cold cache requests to share one upstream fetch, got %d", got)
 	}
 }
 

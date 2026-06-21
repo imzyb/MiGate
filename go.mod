@@ -6,6 +6,8 @@ require modernc.org/sqlite v1.52.0
 
 require golang.org/x/crypto v0.53.0
 
+require golang.org/x/sync v0.21.0
+
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/pprof v0.0.0-20260604005048-7023385849c0 // indirect

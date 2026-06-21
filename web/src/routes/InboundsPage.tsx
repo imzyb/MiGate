@@ -417,49 +417,49 @@ export default function InboundsPage() {
     mutationFn: (item: Inbound) => api.toggleInbound(item.id, !item.enabled),
     onSuccess: (response) => {
       if (!showCoreApplyWarning(response, '已保存，但核心配置未生效', showToast, text)) {
-        showToast('节点状态已更新', 'success');
+        showToast(text('节点状态已更新'), 'success');
       }
       refresh();
     },
-    onError: (error) => showToast(errorMessage(error, '节点状态更新失败'), 'error'),
+    onError: (error) => showToast(errorMessage(error, text('节点状态更新失败')), 'error'),
   });
   const deleteInbound = useMutation({
     mutationFn: api.deleteInbound,
     onSuccess: (response) => {
       if (!showCoreApplyWarning(response, '已删除，但核心配置未生效', showToast, text)) {
-        showToast('节点已删除', 'success');
+        showToast(text('节点已删除'), 'success');
       }
       refresh();
     },
-    onError: (error) => showToast(errorMessage(error, '删除节点失败'), 'error'),
+    onError: (error) => showToast(errorMessage(error, text('删除节点失败')), 'error'),
   });
   const deleteClient = useMutation({
     mutationFn: ({ inboundId, id }: { inboundId: number; id: number }) => api.deleteClient(inboundId, id),
     onSuccess: (response) => {
       if (!showCoreApplyWarning(response, '已删除，但核心配置未生效', showToast, text)) {
-        showToast('客户端已删除', 'success');
+        showToast(text('客户端已删除'), 'success');
       }
       refresh();
     },
-    onError: (error) => showToast(errorMessage(error, '删除客户端失败'), 'error'),
+    onError: (error) => showToast(errorMessage(error, text('删除客户端失败')), 'error'),
   });
   const toggleClient = useMutation({
     mutationFn: ({ inboundId, client }: { inboundId: number; client: Client }) => api.toggleClient(inboundId, client.id, !client.enabled),
     onSuccess: (response) => {
       if (!showCoreApplyWarning(response, '已保存，但核心配置未生效', showToast, text)) {
-        showToast('客户端状态已更新', 'success');
+        showToast(text('客户端状态已更新'), 'success');
       }
       refresh();
     },
-    onError: (error) => showToast(errorMessage(error, '客户端状态更新失败'), 'error'),
+    onError: (error) => showToast(errorMessage(error, text('客户端状态更新失败')), 'error'),
   });
   const resetTraffic = useMutation({
     mutationFn: ({ inboundId, id }: { inboundId: number; id: number }) => api.resetClientTraffic(inboundId, id),
     onSuccess: () => {
-      showToast('累计用量已重置', 'success');
+      showToast(text('累计用量已重置'), 'success');
       refresh();
     },
-    onError: (error) => showToast(errorMessage(error, '重置累计用量失败'), 'error'),
+    onError: (error) => showToast(errorMessage(error, text('重置累计用量失败')), 'error'),
   });
 
   if (inbounds.isLoading) return <LoadingBlock />;
@@ -467,16 +467,16 @@ export default function InboundsPage() {
   return (
     <div className="page-stack">
       <PageTitle
-        title="节点与客户端"
-        description="创建节点、管理客户端凭据、复制节点链接和查看流量状态。"
+        title={text('节点与客户端')}
+        description={text('创建节点、管理客户端凭据、复制节点链接和查看流量状态。')}
         action={
           <button className="btn primary" onClick={() => setEditingInbound(createDefaultInbound())}>
-            <Plus className="h-4 w-4" /> 新增节点
+            <Plus className="h-4 w-4" /> {text('新增节点')}
           </button>
         }
       />
       <div className="toolbar">
-        <input className="max-w-md" placeholder="搜索节点、协议、端口..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input className="max-w-md" placeholder={text('搜索节点、协议、端口...')} value={search} onChange={(e) => setSearch(e.target.value)} />
         <div className="segmented-control" aria-label={text('节点列表布局')}>
           <button type="button" className={inboundColumns === 1 ? 'active' : ''} onClick={() => setInboundColumns(1)} aria-pressed={inboundColumns === 1} title={text('一行一张')}>
             <RectangleHorizontal className="h-4 w-4" />
@@ -486,14 +486,14 @@ export default function InboundsPage() {
           </button>
         </div>
         <select className="w-44" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-          <option value="id">按创建顺序</option>
-          <option value="port">按端口</option>
-          <option value="protocol">按协议</option>
-          <option value="clients">按客户端数</option>
+          <option value="id">{text('按创建顺序')}</option>
+          <option value="port">{text('按端口')}</option>
+          <option value="protocol">{text('按协议')}</option>
+          <option value="clients">{text('按客户端数')}</option>
         </select>
       </div>
       {filtered.length === 0 ? (
-        <EmptyState title="暂无节点" description="创建第一个节点后，可继续为它添加客户端并复制节点链接。" />
+        <EmptyState title={text('暂无节点')} description={text('创建第一个节点后，可继续为它添加客户端并复制节点链接。')} />
       ) : (
         <div className={`inbound-card-grid ${inboundColumns === 2 ? 'inbound-card-grid-2' : ''}`}>
           {filtered.map((inbound) => (
@@ -508,18 +508,18 @@ export default function InboundsPage() {
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-panel-muted">
                     <span>:{inbound.port}</span>
                     <span>{inbound.network || 'tcp'} / {inbound.security || 'none'}</span>
-                    <span>{(inbound.clients || []).length} 客户端</span>
-                    <span>{supportsInboundShareLink(inbound.protocol) ? '支持节点链接' : '暂不支持分享链接'}</span>
+                    <span>{(inbound.clients || []).length} {text('客户端')}</span>
+                    <span>{text(supportsInboundShareLink(inbound.protocol) ? '支持节点链接' : '暂不支持分享链接')}</span>
                   </div>
                 </div>
                 <div className="action-row">
-                  <SpinnerButton className={toggleButtonClass(inbound.enabled)} loading={toggleInbound.isPending} onClick={() => toggleInbound.mutate(inbound)} title="启停">
+                  <SpinnerButton className={toggleButtonClass(inbound.enabled)} loading={toggleInbound.isPending} onClick={() => toggleInbound.mutate(inbound)} title={text('启停')}>
                     <Power className="h-4 w-4" />
                   </SpinnerButton>
-                  <button className="icon-button" onClick={() => setEditingInbound(inbound)} title="编辑">
+                  <button className="icon-button" onClick={() => setEditingInbound(inbound)} title={text('编辑')}>
                     <Edit2 className="h-4 w-4" />
                   </button>
-                  <button className="icon-button danger-text" onClick={async () => (await confirm({ title: '删除节点？', description: '该节点下的客户端也会被删除。', tone: 'danger' })) && deleteInbound.mutate(inbound.id)} title="删除">
+                  <button className="icon-button danger-text" onClick={async () => (await confirm({ title: text('删除节点？'), description: text('该节点下的客户端也会被删除。'), tone: 'danger' })) && deleteInbound.mutate(inbound.id)} title={text('删除')}>
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
@@ -533,9 +533,9 @@ export default function InboundsPage() {
               </div>
               <div className="mt-4 border-t border-panel-line pt-3">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                  <div className="text-sm font-medium">客户端</div>
+                  <div className="text-sm font-medium">{text('客户端')}</div>
                   <button className="btn secondary h-8" onClick={() => setClientInbound(inbound)}>
-                    <Plus className="h-4 w-4" /> 新增客户端
+                    <Plus className="h-4 w-4" /> {text('新增客户端')}
                   </button>
                 </div>
                 <div className="grid gap-2">
@@ -544,16 +544,16 @@ export default function InboundsPage() {
                       key={client.id}
                       inbound={inbound}
                       client={mergeClientTraffic(inbound, client)}
-                      onCopyShare={() => copyNodeLink(client, showToast)}
-                      onShowQR={() => showClientQRCode(client, showToast, setQRLink)}
+                      onCopyShare={() => copyNodeLink(client, showToast, text)}
+                      onShowQR={() => showClientQRCode(client, showToast, setQRLink, text)}
                       shareSupported={supportsInboundShareLink(inbound.protocol)}
                       onToggle={() => toggleClient.mutate({ inboundId: inbound.id, client })}
                       onEdit={() => setEditingClient({ inbound, client })}
-                      onReset={async () => (await confirm({ title: '重置累计用量？', description: '会清零 MiGate 维护的业务累计用量，并以当前核心计数作为新的基线。' })) && resetTraffic.mutate({ inboundId: inbound.id, id: client.id })}
-                      onDelete={async () => (await confirm({ title: '删除客户端？', tone: 'danger' })) && deleteClient.mutate({ inboundId: inbound.id, id: client.id })}
+                      onReset={async () => (await confirm({ title: text('重置累计用量？'), description: text('会清零 MiGate 维护的业务累计用量，并以当前核心计数作为新的基线。') })) && resetTraffic.mutate({ inboundId: inbound.id, id: client.id })}
+                      onDelete={async () => (await confirm({ title: text('删除客户端？'), tone: 'danger' })) && deleteClient.mutate({ inboundId: inbound.id, id: client.id })}
                     />
                   ))}
-                  {(inbound.clients || []).length === 0 ? <EmptyState title="暂无客户端" /> : null}
+                  {(inbound.clients || []).length === 0 ? <EmptyState title={text('暂无客户端')} /> : null}
                 </div>
               </div>
             </div>
@@ -568,7 +568,7 @@ export default function InboundsPage() {
       {qrLink ? (
         <Modal
           open={!!qrLink}
-          title={qrLink.title ? `${qrLink.title} ${text('节点二维码')}` : '节点二维码'}
+          title={qrLink.title ? `${qrLink.title} ${text('节点二维码')}` : text('节点二维码')}
           onClose={() => setQRLink(null)}
           panelClassName="qr-modal-panel"
           footer={<button className="btn primary" onClick={() => setQRLink(null)}>{text('完成')}</button>}
@@ -576,7 +576,7 @@ export default function InboundsPage() {
           <div className="qr-panel">
             <img src={qrLink.dataURL} alt={text('节点二维码')} />
             <div className="qr-link-text">{qrLink.value}</div>
-            <button className="btn secondary" onClick={() => copyText(qrLink.value, text('节点链接已复制'), showToast)}>
+            <button className="btn secondary" onClick={() => copyText(qrLink.value, text('节点链接已复制'), showToast, text)}>
               <Copy className="h-4 w-4" /> {text('复制节点链接')}
             </button>
           </div>
@@ -627,12 +627,12 @@ function ClientRow({
         </div>
       </div>
       <div className="action-row">
-        {shareSupported ? <button className="icon-button" onClick={onCopyShare} title="复制节点链接"><Copy className="h-4 w-4" /></button> : <span className="client-link-status">{text('暂不支持分享链接')}</span>}
-        {shareSupported ? <button className="icon-button" onClick={onShowQR} title="显示二维码"><QrCode className="h-4 w-4" /></button> : null}
-        <button className={toggleButtonClass(client.enabled)} onClick={onToggle} title="启停"><Power className="h-4 w-4" /></button>
-        <button className="icon-button" onClick={onEdit} title="编辑"><Edit2 className="h-4 w-4" /></button>
-        <button className="icon-button" onClick={onReset} title="重置累计用量"><RotateCcw className="h-4 w-4" /></button>
-        <button className="icon-button danger-text" onClick={onDelete} title="删除"><Trash2 className="h-4 w-4" /></button>
+        {shareSupported ? <button className="icon-button" onClick={onCopyShare} title={text('复制节点链接')}><Copy className="h-4 w-4" /></button> : <span className="client-link-status">{text('暂不支持分享链接')}</span>}
+        {shareSupported ? <button className="icon-button" onClick={onShowQR} title={text('显示二维码')}><QrCode className="h-4 w-4" /></button> : null}
+        <button className={toggleButtonClass(client.enabled)} onClick={onToggle} title={text('启停')}><Power className="h-4 w-4" /></button>
+        <button className="icon-button" onClick={onEdit} title={text('编辑')}><Edit2 className="h-4 w-4" /></button>
+        <button className="icon-button" onClick={onReset} title={text('重置累计用量')}><RotateCcw className="h-4 w-4" /></button>
+        <button className="icon-button danger-text" onClick={onDelete} title={text('删除')}><Trash2 className="h-4 w-4" /></button>
       </div>
     </div>
   );
@@ -1219,20 +1219,20 @@ function randomSecret(length: number) {
   return randomUUID().replace(/-/g, '').slice(0, length);
 }
 
-async function copyText(value: string, title: string, showToast: (title: string, tone?: 'success' | 'error' | 'info') => void) {
+async function copyText(value: string, title: string, showToast: (title: string, tone?: 'success' | 'error' | 'info') => void, text?: (value: string) => string) {
   try {
     await copyToClipboard(value);
     showToast(title, 'success');
   } catch {
-    showToast('复制失败', 'error');
+    showToast(text ? text('复制失败') : '复制失败', 'error');
   }
 }
 
-async function copyNodeLink(client: Client, showToast: (title: string, tone?: 'success' | 'error' | 'info') => void) {
+async function copyNodeLink(client: Client, showToast: (title: string, tone?: 'success' | 'error' | 'info') => void, text: (value: string) => string) {
   try {
-    await copyText(await fetchNodeLink(client), '节点链接已复制', showToast);
+    await copyText(await fetchNodeLink(client), text('节点链接已复制'), showToast, text);
   } catch {
-    showToast('复制节点链接失败', 'error');
+    showToast(text('复制节点链接失败'), 'error');
   }
 }
 
@@ -1248,13 +1248,14 @@ async function showClientQRCode(
   client: Client,
   showToast: (title: string, tone?: 'success' | 'error' | 'info') => void,
   setQRLink: (value: { title: string; value: string; dataURL: string }) => void,
+  text: (value: string) => string,
 ) {
   try {
     const value = await fetchNodeLink(client);
     const dataURL = await QRCode.toDataURL(value, { margin: 1, width: 240 });
     setQRLink({ title: client.email || '', value, dataURL });
   } catch {
-    showToast('生成二维码失败', 'error');
+    showToast(text('生成二维码失败'), 'error');
   }
 }
 

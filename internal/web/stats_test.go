@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,6 +32,8 @@ type countingSummaryStore struct {
 	listInboundsCalls       int
 	listInboundTrafficCalls int
 	validationHashCalls     int
+	validationVersionCalls  int
+	validationVersion       int64
 	listTrafficStatesCalls  int
 	listTrafficSamplesCalls int
 }
@@ -57,6 +60,17 @@ func (s *countingSummaryStore) ValidationConfigHash(ctx context.Context) (string
 		return "", s.listInboundsErr
 	}
 	return (validationSnapshot{inbounds: s.inbounds, outbounds: s.outbounds, rules: s.rules}).cacheKey(), nil
+}
+
+func (s *countingSummaryStore) ValidationConfigVersion(ctx context.Context) (int64, error) {
+	s.validationVersionCalls++
+	if s.listInboundsErr != nil {
+		return 0, s.listInboundsErr
+	}
+	if s.validationVersion == 0 {
+		s.validationVersion = 1
+	}
+	return s.validationVersion, nil
 }
 
 func (s *countingSummaryStore) InboundExists(ctx context.Context, id int64) (bool, error) {
@@ -438,8 +452,8 @@ func TestDashboardSummaryCacheHitsExpiresAndRetriesErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cached summary: %v", err)
 	}
-	if store.listInboundsCalls != 1 || store.listInboundTrafficCalls != 1 || store.validationHashCalls != 1 {
-		t.Fatalf("expected first build to read hash, full validation, and lightweight summary once, full=%d light=%d hash=%d", store.listInboundsCalls, store.listInboundTrafficCalls, store.validationHashCalls)
+	if store.listInboundsCalls != 1 || store.listInboundTrafficCalls != 1 || store.validationVersionCalls != 1 || store.validationHashCalls != 0 {
+		t.Fatalf("expected first build to read version, full validation, and lightweight summary once, full=%d light=%d version=%d hash=%d", store.listInboundsCalls, store.listInboundTrafficCalls, store.validationVersionCalls, store.validationHashCalls)
 	}
 	if first["generated_at"] != second["generated_at"] {
 		t.Fatalf("expected cached generated_at to be reused: first=%v second=%v", first["generated_at"], second["generated_at"])
@@ -449,8 +463,8 @@ func TestDashboardSummaryCacheHitsExpiresAndRetriesErrors(t *testing.T) {
 	if _, err := cache.get(context.Background(), cfg); err != nil {
 		t.Fatalf("expired summary: %v", err)
 	}
-	if store.listInboundsCalls != 1 || store.listInboundTrafficCalls != 2 || store.validationHashCalls != 2 {
-		t.Fatalf("expected summary expiry with unchanged validation hash to avoid full validation snapshot, full=%d light=%d hash=%d", store.listInboundsCalls, store.listInboundTrafficCalls, store.validationHashCalls)
+	if store.listInboundsCalls != 1 || store.listInboundTrafficCalls != 2 || store.validationVersionCalls != 2 || store.validationHashCalls != 0 {
+		t.Fatalf("expected summary expiry with unchanged validation version to avoid full validation snapshot, full=%d light=%d version=%d hash=%d", store.listInboundsCalls, store.listInboundTrafficCalls, store.validationVersionCalls, store.validationHashCalls)
 	}
 
 	failing := &countingSummaryStore{listInboundsErr: errors.New("boom")}
@@ -495,6 +509,7 @@ func TestDashboardSummaryValidationCacheRefreshesWhenLightConfigChanges(t *testi
 		Enabled:  true,
 		Clients:  []db.Client{{ID: 20, InboundID: 2, UUID: "client-uuid", Email: "hy2@example.com", Enabled: true}},
 	}}
+	store.validationVersion++
 	now = now.Add(3 * time.Second)
 	second, err := cache.get(context.Background(), cfg)
 	if err != nil {
@@ -633,8 +648,9 @@ func TestDashboardSummaryValidationCacheRefreshesWhenFullConfigOnlyFieldsChange(
 			inbound := baseInbound
 			inbound.Clients = append([]db.Client(nil), baseInbound.Clients...)
 			store := &countingSummaryStore{
-				inbounds:  []db.Inbound{inbound},
-				outbounds: []db.Outbound{{ID: 1, Tag: "direct", Protocol: "freedom", Enabled: true}},
+				inbounds:          []db.Inbound{inbound},
+				outbounds:         []db.Outbound{{ID: 1, Tag: "direct", Protocol: "freedom", Enabled: true}},
+				validationVersion: 1,
 			}
 			cache := newDashboardSummaryCache(2*time.Second, 30*time.Second)
 			cfg := &routerConfig{store: store, singboxRuntime: fixedSingboxRuntime{capability: singbox.Capability{V2RayAPIStats: true, Checked: true}}}
@@ -645,14 +661,14 @@ func TestDashboardSummaryValidationCacheRefreshesWhenFullConfigOnlyFieldsChange(
 				t.Fatalf("first summary: %v", err)
 			}
 			firstValidationExpiresAt := cache.validationExpiresAt
-			firstSnapshotKey := cache.validationKey
+			firstVersionKey := cache.validationKey
 			changed := store.inbounds[0]
 			changed.Clients = append([]db.Client(nil), store.inbounds[0].Clients...)
 			tc.change(&changed)
 			store.inbounds[0] = changed
-			changedSnapshot := validationSnapshot{inbounds: store.inbounds, outbounds: store.outbounds, rules: store.rules}
-			if changedSnapshot.cacheKey() == firstSnapshotKey {
-				t.Fatalf("%s did not change full validation key", tc.name)
+			store.validationVersion++
+			if cache.validationKey == fmt.Sprintf("v:%d", store.validationVersion) || firstVersionKey == "" {
+				t.Fatalf("%s test did not start from a stable validation version key", tc.name)
 			}
 			now = now.Add(3 * time.Second)
 
@@ -662,11 +678,11 @@ func TestDashboardSummaryValidationCacheRefreshesWhenFullConfigOnlyFieldsChange(
 			if !cache.validationExpiresAt.After(firstValidationExpiresAt) {
 				t.Fatalf("expected %s change to rebuild validation cache, first expiry=%s second expiry=%s", tc.name, firstValidationExpiresAt, cache.validationExpiresAt)
 			}
-			if cache.validationKey != changedSnapshot.cacheKey() {
-				t.Fatalf("expected %s change to store new full validation key", tc.name)
+			if cache.validationKey != fmt.Sprintf("v:%d", store.validationVersion) {
+				t.Fatalf("expected %s change to store new validation version key, got %q", tc.name, cache.validationKey)
 			}
-			if store.listInboundsCalls != 2 || store.listInboundTrafficCalls != 2 || store.validationHashCalls != 2 {
-				t.Fatalf("expected hidden config hash change to read full snapshot inside validation TTL, full=%d light=%d hash=%d", store.listInboundsCalls, store.listInboundTrafficCalls, store.validationHashCalls)
+			if store.listInboundsCalls != 2 || store.listInboundTrafficCalls != 2 || store.validationVersionCalls != 2 || store.validationHashCalls != 0 {
+				t.Fatalf("expected hidden config version change to read full snapshot inside validation TTL, full=%d light=%d version=%d hash=%d", store.listInboundsCalls, store.listInboundTrafficCalls, store.validationVersionCalls, store.validationHashCalls)
 			}
 		})
 	}

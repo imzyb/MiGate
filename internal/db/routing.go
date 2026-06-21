@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Store) ListRoutingRules(ctx context.Context) ([]RoutingRule, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, inbound_id, inbound_tag, client_id, client_email, outbound_id, outbound_tag, domain, ip, rule_set, protocol, enabled, sort FROM routing_rules ORDER BY sort ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, inbound_id, inbound_tag, client_id, client_email, outbound_id, outbound_tag, domain, ip, rule_set, protocol, enabled, sort FROM routing_rules ORDER BY sort ASC, id ASC`)
 	if err != nil {
 		return nil, err
 	}

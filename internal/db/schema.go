@@ -1,6 +1,9 @@
 package db
 
-import "context"
+import (
+	"context"
+	"database/sql"
+)
 
 func (s *Store) migrate(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `
@@ -189,6 +192,11 @@ CREATE TABLE IF NOT EXISTS certificate_operations (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS config_meta (
+  key TEXT PRIMARY KEY,
+  value INTEGER NOT NULL DEFAULT 0
+);
+INSERT OR IGNORE INTO config_meta (key, value) VALUES ('validation_version', 1);
 CREATE INDEX IF NOT EXISTS idx_outbounds_sort_id ON outbounds(sort, id);
 CREATE INDEX IF NOT EXISTS idx_routing_rules_sort_id ON routing_rules(sort, id);
 CREATE INDEX IF NOT EXISTS idx_routing_rules_outbound_id ON routing_rules(outbound_id);
@@ -203,13 +211,6 @@ CREATE INDEX IF NOT EXISTS idx_traffic_states_scope ON traffic_states(scope_type
 CREATE INDEX IF NOT EXISTS idx_traffic_samples_lookup ON traffic_samples(scope_type, scope_key, sampled_at);
 CREATE INDEX IF NOT EXISTS idx_traffic_samples_scope_time ON traffic_samples(scope_type, sampled_at);
 CREATE INDEX IF NOT EXISTS idx_traffic_samples_sampled_at ON traffic_samples(sampled_at);
-DELETE FROM traffic_samples
-WHERE id NOT IN (
-  SELECT MAX(id)
-  FROM traffic_samples
-  GROUP BY sampled_at, engine, scope_type, scope_key
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_traffic_samples_bucket ON traffic_samples(sampled_at, engine, scope_type, scope_key);
 CREATE INDEX IF NOT EXISTS idx_certificates_status ON certificates(status);
 CREATE INDEX IF NOT EXISTS idx_certificates_not_after ON certificates(not_after);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_certificates_cert_key ON certificates(cert_path, key_path);
@@ -217,6 +218,12 @@ CREATE INDEX IF NOT EXISTS idx_certificate_operations_certificate_id ON certific
 CREATE INDEX IF NOT EXISTS idx_outbound_subscriptions_priority_id ON outbound_subscriptions(priority, id);
 `)
 	if err != nil {
+		return err
+	}
+	if err := s.ensureTrafficSamplesBucketIndex(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureConfigVersionTriggers(ctx); err != nil {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "certificates", "issue_email", "TEXT NOT NULL DEFAULT ''"); err != nil {
@@ -257,6 +264,63 @@ CREATE INDEX IF NOT EXISTS idx_outbound_subscriptions_priority_id ON outbound_su
 	}
 	if err := s.seedDefaultOutbounds(ctx); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (s *Store) ensureTrafficSamplesBucketIndex(ctx context.Context) error {
+	exists, err := s.indexExists(ctx, "idx_traffic_samples_bucket")
+	if err != nil {
+		return err
+	}
+	if !exists {
+		if _, err := s.db.ExecContext(ctx, `
+DELETE FROM traffic_samples
+WHERE id NOT IN (
+  SELECT MAX(id)
+  FROM traffic_samples
+  GROUP BY sampled_at, engine, scope_type, scope_key
+);
+`); err != nil {
+			return err
+		}
+	}
+	_, err = s.db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_traffic_samples_bucket ON traffic_samples(sampled_at, engine, scope_type, scope_key)`)
+	return err
+}
+
+func (s *Store) indexExists(ctx context.Context, name string) (bool, error) {
+	var found int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM sqlite_master WHERE type='index' AND name=? LIMIT 1`, name).Scan(&found)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return found == 1, nil
+}
+
+func (s *Store) ensureConfigVersionTriggers(ctx context.Context) error {
+	const bump = `UPDATE config_meta SET value = value + 1 WHERE key = 'validation_version';`
+	triggers := map[string]string{
+		"trg_config_version_inbounds_insert":  `CREATE TRIGGER IF NOT EXISTS trg_config_version_inbounds_insert AFTER INSERT ON inbounds BEGIN ` + bump + ` END;`,
+		"trg_config_version_inbounds_update":  `CREATE TRIGGER IF NOT EXISTS trg_config_version_inbounds_update AFTER UPDATE ON inbounds BEGIN ` + bump + ` END;`,
+		"trg_config_version_inbounds_delete":  `CREATE TRIGGER IF NOT EXISTS trg_config_version_inbounds_delete AFTER DELETE ON inbounds BEGIN ` + bump + ` END;`,
+		"trg_config_version_clients_insert":   `CREATE TRIGGER IF NOT EXISTS trg_config_version_clients_insert AFTER INSERT ON clients BEGIN ` + bump + ` END;`,
+		"trg_config_version_clients_update":   `CREATE TRIGGER IF NOT EXISTS trg_config_version_clients_update AFTER UPDATE OF uuid, credential_id, password, stats_key, email, enabled ON clients BEGIN ` + bump + ` END;`,
+		"trg_config_version_clients_delete":   `CREATE TRIGGER IF NOT EXISTS trg_config_version_clients_delete AFTER DELETE ON clients BEGIN ` + bump + ` END;`,
+		"trg_config_version_outbounds_insert": `CREATE TRIGGER IF NOT EXISTS trg_config_version_outbounds_insert AFTER INSERT ON outbounds BEGIN ` + bump + ` END;`,
+		"trg_config_version_outbounds_update": `CREATE TRIGGER IF NOT EXISTS trg_config_version_outbounds_update AFTER UPDATE ON outbounds BEGIN ` + bump + ` END;`,
+		"trg_config_version_outbounds_delete": `CREATE TRIGGER IF NOT EXISTS trg_config_version_outbounds_delete AFTER DELETE ON outbounds BEGIN ` + bump + ` END;`,
+		"trg_config_version_rules_insert":     `CREATE TRIGGER IF NOT EXISTS trg_config_version_rules_insert AFTER INSERT ON routing_rules BEGIN ` + bump + ` END;`,
+		"trg_config_version_rules_update":     `CREATE TRIGGER IF NOT EXISTS trg_config_version_rules_update AFTER UPDATE ON routing_rules BEGIN ` + bump + ` END;`,
+		"trg_config_version_rules_delete":     `CREATE TRIGGER IF NOT EXISTS trg_config_version_rules_delete AFTER DELETE ON routing_rules BEGIN ` + bump + ` END;`,
+	}
+	for _, ddl := range triggers {
+		if _, err := s.db.ExecContext(ctx, ddl); err != nil {
+			return err
+		}
 	}
 	return nil
 }

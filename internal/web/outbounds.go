@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/imzyb/MiGate/internal/db"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -120,11 +121,13 @@ type proxyPoolListOptions struct {
 }
 
 type socks5PoolCache struct {
-	mu        sync.Mutex
-	proxies   []socks5PoolProxy
-	updatedAt time.Time
-	err       string
-	sourceURL string
+	mu                       sync.Mutex
+	group                    singleflight.Group
+	afterSingleflightForTest func()
+	proxies                  []socks5PoolProxy
+	updatedAt                time.Time
+	err                      string
+	sourceURL                string
 }
 
 var (
@@ -214,22 +217,52 @@ func cachedProxyPool(ctx context.Context, cache *socks5PoolCache, poolURL string
 	if fresh {
 		return cached, updatedAt, "hit", nil
 	}
-	proxies, err := fetchProxyPool(ctx, sourceURL, defaultURL, protocol)
+	ch := cache.group.DoChan(protocol+"\x00"+sourceURL, func() (interface{}, error) {
+		fetchCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+		proxies, fetchErr := fetchProxyPool(fetchCtx, sourceURL, defaultURL, protocol)
+		if fetchErr != nil {
+			return proxyPoolFetchResult{err: fetchErr}, nil
+		}
+		now := time.Now()
+		cache.mu.Lock()
+		cache.proxies = append([]socks5PoolProxy(nil), proxies...)
+		cache.updatedAt = now
+		cache.err = ""
+		cache.sourceURL = sourceURL
+		cache.mu.Unlock()
+		return proxyPoolFetchResult{proxies: append([]socks5PoolProxy(nil), proxies...), updatedAt: now}, nil
+	})
+	if cache.afterSingleflightForTest != nil {
+		cache.afterSingleflightForTest()
+	}
+	var result singleflight.Result
+	select {
+	case result = <-ch:
+	case <-ctx.Done():
+		return nil, time.Time{}, "miss", ctx.Err()
+	}
+	if result.Err != nil {
+		return nil, time.Time{}, "miss", result.Err
+	}
+	fetched := result.Val.(proxyPoolFetchResult)
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
-	if err != nil {
-		cache.err = err.Error()
+	if fetched.err != nil {
+		cache.err = fetched.err.Error()
 		if len(cache.proxies) > 0 && cache.sourceURL == sourceURL {
 			return append([]socks5PoolProxy(nil), cache.proxies...), cache.updatedAt, "stale", nil
 		}
-		return nil, time.Time{}, "miss", err
+		return nil, time.Time{}, "miss", fetched.err
 	}
-	cache.proxies = append([]socks5PoolProxy(nil), proxies...)
-	cache.updatedAt = time.Now()
-	cache.err = ""
-	cache.sourceURL = sourceURL
 	_ = lastErr
-	return append([]socks5PoolProxy(nil), proxies...), cache.updatedAt, "refresh", nil
+	return append([]socks5PoolProxy(nil), fetched.proxies...), fetched.updatedAt, "refresh", nil
+}
+
+type proxyPoolFetchResult struct {
+	proxies   []socks5PoolProxy
+	updatedAt time.Time
+	err       error
 }
 
 func fetchSocks5Pool(ctx context.Context, poolURL string) ([]socks5PoolProxy, error) {

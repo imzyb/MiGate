@@ -691,6 +691,14 @@ func (s *Store) ValidationConfigHash(ctx context.Context) (string, error) {
 	return fmt.Sprintf("%x", sum[:]), nil
 }
 
+func (s *Store) ValidationConfigVersion(ctx context.Context) (int64, error) {
+	var version int64
+	if err := s.db.QueryRowContext(ctx, `SELECT value FROM config_meta WHERE key='validation_version'`).Scan(&version); err != nil {
+		return 0, err
+	}
+	return version, nil
+}
+
 type validationConfigHashPayload struct {
 	Inbounds  []validationInboundHashKey     `json:"inbounds"`
 	Outbounds []validationOutboundHashKey    `json:"outbounds"`
@@ -869,7 +877,7 @@ func (s *Store) validationOutboundKeys(ctx context.Context) ([]validationOutboun
 }
 
 func (s *Store) validationRoutingRuleKeys(ctx context.Context) ([]validationRoutingRuleHashKey, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, inbound_id, inbound_tag, client_id, client_email, outbound_id, outbound_tag, domain, ip, rule_set, protocol, enabled, sort FROM routing_rules ORDER BY sort ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, inbound_id, inbound_tag, client_id, client_email, outbound_id, outbound_tag, domain, ip, rule_set, protocol, enabled, sort FROM routing_rules ORDER BY sort ASC, id ASC`)
 	if err != nil {
 		return nil, err
 	}

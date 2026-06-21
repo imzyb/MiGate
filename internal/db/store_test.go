@@ -2717,6 +2717,33 @@ func TestStoreReorderRoutingRulesUpdatesSortOrder(t *testing.T) {
 	}
 }
 
+func TestStoreListRoutingRulesUsesIDForEqualSort(t *testing.T) {
+	store, err := db.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	r1, err := store.CreateRoutingRule(ctx, db.CreateRoutingRuleParams{OutboundID: 2, OutboundTag: "blocked", Domain: "geosite:malware", Enabled: true})
+	if err != nil {
+		t.Fatalf("create first rule: %v", err)
+	}
+	r2, err := store.CreateRoutingRule(ctx, db.CreateRoutingRuleParams{OutboundID: 2, OutboundTag: "blocked", Domain: "geosite:netflix", Enabled: true})
+	if err != nil {
+		t.Fatalf("create second rule: %v", err)
+	}
+	if err := store.ExecForTest(ctx, `UPDATE routing_rules SET sort=0`); err != nil {
+		t.Fatalf("force equal sort: %v", err)
+	}
+	list, err := store.ListRoutingRules(ctx)
+	if err != nil {
+		t.Fatalf("list rules: %v", err)
+	}
+	if len(list) != 2 || list[0].ID != r1.ID || list[1].ID != r2.ID {
+		t.Fatalf("expected equal sort rules to be ordered by id [%d, %d], got %+v", r1.ID, r2.ID, list)
+	}
+}
+
 func TestStoreBlacklistAddAndCheck(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {

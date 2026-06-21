@@ -183,6 +183,82 @@ func TestListInboundTrafficUsesLightweightClientFields(t *testing.T) {
 	}
 }
 
+func TestValidationConfigVersionTracksConfigFieldsOnly(t *testing.T) {
+	store, err := Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	version, err := store.ValidationConfigVersion(ctx)
+	if err != nil {
+		t.Fatalf("initial version: %v", err)
+	}
+	inbound, err := store.CreateInbound(ctx, CreateInboundParams{
+		Remark: "edge", Protocol: "hysteria2", Port: 28098, Network: "udp", Security: "tls",
+		TLSCertFile: "/cert.pem", TLSKeyFile: "/key.pem",
+	})
+	if err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	version = expectValidationVersionIncreased(t, store, ctx, version, "create inbound")
+	client, err := store.CreateClient(ctx, CreateClientParams{InboundID: inbound.ID, Email: "edge@example.com", Password: "secret-a"})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	version = expectValidationVersionIncreased(t, store, ctx, version, "create client")
+	_, err = store.UpdateInbound(ctx, inbound.ID, UpdateInboundParams{
+		UUID: inbound.UUID, Remark: inbound.Remark, Protocol: inbound.Protocol, Port: inbound.Port, Network: inbound.Network, Security: inbound.Security, Enabled: inbound.Enabled,
+		TLSCertFile: "/changed-cert.pem", TLSKeyFile: "/changed-key.pem", RealityDest: "reality.example.com:443", RealityShortID: "abcd",
+	})
+	if err != nil {
+		t.Fatalf("update inbound config fields: %v", err)
+	}
+	version = expectValidationVersionIncreased(t, store, ctx, version, "update inbound config fields")
+	_, err = store.UpdateClient(ctx, client.ID, UpdateClientParams{UUID: client.UUID, Password: "secret-b", Email: client.Email, Enabled: client.Enabled, TrafficLimit: client.TrafficLimit, ExpiryAt: client.ExpiryAt})
+	if err != nil {
+		t.Fatalf("update client credential fields: %v", err)
+	}
+	version = expectValidationVersionIncreased(t, store, ctx, version, "update client credential fields")
+	if err := store.UpdateClientTraffic(ctx, client.Email, 1024, 2048); err != nil {
+		t.Fatalf("update runtime traffic: %v", err)
+	}
+	afterTraffic, err := store.ValidationConfigVersion(ctx)
+	if err != nil {
+		t.Fatalf("version after traffic: %v", err)
+	}
+	if afterTraffic != version {
+		t.Fatalf("runtime traffic should not bump validation version, before=%d after=%d", version, afterTraffic)
+	}
+	updates := []struct {
+		name  string
+		query string
+		args  []interface{}
+	}{
+		{name: "ws_path", query: `UPDATE inbounds SET ws_path=? WHERE id=?`, args: []interface{}{"/trigger-ws", inbound.ID}},
+		{name: "reality", query: `UPDATE inbounds SET reality_dest=?, reality_short_id=? WHERE id=?`, args: []interface{}{"reality.changed:443", "dcba", inbound.ID}},
+		{name: "client credential and password", query: `UPDATE clients SET credential_id=?, password=? WHERE id=?`, args: []interface{}{"credential-trigger", "password-trigger", client.ID}},
+	}
+	for _, update := range updates {
+		if _, err := store.db.ExecContext(ctx, update.query, update.args...); err != nil {
+			t.Fatalf("direct update %s: %v", update.name, err)
+		}
+		version = expectValidationVersionIncreased(t, store, ctx, version, update.name)
+	}
+}
+
+func expectValidationVersionIncreased(t *testing.T, store *Store, ctx context.Context, previous int64, action string) int64 {
+	t.Helper()
+	current, err := store.ValidationConfigVersion(ctx)
+	if err != nil {
+		t.Fatalf("%s version: %v", action, err)
+	}
+	if current <= previous {
+		t.Fatalf("%s should increase validation version, before=%d after=%d", action, previous, current)
+	}
+	return current
+}
+
 func TestTrafficSamplesAreBucketedPerMinute(t *testing.T) {
 	store, err := Open(context.Background(), ":memory:")
 	if err != nil {
@@ -220,6 +296,78 @@ func TestTrafficSamplesAreBucketedPerMinute(t *testing.T) {
 	if samples[0].TotalUp != 50 || samples[0].TotalDown != 60 {
 		t.Fatalf("expected bucket to keep latest total delta, got %+v", samples[0])
 	}
+}
+
+func TestTrafficSamplesBucketMigrationRunsOnlyWhenIndexMissing(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "traffic-migrate.db")
+	raw, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatalf("open raw sqlite: %v", err)
+	}
+	if _, err := raw.ExecContext(ctx, `
+CREATE TABLE traffic_samples (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sampled_at TEXT NOT NULL,
+  engine TEXT NOT NULL,
+  scope_type TEXT NOT NULL,
+  scope_key TEXT NOT NULL,
+  total_up INTEGER NOT NULL DEFAULT 0,
+  total_down INTEGER NOT NULL DEFAULT 0,
+  rate_up REAL NOT NULL DEFAULT 0,
+  rate_down REAL NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'waiting'
+);
+INSERT INTO traffic_samples (sampled_at, engine, scope_type, scope_key, total_up, total_down, rate_up, rate_down, status) VALUES
+  ('2026-06-17T12:30:00Z', 'xray', 'client', 'a', 1, 1, 0, 0, 'ok'),
+  ('2026-06-17T12:30:00Z', 'xray', 'client', 'a', 2, 2, 0, 0, 'ok'),
+  ('2026-06-17T12:31:00Z', 'xray', 'client', 'a', 3, 3, 0, 0, 'ok');
+`); err != nil {
+		raw.Close()
+		t.Fatalf("seed legacy duplicates: %v", err)
+	}
+	raw.Close()
+
+	store, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("open migrated store: %v", err)
+	}
+	defer store.Close()
+	assertTrafficSampleCountForTest(t, store, 2)
+	if !indexExistsForTest(t, store, "idx_traffic_samples_bucket") {
+		t.Fatal("expected traffic sample bucket index to exist after migration")
+	}
+	store.Close()
+
+	store, err = Open(ctx, path)
+	if err != nil {
+		t.Fatalf("reopen migrated store: %v", err)
+	}
+	defer store.Close()
+	assertTrafficSampleCountForTest(t, store, 2)
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO traffic_samples (sampled_at, engine, scope_type, scope_key, total_up, total_down, rate_up, rate_down, status) VALUES ('2026-06-17T12:31:00Z', 'xray', 'client', 'a', 4, 4, 0, 0, 'ok')`); err == nil {
+		t.Fatal("expected unique bucket index to reject duplicate sample after second open")
+	}
+}
+
+func assertTrafficSampleCountForTest(t *testing.T, store *Store, want int) {
+	t.Helper()
+	var count int
+	if err := store.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM traffic_samples`).Scan(&count); err != nil {
+		t.Fatalf("count traffic samples: %v", err)
+	}
+	if count != want {
+		t.Fatalf("expected %d traffic samples, got %d", want, count)
+	}
+}
+
+func indexExistsForTest(t *testing.T, store *Store, name string) bool {
+	t.Helper()
+	exists, err := store.indexExists(context.Background(), name)
+	if err != nil {
+		t.Fatalf("index exists %s: %v", name, err)
+	}
+	return exists
 }
 
 func TestTrafficSamplesCleanupIsThrottled(t *testing.T) {

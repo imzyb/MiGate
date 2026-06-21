@@ -669,11 +669,12 @@ func (c *dashboardSummaryCache) build(ctx context.Context, cfg *routerConfig) (m
 		return nil, err
 	}
 	now := c.now()
-	configHash, err := cfg.store.ValidationConfigHash(ctx)
+	configVersion, err := cfg.store.ValidationConfigVersion(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("validation_config_hash_failed")
+		return nil, fmt.Errorf("validation_config_version_failed")
 	}
-	if validation := c.cachedValidation(configHash); validation != nil {
+	configKey := fmt.Sprintf("v:%d", configVersion)
+	if validation := c.cachedValidation(configKey); validation != nil {
 		summary["validation"] = cloneValidationMap(*validation)
 		return summary, nil
 	}
@@ -685,7 +686,7 @@ func (c *dashboardSummaryCache) build(ctx context.Context, cfg *routerConfig) (m
 	validation := &built
 	c.mu.Lock()
 	c.validationValue = built
-	c.validationKey = configHash
+	c.validationKey = configKey
 	c.validationExpiresAt = now.Add(c.validationTTL)
 	c.mu.Unlock()
 	summary["validation"] = cloneValidationMap(*validation)
