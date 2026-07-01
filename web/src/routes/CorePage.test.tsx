@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmProvider, ToastProvider } from '../components/ui';
 import { I18nProvider } from '../lib/i18n';
@@ -20,6 +21,19 @@ const apiMock = vi.hoisted(() => ({
   xrayDelete: vi.fn(async () => ({ ok: true })),
   xrayRestart: vi.fn(async () => ({ ok: true })),
   xrayStop: vi.fn(async () => ({ ok: true })),
+  singboxStatus: vi.fn(async () => ({ status: 'running', managed: true, config_path: '/etc/migate/cores/sing-box.json' })),
+  singboxVersion: vi.fn(async () => ({ version: '1.2.0' })),
+  singboxConfig: vi.fn(async () => ({})),
+  singboxConfigPreview: vi.fn(async () => ({ config_path: '/etc/migate/cores/sing-box.json', inbounds: [] })),
+  singboxDiagnostics: vi.fn(async () => ({ managed: true, service_status: 'running', config_path: '/etc/migate/cores/sing-box.json', ports: [], checks: [] })),
+  singboxLogs: vi.fn(async () => ''),
+  singboxValidate: vi.fn(async () => ({ valid: true })),
+  singboxApply: vi.fn(async () => ({ ok: true })),
+  singboxInstall: vi.fn(async () => ({ ok: true })),
+  singboxUninstall: vi.fn(async () => ({ ok: true })),
+  singboxDelete: vi.fn(async () => ({ ok: true })),
+  singboxRestart: vi.fn(async () => ({ ok: true })),
+  singboxStop: vi.fn(async () => ({ ok: true })),
 }));
 
 vi.mock('../api/endpoints', () => ({ api: apiMock }));
@@ -37,7 +51,7 @@ afterEach(() => {
 
 describe('CorePage simplified maintenance', () => {
   it('keeps dangerous and raw diagnostic controls collapsed by default', async () => {
-    renderCore();
+    renderCore('xray');
 
     await vi.waitFor(() => expect(document.body.textContent).toContain('Xray 核心管理'));
     expect(document.body.textContent).toContain('高级维护');
@@ -48,9 +62,17 @@ describe('CorePage simplified maintenance', () => {
     expect(document.body.textContent).not.toContain('配置预览');
     expect(document.body.textContent).not.toContain('最近日志');
   });
+
+  it('shows a visible core switch so sing-box management is discoverable from the core page', async () => {
+    renderCore('xray');
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Xray 核心管理'));
+    expect(document.body.textContent).toContain('Xray');
+    expect(document.body.textContent).toContain('sing-box');
+  });
 });
 
-function renderCore() {
+function renderCore(core: 'xray' | 'singbox') {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -61,7 +83,9 @@ function renderCore() {
         <QueryClientProvider client={queryClient}>
           <ToastProvider>
             <ConfirmProvider>
-              <CorePage core="xray" />
+              <MemoryRouter initialEntries={[core === 'xray' ? '/core/xray' : '/core/singbox']}>
+                <CorePage core={core} />
+              </MemoryRouter>
             </ConfirmProvider>
           </ToastProvider>
         </QueryClientProvider>

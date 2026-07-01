@@ -130,6 +130,10 @@ export default function CorePage({ core }: { core: 'xray' | 'singbox' }) {
         title={text(`${label} 核心管理`)}
         description={text('集中处理运行状态、配置同步、端口监听和核心维护。')}
       />
+      <div className="core-switch-tabs" aria-label={text('核心切换')}>
+        <a href="/core/xray" className={`core-switch-tab${core === 'xray' ? ' core-switch-tab-active' : ''}`}>Xray</a>
+        <a href="/core/singbox" className={`core-switch-tab${core === 'singbox' ? ' core-switch-tab-active' : ''}`}>sing-box</a>
+      </div>
       <CoreOverview label={label} status={status} diagnostics={diagnostics} preview={configPreview} fallbackVersion={versionQuery.data?.version} health={health} text={text} />
       <Card className="core-card core-operations-card p-5">
         <div className="core-card-header mb-4 flex items-start justify-between gap-3">

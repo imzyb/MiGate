@@ -536,10 +536,6 @@ function PanelSettingsCard({
   onRestart: () => void;
   text: (value: string) => string;
 }) {
-  const panelPort = settings?.panel_port ?? '-';
-  const webBasePath = settings?.web_base_path || '/';
-  const databasePath = settings?.database_path || '-';
-  const authState = settings?.has_password ? text('已设置密码') : text('未设置密码');
   const managementEnabled = form.watch('management_direct_enabled') !== false;
   const managementAutoDetect = form.watch('management_direct_auto_detect') !== false;
   return (
@@ -552,12 +548,6 @@ function PanelSettingsCard({
           </div>
         </div>
 
-        <div className="panel-config-summary">
-          <SummaryTile label={text('面板端口')} value={panelPort} sub={text('监听端口')} />
-          <SummaryTile label={text('Web 基础路径')} value={webBasePath} sub={text('访问前缀')} />
-          <SummaryTile label={text('认证状态')} value={authState} sub={settings?.panel_username || text('当前用户')} tone={settings?.has_password ? 'normal' : 'error'} />
-          <SummaryTile label={text('数据库路径')} value={shortPanelPath(databasePath)} sub={text('本地配置库')} />
-        </div>
 
         <div className="panel-config-sections">
           <section className="panel-config-section">
@@ -637,11 +627,6 @@ function PanelSettingsCard({
   );
 }
 
-function shortPanelPath(value: ReactNode) {
-  if (typeof value !== 'string') return value;
-  if (value === '-') return value;
-  return shortPath(value);
-}
 
 function listFieldValue(value: string[] | number[] | string | undefined) {
   if (Array.isArray(value)) return value.join('\n');

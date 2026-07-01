@@ -187,15 +187,17 @@ export default function OutboundsPage() {
         action={
           <div className="flex flex-wrap gap-2">
             <button className="btn secondary" onClick={() => setEditingSubscription(emptySubscription(subscriptions.data || []))}><Rss className="h-4 w-4" /> {text('添加订阅')}</button>
+            <button className="btn secondary" onClick={() => setPoolOpen(true)}>{text('导入代理池')}</button>
             <button className="btn primary" onClick={() => setEditing({ id: 0, tag: '', protocol: 'socks', enabled: true })}><Plus className="h-4 w-4" /> {text('新增出站')}</button>
-            <button className="btn secondary" onClick={() => setMoreActionsOpen((value) => !value)}>{text('更多')}</button>
-            {moreActionsOpen ? (
-              <div className="more-actions-menu">
-                <button className="btn secondary" onClick={() => setPoolOpen(true)}>{text('导入代理池')}</button>
-                <SpinnerButton className="btn secondary" loading={refreshAllSubs.isPending} onClick={() => refreshAllSubs.mutate()}><RefreshCw className="h-4 w-4" /> {text('刷新订阅')}</SpinnerButton>
-                <SpinnerButton className="btn secondary" loading={speedtest.isPending} onClick={() => speedtest.mutate()}><Gauge className="h-4 w-4" /> {text('批量测速')}</SpinnerButton>
-              </div>
-            ) : null}
+            <div className="more-actions">
+              <button className="btn secondary" type="button" onClick={() => setMoreActionsOpen((value) => !value)}>{text('更多')}</button>
+              {moreActionsOpen ? (
+                <div className="more-actions-menu">
+                  <SpinnerButton className="btn secondary" loading={refreshAllSubs.isPending} onClick={() => refreshAllSubs.mutate()}><RefreshCw className="h-4 w-4" /> {text('刷新订阅')}</SpinnerButton>
+                  <SpinnerButton className="btn secondary" loading={speedtest.isPending} onClick={() => speedtest.mutate()}><Gauge className="h-4 w-4" /> {text('批量测速')}</SpinnerButton>
+                </div>
+              ) : null}
+            </div>
           </div>
         }
       />

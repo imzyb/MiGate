@@ -27,19 +27,41 @@ afterEach(() => {
 });
 
 describe('OutboundsPage simplified actions', () => {
-  it('keeps only common actions in the page title and moves maintenance actions behind more', async () => {
+  it('keeps node-pool import as a common action and moves only maintenance actions behind more', async () => {
     renderOutbounds();
 
     await vi.waitFor(() => expect(document.body.textContent).toContain('出站管理'));
     const titleActions = document.querySelector('.page-title-actions');
     expect(titleActions?.textContent).toContain('新增出站');
     expect(titleActions?.textContent).toContain('添加订阅');
+    expect(titleActions?.textContent).toContain('导入代理池');
     expect(titleActions?.textContent).toContain('更多');
-    expect(titleActions?.textContent).not.toContain('导入代理池');
     expect(titleActions?.textContent).not.toContain('刷新订阅');
     expect(titleActions?.textContent).not.toContain('批量测速');
   });
+
+  it('opens the more-actions menu when clicking the more button', async () => {
+    renderOutbounds();
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain('出站管理'));
+    expect(document.querySelector('.more-actions-menu')).toBeNull();
+
+    await act(async () => {
+      clickButtonByText('更多');
+    });
+
+    const menu = document.querySelector('.more-actions-menu');
+    expect(menu?.textContent).toContain('刷新订阅');
+    expect(menu?.textContent).toContain('批量测速');
+    expect(menu?.textContent).not.toContain('导入代理池');
+  });
 });
+
+function clickButtonByText(label: string) {
+  const button = Array.from(document.querySelectorAll('button')).find((item) => item.textContent?.includes(label));
+  if (!button) throw new Error(`button not found: ${label}`);
+  button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+}
 
 function renderOutbounds() {
   container = document.createElement('div');
