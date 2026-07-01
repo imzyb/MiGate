@@ -1,4 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -80,6 +82,15 @@ describe('SettingsPage simplified panel configuration', () => {
     expect(advancedPanelDetails?.open).toBe(false);
     expect(advancedPanelDetails?.textContent).toContain('数据库路径');
     expect(advancedPanelDetails?.textContent).toContain('管理入口直连');
+  });
+
+  it('hides native browser markers on collapsed setting section summaries', () => {
+    const css = readFileSync(join(process.cwd(), 'src/styles/index.css'), 'utf8');
+
+    expect(css).toContain('.settings-section-details > summary {');
+    expect(css).toContain('list-style: none;');
+    expect(css).toContain('.settings-section-details > summary::-webkit-details-marker {');
+    expect(css).toContain('display: none;');
   });
 });
 
