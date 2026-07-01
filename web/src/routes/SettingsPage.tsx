@@ -269,16 +269,17 @@ export default function SettingsPage() {
         text={text}
       />
       <Card className="p-5">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="section-title">{text('TLS 证书')}</h2>
-            <div className="mt-1 text-xs text-panel-muted">{text('管理托管证书、签发流程、导入证书以及 TLS 入站绑定。')}</div>
-          </div>
-          <SpinnerButton className="btn secondary h-8" loading={renewCerts.isPending} onClick={async () => (await confirm({ title: text('检查并续期证书？'), description: text('30 天内到期的 ACME 证书会尝试续期。') })) && renewCerts.mutate()}>
-            <RefreshCw className="h-4 w-4" /> {text('检查续期')}
-          </SpinnerButton>
-        </div>
-        <div className="grid gap-4">
+        <details className="settings-section-details">
+          <summary>
+            <span>{text('TLS 证书')}</span>
+            <ChevronDown className="h-4 w-4" />
+          </summary>
+          <div className="settings-section-body grid gap-4">
+            <div className="flex flex-wrap justify-end gap-2">
+              <SpinnerButton className="btn secondary h-8" loading={renewCerts.isPending} onClick={async () => (await confirm({ title: text('检查并续期证书？'), description: text('30 天内到期的 ACME 证书会尝试续期。') })) && renewCerts.mutate()}>
+                <RefreshCw className="h-4 w-4" /> {text('检查续期')}
+              </SpinnerButton>
+            </div>
           <CertificateManager
             certificates={managedCertificates}
             tlsInbounds={tlsInbounds}
@@ -337,10 +338,17 @@ export default function SettingsPage() {
               </div>
             </div>
           </details>
-        </div>
+          </div>
+        </details>
       </Card>
       <Card className="p-5">
-        <SystemUpdateConsole
+        <details className="settings-section-details">
+          <summary>
+            <span>{text('系统更新')}</span>
+            <ChevronDown className="h-4 w-4" />
+          </summary>
+          <div className="settings-section-body">
+            <SystemUpdateConsole
           updateCheck={updateCheck.data}
           updateStatus={updateStatus.data}
           version={version.data}
@@ -361,8 +369,16 @@ export default function SettingsPage() {
           onRefreshLogs={() => refreshQuery(updateLogs)}
           text={text}
         />
+          </div>
+        </details>
       </Card>
       <Card className="p-5">
+        <details className="settings-section-details">
+          <summary>
+            <span>{text('活动会话')}</span>
+            <ChevronDown className="h-4 w-4" />
+          </summary>
+          <div className="settings-section-body">
         <div className="session-card-header">
           <div>
             <h2 className="section-title">{text('活动会话')}</h2>
@@ -405,6 +421,8 @@ export default function SettingsPage() {
           ) : null}
           {sessionItems.length === 0 ? <div className="text-sm text-panel-muted">{text('暂无会话数据')}</div> : null}
         </div>
+          </div>
+        </details>
       </Card>
     </div>
   );
@@ -566,55 +584,63 @@ function PanelSettingsCard({
             </div>
           </section>
 
-          <section className="panel-config-section">
-            <div className="panel-config-section-title">{text('存储')}</div>
-            <div className="settings-field-grid panel-config-storage-grid">
-              <Field label={text('数据库路径')}><input {...form.register('database_path')} /></Field>
-            </div>
-          </section>
+          <details className="settings-section-details panel-advanced-details">
+            <summary>
+              <span>{text('高级面板设置')}</span>
+              <ChevronDown className="h-4 w-4" />
+            </summary>
+            <div className="settings-section-body grid gap-4">
+              <section className="panel-config-section">
+                <div className="panel-config-section-title">{text('存储')}</div>
+                <div className="settings-field-grid panel-config-storage-grid">
+                  <Field label={text('数据库路径')}><input {...form.register('database_path')} /></Field>
+                </div>
+              </section>
 
-          <section className="panel-config-section">
-            <div className="panel-config-section-title">{text('高级保护：管理入口直连')}</div>
-            <div className="mt-1 text-xs text-panel-muted">{text('用于避免面板或 SSH 管理入口被代理策略绕回导致无法访问。默认保持开启，一般无需修改。')}</div>
-            <div className="settings-field-grid">
-              <label className="flex items-center gap-2 text-sm font-medium text-panel-text">
-                <input type="checkbox" className="h-4 w-4" checked={managementEnabled} onChange={(event) => form.setValue('management_direct_enabled', event.target.checked, { shouldDirty: true })} />
-                {text('启用保护')}
-              </label>
-              <label className="flex items-center gap-2 text-sm font-medium text-panel-text">
-                <input type="checkbox" className="h-4 w-4" checked={managementAutoDetect} onChange={(event) => form.setValue('management_direct_auto_detect', event.target.checked, { shouldDirty: true })} />
-                {text('自动检测管理入口')}
-              </label>
-              <Field label={text('额外管理 Host/IP')} help={text('高级项；自动检测不足时再填写，用逗号或换行分隔。')}>
-                <Controller
-                  control={form.control}
-                  name="management_direct_hosts"
-                  render={({ field }) => (
-                    <textarea
-                      rows={3}
-                      value={listFieldValue(field.value as string[] | string | undefined)}
-                      onBlur={field.onBlur}
-                      onChange={(event) => field.onChange(event.target.value)}
+              <section className="panel-config-section">
+                <div className="panel-config-section-title">{text('高级保护：管理入口直连')}</div>
+                <div className="mt-1 text-xs text-panel-muted">{text('用于避免面板或 SSH 管理入口被代理策略绕回导致无法访问。默认保持开启，一般无需修改。')}</div>
+                <div className="settings-field-grid">
+                  <label className="flex items-center gap-2 text-sm font-medium text-panel-text">
+                    <input type="checkbox" className="h-4 w-4" checked={managementEnabled} onChange={(event) => form.setValue('management_direct_enabled', event.target.checked, { shouldDirty: true })} />
+                    {text('启用保护')}
+                  </label>
+                  <label className="flex items-center gap-2 text-sm font-medium text-panel-text">
+                    <input type="checkbox" className="h-4 w-4" checked={managementAutoDetect} onChange={(event) => form.setValue('management_direct_auto_detect', event.target.checked, { shouldDirty: true })} />
+                    {text('自动检测管理入口')}
+                  </label>
+                  <Field label={text('额外管理 Host/IP')} help={text('高级项；自动检测不足时再填写，用逗号或换行分隔。')}>
+                    <Controller
+                      control={form.control}
+                      name="management_direct_hosts"
+                      render={({ field }) => (
+                        <textarea
+                          rows={3}
+                          value={listFieldValue(field.value as string[] | string | undefined)}
+                          onBlur={field.onBlur}
+                          onChange={(event) => field.onChange(event.target.value)}
+                        />
+                      )}
                     />
-                  )}
-                />
-              </Field>
-              <Field label={text('额外管理端口')} help={text('高级项；仅填写面板或 SSH 等管理入口。不要加入 80/443，除非它们就是管理入口。')}>
-                <Controller
-                  control={form.control}
-                  name="management_direct_ports"
-                  render={({ field }) => (
-                    <textarea
-                      rows={3}
-                      value={listFieldValue(field.value as number[] | string | undefined)}
-                      onBlur={field.onBlur}
-                      onChange={(event) => field.onChange(event.target.value)}
+                  </Field>
+                  <Field label={text('额外管理端口')} help={text('高级项；仅填写面板或 SSH 等管理入口。不要加入 80/443，除非它们就是管理入口。')}>
+                    <Controller
+                      control={form.control}
+                      name="management_direct_ports"
+                      render={({ field }) => (
+                        <textarea
+                          rows={3}
+                          value={listFieldValue(field.value as number[] | string | undefined)}
+                          onBlur={field.onBlur}
+                          onChange={(event) => field.onChange(event.target.value)}
+                        />
+                      )}
                     />
-                  )}
-                />
-              </Field>
+                  </Field>
+                </div>
+              </section>
             </div>
-          </section>
+          </details>
         </div>
 
         <div className="panel-config-actions">

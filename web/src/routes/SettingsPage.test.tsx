@@ -64,7 +64,28 @@ describe('SettingsPage simplified panel configuration', () => {
     expect(document.body.textContent).toContain('面板端口');
     expect(document.body.textContent).toContain('Web 基础路径');
   });
+
+  it('keeps secondary setting sections collapsed by default', async () => {
+    renderSettings();
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain('面板配置'));
+    const tlsDetails = detailsBySummary('TLS 证书');
+    const updateDetails = detailsBySummary('系统更新');
+    const sessionDetails = detailsBySummary('活动会话');
+    const advancedPanelDetails = detailsBySummary('高级面板设置');
+
+    expect(tlsDetails?.open).toBe(false);
+    expect(updateDetails?.open).toBe(false);
+    expect(sessionDetails?.open).toBe(false);
+    expect(advancedPanelDetails?.open).toBe(false);
+    expect(advancedPanelDetails?.textContent).toContain('数据库路径');
+    expect(advancedPanelDetails?.textContent).toContain('管理入口直连');
+  });
 });
+
+function detailsBySummary(label: string) {
+  return Array.from(document.querySelectorAll('details')).find((details) => details.querySelector('summary')?.textContent?.includes(label));
+}
 
 function renderSettings() {
   container = document.createElement('div');
