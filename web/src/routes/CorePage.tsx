@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { NavLink } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, ChevronDown, Download, FileText, Play, RefreshCw, RotateCcw, ShieldCheck, Square, Trash2, XCircle } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { getAPIErrorMessage } from '../api/client';
@@ -16,7 +17,7 @@ export default function CorePage({ core }: { core: 'xray' | 'singbox' }) {
   const { showToast } = useToast();
   const { text } = useI18n();
   const confirm = useConfirm();
-  const label = core === 'xray' ? 'Xray' : 'sing-box';
+  const label = core === 'xray' ? 'Xray' : 'Sing-box';
   const endpoints = core === 'xray'
     ? { status: api.xrayStatus, version: api.xrayVersion, config: api.xrayConfig, configPreview: api.xrayConfigPreview, diagnostics: api.xrayDiagnostics, logs: api.xrayLogs, validate: api.xrayValidate, apply: api.xrayApply, install: api.xrayInstall, uninstall: api.xrayUninstall, delete: api.xrayDelete, restart: api.xrayRestart, stop: api.xrayStop }
     : { status: api.singboxStatus, version: api.singboxVersion, config: api.singboxConfig, configPreview: api.singboxConfigPreview, diagnostics: api.singboxDiagnostics, logs: api.singboxLogs, validate: api.singboxValidate, apply: api.singboxApply, install: api.singboxInstall, uninstall: api.singboxUninstall, delete: api.singboxDelete, restart: api.singboxRestart, stop: api.singboxStop };
@@ -131,8 +132,8 @@ export default function CorePage({ core }: { core: 'xray' | 'singbox' }) {
         description={text('集中处理运行状态、配置同步、端口监听和核心维护。')}
       />
       <div className="core-switch-tabs" aria-label={text('核心切换')}>
-        <a href="/core/xray" className={`core-switch-tab${core === 'xray' ? ' core-switch-tab-active' : ''}`}>Xray</a>
-        <a href="/core/singbox" className={`core-switch-tab${core === 'singbox' ? ' core-switch-tab-active' : ''}`}>sing-box</a>
+        <NavLink to="/core/xray" className={({ isActive }) => `core-switch-tab${isActive ? ' core-switch-tab-active' : ''}`}>Xray</NavLink>
+        <NavLink to="/core/singbox" className={({ isActive }) => `core-switch-tab${isActive ? ' core-switch-tab-active' : ''}`}>Sing-box</NavLink>
       </div>
       <CoreOverview label={label} status={status} diagnostics={diagnostics} preview={configPreview} fallbackVersion={versionQuery.data?.version} health={health} text={text} />
       <Card className="core-card core-operations-card p-5">

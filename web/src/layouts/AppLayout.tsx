@@ -25,6 +25,7 @@ const navItems = [
   { to: '/inbounds', key: 'inbounds', icon: Shield },
   { to: '/outbounds', key: 'outbounds', icon: Boxes },
   { to: '/core', key: 'core', icon: ServerCog },
+  { to: '/topology', key: 'topology', icon: GitBranch },
   { to: '/settings', key: 'settings', icon: Settings },
 ] as const;
 

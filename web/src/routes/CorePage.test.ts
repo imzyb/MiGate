@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmProvider, ToastProvider } from '../components/ui';
 import { I18nProvider } from '../lib/i18n';
@@ -518,7 +519,7 @@ describe('core service controls', () => {
     apiMock.singboxApply.mockResolvedValueOnce({ applied: true, commands_executed: ['sing-box check'], post_apply_warnings: ['配置已应用，但端口未监听：21001/udp'] } as unknown as Awaited<ReturnType<typeof apiMock.singboxApply>>);
 
     renderCorePage('singbox');
-    await waitForText('sing-box 核心管理');
+    await waitForText('Sing-box 核心管理');
     await waitForText('存在未监听端口');
     expect(document.body.textContent).toContain('21001');
     expect(document.body.textContent).not.toContain('检查防火墙/安全组是否放行 UDP 端口 21001。');
@@ -665,7 +666,11 @@ function renderCorePage(core: 'xray' | 'singbox') {
         createElement(
           ToastProvider,
           null,
-          createElement(ConfirmProvider, null, createElement(CorePage, { core })),
+          createElement(
+            ConfirmProvider,
+            null,
+            createElement(MemoryRouter, { initialEntries: [core === 'xray' ? '/core/xray' : '/core/singbox'] }, createElement(CorePage, { core })),
+          ),
         ),
       ),
     ),

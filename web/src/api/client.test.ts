@@ -28,6 +28,10 @@ describe('api client', () => {
     expect(basePath()).toBe('/panel');
     expect(appPath('/api/routing-rules')).toBe('/panel/api/routing-rules');
 
+    window.history.replaceState({}, '', '/panel/core/singbox');
+    expect(basePath()).toBe('/panel');
+    expect(appPath('/api/singbox/status')).toBe('/panel/api/singbox/status');
+
     window.history.replaceState({}, '', '/foo/panel/inbounds');
     expect(basePath()).toBe('/foo/panel');
     expect(appPath('/api/inbounds')).toBe('/foo/panel/api/inbounds');

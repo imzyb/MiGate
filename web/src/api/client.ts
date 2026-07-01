@@ -38,7 +38,7 @@ export function basePath(): string {
   if (path === '/' || path === '/login') return '';
   if (path === '/panel') return '/panel';
   if (path.endsWith('/login')) return path.slice(0, -'/login'.length);
-  const spaRoutes = ['/inbounds', '/outbounds', '/routing', '/topology', '/xray', '/singbox', '/settings'];
+  const spaRoutes = ['/inbounds', '/outbounds', '/routing', '/topology', '/core', '/xray', '/singbox', '/settings'];
   for (const route of spaRoutes) {
     if (path === route) return '';
     if (path.endsWith(route)) return path.slice(0, -route.length);

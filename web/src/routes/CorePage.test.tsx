@@ -63,12 +63,15 @@ describe('CorePage simplified maintenance', () => {
     expect(document.body.textContent).not.toContain('最近日志');
   });
 
-  it('shows a visible core switch so sing-box management is discoverable from the core page', async () => {
+  it('shows a visible core switch so Sing-box management is discoverable from the core page without leaving the SPA base path', async () => {
     renderCore('xray');
 
     await vi.waitFor(() => expect(document.body.textContent).toContain('Xray 核心管理'));
+    const singboxLink = Array.from(document.querySelectorAll('a')).find((item) => item.textContent === 'Sing-box');
     expect(document.body.textContent).toContain('Xray');
-    expect(document.body.textContent).toContain('sing-box');
+    expect(singboxLink).toBeTruthy();
+    expect(singboxLink?.getAttribute('href')).toBe('/core/singbox');
+    expect(document.body.textContent).not.toContain('sing-box');
   });
 });
 
