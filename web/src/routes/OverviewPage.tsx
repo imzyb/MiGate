@@ -19,6 +19,7 @@ export default function OverviewPage() {
   const [trafficMetric, setTrafficMetric] = useState<TrafficAnalyticsMetric>('usage');
   const [trafficScope, setTrafficScope] = useState<TrafficAnalyticsScope>('inbound');
   const [trafficChartMode, setTrafficChartMode] = useState<TrafficChartMode>('area');
+  const [showDetails, setShowDetails] = useState(false);
   useEffect(() => {
     if (trafficMetric === 'rate' && trafficChartMode === 'heatmap') {
       setTrafficChartMode('area');
@@ -79,8 +80,6 @@ export default function OverviewPage() {
       />
       <div className="metric-grid">
         <Metric icon={Network} tone="teal" label={text('总流量')} value={trafficHidden ? trafficPlaceholder : formatBytes(totalCumulative.total)} sub={trafficHidden ? trafficPlaceholderSub : `${formatBytes(totalCumulative.up)} ↑ / ${formatBytes(totalCumulative.down)} ↓`} title={trafficHint(traffic.observed_at, totalRealtime.window_seconds, totalCumulative.source, totalCumulative.status, totalCumulative.message, text)} />
-        <Metric icon={Users} tone="blue" label={text('客户端')} value={String(counts.clients)} sub={`${counts.clients_active} ${text('活跃')} · ${counts.clients_expired} ${text('过期')} · ${counts.clients_limited} ${text('受限')}`} />
-        <Metric icon={Shield} tone="emerald" label={text('入站')} value={String(counts.inbounds)} sub={`${counts.inbounds_enabled} ${text('已启用')}`} />
         <Metric
           icon={Activity}
           tone={trafficLoading ? 'slate' : trafficUnavailable ? 'rose' : trafficStatusTone(trafficStatus?.overall)}
@@ -89,18 +88,21 @@ export default function OverviewPage() {
           sub={trafficHidden ? trafficPlaceholderSub : trafficRateSummary(totalRealtime.rate_up, totalRealtime.rate_down, totalRealtime.status || trafficStatus?.overall, trafficStatus?.engines, text)}
           title={trafficHint(totalRealtime.observed_at || traffic.observed_at, totalRealtime.window_seconds, totalRealtime.source, totalRealtime.status, totalRealtime.message, text)}
         />
-        <Metric icon={Network} tone="amber" label={text('出站')} value={String(counts.outbounds)} sub={`${counts.outbounds_enabled} ${text('已启用')}`} />
-        <Metric icon={Activity} tone="slate" label={text('路由规则')} value={String(counts.routing_rules)} sub={`${counts.routing_enabled} ${text('已启用')}`} />
-        <Metric icon={Activity} tone={xray.data?.status === 'running' ? 'emerald' : 'rose'} label="Xray" value={text(serviceLabel(xray.data?.status))} sub={text(versionLabel(xray.data?.version))} />
-        <Metric icon={Activity} tone={singbox.data?.status === 'running' ? 'emerald' : 'rose'} label="sing-box" value={text(serviceLabel(singbox.data?.status))} sub={text(versionLabel(singbox.data?.version))} />
+        <Metric icon={Users} tone="blue" label={text('节点/客户端')} value={`${counts.inbounds}/${counts.clients}`} sub={`${counts.inbounds_enabled} ${text('节点已启用')} · ${counts.clients_active} ${text('客户端活跃')}`} />
+        <Metric icon={Shield} tone={coreStatusTone(xray.data?.status, singbox.data?.status)} label={text('核心状态')} value={coreStatusValue(xray.data?.status, singbox.data?.status, text)} sub={`Xray ${text(serviceLabel(xray.data?.status))} · sing-box ${text(serviceLabel(singbox.data?.status))}`} />
       </div>
-      <Card className="p-5">
-        <h2 className="section-title mb-4">{text('最近生成状态')}</h2>
-        <div className="grid gap-3 md:grid-cols-2">
-          <ValidationSummary label="Xray" loading={summary.isLoading} valid={data?.validation.xray.valid} error={summary.error} detail={validationSummary(data?.validation.xray, text, summary.error)} />
-          <ValidationSummary label="sing-box" loading={summary.isLoading} valid={data?.validation.singbox.valid} error={summary.error} detail={validationSummary(data?.validation.singbox, text, summary.error)} />
-        </div>
-      </Card>
+      <button className="btn secondary overview-details-toggle" onClick={() => setShowDetails((value) => !value)}>
+        {text(showDetails ? '收起运行详情' : '更多运行详情')}
+      </button>
+      {showDetails ? (
+        <Card className="p-5">
+          <h2 className="section-title mb-4">{text('最近生成状态')}</h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            <ValidationSummary label="Xray" loading={summary.isLoading} valid={data?.validation.xray.valid} error={summary.error} detail={validationSummary(data?.validation.xray, text, summary.error)} />
+            <ValidationSummary label="sing-box" loading={summary.isLoading} valid={data?.validation.singbox.valid} error={summary.error} detail={validationSummary(data?.validation.singbox, text, summary.error)} />
+          </div>
+        </Card>
+      ) : null}
       <div className="dashboard-monitor-grid">
         <TrafficAnalyticsCard
           data={trafficAnalyticsQuery.data}
@@ -118,12 +120,14 @@ export default function OverviewPage() {
           resources={resources.data}
         />
       </div>
-      <Card className="p-5">
-        <h2 className="section-title mb-4">{text('协议分布')}</h2>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {protocols.length ? protocols.map((item) => <div key={item.name} className="rounded-lg bg-panel-soft p-3 text-sm"><b>{item.name}</b><span className="ml-2 text-panel-muted">{item.value}</span></div>) : <span className="text-sm text-panel-muted">{text('暂无入站')}</span>}
-        </div>
-      </Card>
+      {showDetails ? (
+        <Card className="p-5">
+          <h2 className="section-title mb-4">{text('协议分布')}</h2>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {protocols.length ? protocols.map((item) => <div key={item.name} className="rounded-lg bg-panel-soft p-3 text-sm"><b>{item.name}</b><span className="ml-2 text-panel-muted">{item.value}</span></div>) : <span className="text-sm text-panel-muted">{text('暂无入站')}</span>}
+          </div>
+        </Card>
+      ) : null}
     </div>
   );
 }
@@ -623,11 +627,23 @@ export function trafficStatusLabel(status: string | undefined, text: (value: str
   return text('等待采样');
 }
 
-function trafficStatusTone(status: string | undefined): MetricTone {
+function trafficStatusTone(status?: string): MetricTone {
   if (status === 'ok') return 'emerald';
-  if (status === 'partial' || status === 'unsupported') return 'amber';
+  if (status === 'waiting' || status === 'partial') return 'amber';
   if (status === 'unavailable' || status === 'stale') return 'rose';
   return 'slate';
+}
+
+function coreStatusTone(xrayStatus?: string, singboxStatus?: string): MetricTone {
+  if (xrayStatus === 'running' && singboxStatus === 'running') return 'emerald';
+  if (xrayStatus === 'running' || singboxStatus === 'running') return 'amber';
+  return 'rose';
+}
+
+function coreStatusValue(xrayStatus: string | undefined, singboxStatus: string | undefined, text: (value: string) => string) {
+  if (xrayStatus === 'running' && singboxStatus === 'running') return text('运行正常');
+  if (xrayStatus === 'running' || singboxStatus === 'running') return text('部分运行');
+  return text('未运行');
 }
 
 export function engineStatusSummary(engines: Record<string, string> | undefined, text: (value: string) => string) {
@@ -681,7 +697,7 @@ export function PageTitle({ title, description, action }: { title: string; descr
         <h1>{title}</h1>
         {description ? <p>{description}</p> : null}
       </div>
-      {action}
+      {action ? <div className="page-title-actions">{action}</div> : null}
     </div>
   );
 }

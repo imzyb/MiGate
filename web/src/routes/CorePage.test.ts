@@ -478,7 +478,10 @@ describe('core service controls', () => {
     expect(document.body.textContent).toContain('/etc/migate/cores/xray.json');
     expect(document.body.textContent).toContain('监听端口');
     expect(document.body.textContent).toContain('svc');
-    expect(document.body.textContent).toContain('诊断');
+    expect(document.body.textContent).not.toContain('最近日志');
+
+    await clickButtonByText('高级详情');
+    await waitForText('诊断');
     expect(document.body.textContent).toContain('推荐操作');
     expect(document.body.textContent).toContain('最近日志');
   });
@@ -518,8 +521,10 @@ describe('core service controls', () => {
     await waitForText('sing-box 核心管理');
     await waitForText('存在未监听端口');
     expect(document.body.textContent).toContain('21001');
-    expect(document.body.textContent).toContain('检查防火墙/安全组是否放行 UDP 端口 21001。');
+    expect(document.body.textContent).not.toContain('检查防火墙/安全组是否放行 UDP 端口 21001。');
 
+    await clickButtonByText('高级详情');
+    await waitForText('检查防火墙/安全组是否放行 UDP 端口 21001。');
     await clickButtonByText('重新同步');
     await clickButtonByText('确认');
     await vi.waitFor(() => expect(apiMock.singboxApply).toHaveBeenCalledTimes(1));
@@ -569,6 +574,8 @@ describe('core service controls', () => {
     } as unknown as Awaited<ReturnType<typeof apiMock.xrayDiagnostics>>);
 
     renderCorePage('xray');
+    await waitForText('高级维护');
+    await clickButtonByText('高级维护');
     await waitForText('升级/重装核心');
     await clickButtonByText('重启核心');
     await clickButtonByText('确认');
@@ -604,35 +611,39 @@ describe('core service controls', () => {
 
     renderCorePage('xray');
     await waitForText('当前没有可展示的监听端口。');
-    await waitForText('未发现需要处理的问题');
+    expect(document.body.textContent).not.toContain('未发现需要处理的问题');
 
     expect(document.querySelector('.core-port-table')).toBeNull();
-    expect(document.querySelector('.core-diagnostics-card details')?.hasAttribute('open')).toBe(false);
+    expect(document.querySelector('.core-diagnostics-card')).toBeNull();
   });
 
-  it('renders and calls Xray restart and stop actions after confirmation', async () => {
+  it('renders and calls Xray restart and advanced stop actions after confirmation', async () => {
     renderCorePage('xray');
     await waitForText('重启核心');
-    expect(document.body.textContent).toContain('停止核心');
+    expect(document.body.textContent).not.toContain('停止核心');
 
     await clickButtonByText('重启核心');
     await clickButtonByText('确认');
     await vi.waitFor(() => expect(apiMock.xrayRestart).toHaveBeenCalledTimes(1));
 
+    await clickButtonByText('高级维护');
+    await waitForText('停止核心');
     await clickButtonByText('停止核心');
     await clickButtonByText('确认');
     await vi.waitFor(() => expect(apiMock.xrayStop).toHaveBeenCalledTimes(1));
   });
 
-  it('renders and calls sing-box restart and stop actions after confirmation', async () => {
+  it('renders and calls sing-box restart and advanced stop actions after confirmation', async () => {
     renderCorePage('singbox');
     await waitForText('重启核心');
-    expect(document.body.textContent).toContain('停止核心');
+    expect(document.body.textContent).not.toContain('停止核心');
 
     await clickButtonByText('重启核心');
     await clickButtonByText('确认');
     await vi.waitFor(() => expect(apiMock.singboxRestart).toHaveBeenCalledTimes(1));
 
+    await clickButtonByText('高级维护');
+    await waitForText('停止核心');
     await clickButtonByText('停止核心');
     await clickButtonByText('确认');
     await vi.waitFor(() => expect(apiMock.singboxStop).toHaveBeenCalledTimes(1));

@@ -33,8 +33,11 @@ export default function App() {
                   <Route path="outbounds" element={<OutboundsPage />} />
                   <Route path="routing" element={<RoutingPage />} />
                   <Route path="topology" element={<TopologyPage />} />
-                  <Route path="xray" element={<CorePage core="xray" />} />
-                  <Route path="singbox" element={<CorePage core="singbox" />} />
+                  <Route path="core" element={<Navigate to="/core/xray" replace />} />
+                  <Route path="core/xray" element={<CorePage core="xray" />} />
+                  <Route path="core/singbox" element={<CorePage core="singbox" />} />
+                  <Route path="xray" element={<Navigate to="/core/xray" replace />} />
+                  <Route path="singbox" element={<Navigate to="/core/singbox" replace />} />
                   <Route path="settings" element={<SettingsPage />} />
                 </Route>
               </Route>

@@ -1,6 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Activity,
   Boxes,
   ChevronLeft,
   ChevronRight,
@@ -9,8 +8,6 @@ import {
   Languages,
   LogOut,
   Moon,
-  Network,
-  Route,
   ServerCog,
   Settings,
   Shield,
@@ -27,10 +24,7 @@ const navItems = [
   { to: '/', key: 'overview', icon: Gauge },
   { to: '/inbounds', key: 'inbounds', icon: Shield },
   { to: '/outbounds', key: 'outbounds', icon: Boxes },
-  { to: '/routing', key: 'routing', icon: Route },
-  { to: '/topology', key: 'topology', icon: Network },
-  { to: '/xray', key: 'xray', icon: Activity },
-  { to: '/singbox', key: 'singbox', icon: ServerCog },
+  { to: '/core', key: 'core', icon: ServerCog },
   { to: '/settings', key: 'settings', icon: Settings },
 ] as const;
 

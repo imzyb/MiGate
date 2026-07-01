@@ -22,6 +22,8 @@ export default function CorePage({ core }: { core: 'xray' | 'singbox' }) {
     : { status: api.singboxStatus, version: api.singboxVersion, config: api.singboxConfig, configPreview: api.singboxConfigPreview, diagnostics: api.singboxDiagnostics, logs: api.singboxLogs, validate: api.singboxValidate, apply: api.singboxApply, install: api.singboxInstall, uninstall: api.singboxUninstall, delete: api.singboxDelete, restart: api.singboxRestart, stop: api.singboxStop };
   const [lastResult, setLastResult] = useState<{ ok: boolean; message: string; detail?: string } | null>(null);
   const [applyPollingUntil, setApplyPollingUntil] = useState<number>(0);
+  const [showAdvancedMaintenance, setShowAdvancedMaintenance] = useState(false);
+  const [showRawDiagnostics, setShowRawDiagnostics] = useState(false);
   const statusQuery = useQuery({ queryKey: [core, 'status'], queryFn: endpoints.status, refetchInterval: (query) => {
     const current = query.state.data as CoreStatus | undefined;
     const applyRunning = coreApplyJobInProgress(current?.apply_job?.status) || Date.now() < applyPollingUntil;
@@ -149,18 +151,21 @@ export default function CorePage({ core }: { core: 'xray' | 'singbox' }) {
           <div className="core-action-group">
             <div className="core-action-group-title">{text('维护')}</div>
             <div className="core-action-row">
-              <SpinnerButton className="btn secondary" loading={install.isPending} onClick={async () => (await confirm({ title: text(`${installActionLabel} ${label}？`), description: text(installed ? '该操作会重新执行安装脚本，通常用于升级或修复当前核心。' : '该操作会执行系统安装命令。') })) && install.mutate()}><Download className="h-4 w-4" /> {text(installActionLabel)}</SpinnerButton>
               <SpinnerButton className="btn secondary" loading={restart.isPending} disabled={!installed} title={text(installed ? '重启核心' : '核心未安装')} onClick={async () => installed && (await confirm({ title: text(`重启 ${label} 核心？`), description: text('该操作会通过 systemd 重启核心服务。') })) && restart.mutate()}><RotateCcw className="h-4 w-4" /> {text('重启核心')}</SpinnerButton>
+              <button className="btn secondary" onClick={() => setShowAdvancedMaintenance((value) => !value)}>{text('高级维护')}</button>
             </div>
           </div>
-          <div className="core-action-group core-action-group-danger">
-            <div className="core-action-group-title">{text('危险')}</div>
-            <div className="core-action-row">
-              <SpinnerButton className="btn danger ghost-danger" loading={stop.isPending} disabled={!installed} title={text(installed ? '停止核心' : '核心未安装')} onClick={async () => installed && (await confirm({ title: text(`停止 ${label} 核心？`), description: text('该操作会停止核心服务，入站连接会中断。'), tone: 'danger' })) && stop.mutate()}><Square className="h-4 w-4" /> {text('停止核心')}</SpinnerButton>
-              <SpinnerButton className="btn danger ghost-danger" loading={uninstall.isPending} disabled={!installed} title={text(installed ? '取消托管核心' : '核心未安装')} onClick={async () => installed && (await confirm({ title: text(`取消托管 ${label} 核心？`), description: text('该操作会停止并移除 MiGate 管理的 systemd 服务，保留核心二进制和配置。'), tone: 'danger' })) && uninstall.mutate()}><Trash2 className="h-4 w-4" /> {text('取消托管核心')}</SpinnerButton>
-              <SpinnerButton className="btn danger ghost-danger" loading={deleteCore.isPending} disabled={!installed} title={text(installed ? '删除核心' : '核心未安装')} onClick={async () => installed && (await confirm({ title: text(`删除 ${label} 核心？`), description: text('该操作会停止服务并删除核心二进制，保留标准配置文件。'), tone: 'danger' })) && deleteCore.mutate()}><Trash2 className="h-4 w-4" /> {text('删除核心')}</SpinnerButton>
+          {showAdvancedMaintenance ? (
+            <div className="core-action-group core-action-group-danger">
+              <div className="core-action-group-title">{text('危险')}</div>
+              <div className="core-action-row">
+                <SpinnerButton className="btn secondary" loading={install.isPending} onClick={async () => (await confirm({ title: text(`${installActionLabel} ${label}？`), description: text(installed ? '该操作会重新执行安装脚本，通常用于升级或修复当前核心。' : '该操作会执行系统安装命令。') })) && install.mutate()}><Download className="h-4 w-4" /> {text(installActionLabel)}</SpinnerButton>
+                <SpinnerButton className="btn danger ghost-danger" loading={stop.isPending} disabled={!installed} title={text(installed ? '停止核心' : '核心未安装')} onClick={async () => installed && (await confirm({ title: text(`停止 ${label} 核心？`), description: text('该操作会停止核心服务，入站连接会中断。'), tone: 'danger' })) && stop.mutate()}><Square className="h-4 w-4" /> {text('停止核心')}</SpinnerButton>
+                <SpinnerButton className="btn danger ghost-danger" loading={uninstall.isPending} disabled={!installed} title={text(installed ? '取消托管核心' : '核心未安装')} onClick={async () => installed && (await confirm({ title: text(`取消托管 ${label} 核心？`), description: text('该操作会停止并移除 MiGate 管理的 systemd 服务，保留核心二进制和配置。'), tone: 'danger' })) && uninstall.mutate()}><Trash2 className="h-4 w-4" /> {text('取消托管核心')}</SpinnerButton>
+                <SpinnerButton className="btn danger ghost-danger" loading={deleteCore.isPending} disabled={!installed} title={text(installed ? '删除核心' : '核心未安装')} onClick={async () => installed && (await confirm({ title: text(`删除 ${label} 核心？`), description: text('该操作会停止服务并删除核心二进制，保留标准配置文件。'), tone: 'danger' })) && deleteCore.mutate()}><Trash2 className="h-4 w-4" /> {text('删除核心')}</SpinnerButton>
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </Card>
       {lastResult ? (
@@ -174,21 +179,26 @@ export default function CorePage({ core }: { core: 'xray' | 'singbox' }) {
           </div>
         </Card>
       ) : null}
-      {status?.commands_executed?.length ? (
-        <Card className="core-card p-5">
-          <h2 className="section-title mb-3">{text('最近命令')}</h2>
-          <pre className="code-block core-code-block">{status.commands_executed.join('\n')}</pre>
-        </Card>
-      ) : null}
       <CoreConfigSync preview={configPreview} loading={configPreviewQuery.isLoading} error={configPreviewQuery.error} onRefresh={() => refreshQueries([configQuery, configPreviewQuery])} text={text} />
       <CorePortDiagnostics status={status} diagnostics={diagnostics} text={text} />
-      <CoreDiagnosticsPanel diagnostics={diagnostics} loading={diagnosticsQuery.isLoading} error={diagnosticsQuery.error} onRefresh={() => refreshQuery(diagnosticsQuery)} text={text} />
-      <CoreDisclosure title={text('配置预览')} icon={<FileText className="h-4 w-4" />} action={<button className="btn secondary h-8" onClick={() => refreshQueries([configQuery, configPreviewQuery])}>{text('刷新配置')}</button>}>
-        <pre className="code-block core-code-block">{JSON.stringify(configQuery.data || {}, null, 2)}</pre>
-      </CoreDisclosure>
-      <CoreDisclosure title={text('最近日志')} icon={<FileText className="h-4 w-4" />} action={<button className="btn secondary h-8" onClick={() => refreshQuery(logsQuery)}>{text('加载日志')}</button>}>
-        <pre className="code-block core-code-block">{formatLogs(logsQuery.data, text('点击“加载日志”查看最近日志。'))}</pre>
-      </CoreDisclosure>
+      <button className="btn secondary" onClick={() => setShowRawDiagnostics((value) => !value)}>{text('高级详情')}</button>
+      {showRawDiagnostics ? (
+        <>
+          {status?.commands_executed?.length ? (
+            <Card className="core-card p-5">
+              <h2 className="section-title mb-3">{text('最近命令')}</h2>
+              <pre className="code-block core-code-block">{status.commands_executed.join('\n')}</pre>
+            </Card>
+          ) : null}
+          <CoreDiagnosticsPanel diagnostics={diagnostics} loading={diagnosticsQuery.isLoading} error={diagnosticsQuery.error} onRefresh={() => refreshQuery(diagnosticsQuery)} text={text} />
+          <CoreDisclosure title={text('配置预览')} icon={<FileText className="h-4 w-4" />} action={<button className="btn secondary h-8" onClick={() => refreshQueries([configQuery, configPreviewQuery])}>{text('刷新配置')}</button>}>
+            <pre className="code-block core-code-block">{JSON.stringify(configQuery.data || {}, null, 2)}</pre>
+          </CoreDisclosure>
+          <CoreDisclosure title={text('最近日志')} icon={<FileText className="h-4 w-4" />} action={<button className="btn secondary h-8" onClick={() => refreshQuery(logsQuery)}>{text('加载日志')}</button>}>
+            <pre className="code-block core-code-block">{formatLogs(logsQuery.data, text('点击“加载日志”查看最近日志。'))}</pre>
+          </CoreDisclosure>
+        </>
+      ) : null}
     </div>
   );
 }
