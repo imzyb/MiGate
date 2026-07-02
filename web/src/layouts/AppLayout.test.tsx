@@ -33,10 +33,11 @@ describe('AppLayout simplified navigation', () => {
     await vi.waitFor(() => expect(document.body.textContent).toContain('MiGate'));
     const nav = document.querySelector('aside nav');
 
-    for (const label of ['概览', '入站', '出站', '核心', '链路', '设置']) {
+    for (const label of ['概览', '入站', '出站', '核心', '路由', '链路', '设置']) {
       expect(nav?.textContent).toContain(label);
     }
-    for (const hiddenLabel of ['拓扑', 'Xray', 'Sing-box', '路由']) {
+    expect(nav?.querySelector('a[href="/routing"]')?.textContent).toContain('路由');
+    for (const hiddenLabel of ['拓扑', 'Xray', 'Sing-box']) {
       expect(nav?.textContent).not.toContain(hiddenLabel);
     }
   });
