@@ -681,6 +681,48 @@ func TestInstallerDoesNotOfferArchivedRuntimeDependencies(t *testing.T) {
 	}
 }
 
+func TestInstallerRequiresAllExternalCommandsUsedBeforeReleaseInstall(t *testing.T) {
+	script := read(t, "packaging", "install.sh")
+	start := strings.Index(script, "require_dependencies()")
+	if start < 0 {
+		t.Fatalf("could not find require_dependencies")
+	}
+	end := strings.Index(script[start:], "ensure_migate_user_group()")
+	if end < 0 {
+		t.Fatalf("could not extract require_dependencies body")
+	}
+	requireDeps := script[start : start+end]
+	for _, dep := range []string{"curl", "tar", "unzip", "grep", "sed", "awk", "mktemp"} {
+		if !strings.Contains(requireDeps, dep) {
+			t.Fatalf("installer must require external dependency %q before release install", dep)
+		}
+	}
+	for _, want := range []string{
+		"sha256sum or shasum",
+		"required dependency missing: ${dep}",
+		`[ "$missing" -ne 0 ] && [ "$DRY_RUN" -ne 1 ]`,
+	} {
+		if !strings.Contains(requireDeps, want) {
+			t.Fatalf("installer dependency failure contract missing %q", want)
+		}
+	}
+
+	statusStart := strings.Index(script, "dependency_status()")
+	if statusStart < 0 {
+		t.Fatalf("could not find dependency_status")
+	}
+	statusEnd := strings.Index(script[statusStart:], "require_dependencies()")
+	if statusEnd < 0 {
+		t.Fatalf("could not extract dependency_status body")
+	}
+	statusBody := script[statusStart : statusStart+statusEnd]
+	for _, dep := range []string{"curl", "tar", "unzip", "grep", "sed", "awk", "mktemp"} {
+		if !strings.Contains(statusBody, dep) {
+			t.Fatalf("installer dependency status must report external dependency %q", dep)
+		}
+	}
+}
+
 func TestInstallerDownloadsReleaseAssetAndVerifiesChecksum(t *testing.T) {
 	script := read(t, "packaging", "install.sh")
 	for _, want := range []string{

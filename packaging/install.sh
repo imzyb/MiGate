@@ -264,7 +264,7 @@ require_linux_for_release() {
 
 dependency_status() {
   local missing=0
-  for dep in curl tar openssl; do
+  for dep in curl tar unzip grep sed awk mktemp; do
     if command_exists "$dep"; then
       log_ok "依赖 ${dep}: 已找到 ($(command -v "$dep"))"
     else
@@ -278,23 +278,22 @@ dependency_status() {
     log_warn "依赖 checksum: 未找到 sha256sum/shasum"
     missing=1
   fi
+  if command_exists openssl; then
+    log_ok "可选依赖 openssl: 已找到 ($(command -v openssl))"
+  else
+    log_info "可选依赖 openssl: 未找到，将使用 /dev/urandom 生成密码"
+  fi
   if command_exists wget; then
     log_ok "可选依赖 wget: 已找到 ($(command -v wget))"
   else
     log_info "可选依赖 wget: 未找到"
-  fi
-  if command_exists unzip; then
-    log_ok "依赖 unzip: 已找到 ($(command -v unzip))"
-  else
-    log_warn "依赖 unzip: 未找到"
-    missing=1
   fi
   return "$missing"
 }
 
 require_dependencies() {
   local missing=0
-  for dep in curl tar unzip; do
+  for dep in curl tar unzip grep sed awk mktemp; do
     if ! command_exists "$dep"; then
       log_error "required dependency missing: ${dep}"
       missing=1
