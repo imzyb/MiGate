@@ -683,13 +683,13 @@ func TestInstallerDoesNotOfferArchivedRuntimeDependencies(t *testing.T) {
 
 func TestInstallerRequiresAllExternalCommandsUsedBeforeReleaseInstall(t *testing.T) {
 	script := read(t, "packaging", "install.sh")
-	start := strings.Index(script, "require_dependencies()")
+	start := strings.Index(script, "install_missing_dependencies()")
 	if start < 0 {
-		t.Fatalf("could not find require_dependencies")
+		t.Fatalf("could not find install_missing_dependencies")
 	}
 	end := strings.Index(script[start:], "ensure_migate_user_group()")
 	if end < 0 {
-		t.Fatalf("could not extract require_dependencies body")
+		t.Fatalf("could not extract dependency preflight section")
 	}
 	requireDeps := script[start : start+end]
 	for _, dep := range []string{"curl", "tar", "unzip", "grep", "sed", "awk", "mktemp"} {
@@ -700,6 +700,10 @@ func TestInstallerRequiresAllExternalCommandsUsedBeforeReleaseInstall(t *testing
 	for _, want := range []string{
 		"sha256sum or shasum",
 		"required dependency missing: ${dep}",
+		"install_missing_dependencies",
+		"apt-get update",
+		"apt-get install -y --no-install-recommends",
+		"ca-certificates curl tar unzip grep sed gawk coreutils",
 		`[ "$missing" -ne 0 ] && [ "$DRY_RUN" -ne 1 ]`,
 	} {
 		if !strings.Contains(requireDeps, want) {

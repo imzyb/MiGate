@@ -291,8 +291,38 @@ dependency_status() {
   return "$missing"
 }
 
+install_missing_dependencies() {
+  if command_exists apt-get; then
+    log_info "检测到缺失依赖，先执行 apt-get update，再安装基础运行依赖。"
+    if [ "$DRY_RUN" -eq 1 ]; then
+      printf '[DRY-RUN] apt-get update\n'
+      printf '[DRY-RUN] apt-get install -y --no-install-recommends ca-certificates curl tar unzip grep sed gawk coreutils\n'
+      return 0
+    fi
+    apt-get update
+    apt-get install -y --no-install-recommends ca-certificates curl tar unzip grep sed gawk coreutils
+    return 0
+  fi
+  log_error "检测到缺失依赖，但未找到 apt-get，无法自动安装；请手动安装：ca-certificates curl tar unzip grep sed gawk coreutils"
+  return 1
+}
+
 require_dependencies() {
   local missing=0
+  for dep in curl tar unzip grep sed awk mktemp; do
+    if ! command_exists "$dep"; then
+      log_warn "required dependency missing: ${dep}"
+      missing=1
+    fi
+  done
+  if ! command_exists sha256sum && ! command_exists shasum; then
+    log_warn "required dependency missing: sha256sum or shasum"
+    missing=1
+  fi
+  if [ "$missing" -ne 0 ]; then
+    install_missing_dependencies
+  fi
+  missing=0
   for dep in curl tar unzip grep sed awk mktemp; do
     if ! command_exists "$dep"; then
       log_error "required dependency missing: ${dep}"
