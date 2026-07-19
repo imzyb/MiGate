@@ -307,6 +307,39 @@ func TestStatusReturnsIssueEmail(t *testing.T) {
 	}
 }
 
+func TestWriteAssetFilesReplacesFilesAtomicallyAndLeavesNoTempFiles(t *testing.T) {
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "example.com", "fullchain.pem")
+	keyPath := filepath.Join(dir, "example.com", "privkey.key")
+	svc := Service{CertDir: dir}
+	if err := svc.writeAssetFiles(certPath, keyPath, []byte("old-cert"), []byte("old-key")); err != nil {
+		t.Fatalf("initial write: %v", err)
+	}
+	if err := svc.writeAssetFiles(certPath, keyPath, []byte("new-cert"), []byte("new-key")); err != nil {
+		t.Fatalf("replacement write: %v", err)
+	}
+	certData, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatalf("read cert: %v", err)
+	}
+	keyData, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatalf("read key: %v", err)
+	}
+	if string(certData) != "new-cert" || string(keyData) != "new-key" {
+		t.Fatalf("unexpected replacement contents cert=%q key=%q", certData, keyData)
+	}
+	entries, err := os.ReadDir(filepath.Dir(certPath))
+	if err != nil {
+		t.Fatalf("read cert dir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".fullchain.pem-") || strings.HasPrefix(entry.Name(), ".privkey.key-") {
+			t.Fatalf("temporary asset file left behind: %s", entry.Name())
+		}
+	}
+}
+
 func TestApplyCertificateToTLSInbounds(t *testing.T) {
 	store := &memoryStore{
 		certs: []db.Certificate{{ID: 1, Source: db.CertSourceImport, Status: db.CertStatusIssued, Domains: []string{"example.com"}, CertPath: "/etc/migate/certs/example/fullchain.pem", KeyPath: "/etc/migate/certs/example/privkey.pem"}},

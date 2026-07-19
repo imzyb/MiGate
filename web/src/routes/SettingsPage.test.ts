@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../api/client';
 import { certificateInventorySummary, certificateStatusLabel, certIssuePayload, certSettingsPayload, formatUpdateLogs, hasTLSCertificateBinding, inboundCertificateBindingStatus, isUpdateInProgress, isUpdateTerminal, parseDomains, preflightFromAPIError, settingsPayload, shouldClearInboundSelectionForActualCertificate, shouldClearInboundSelectionOnCertificateSelect, toggleID, updateAvailabilitySummary, updateDependencyRefetchInterval, updatePrimaryAction, updateStatusRefetchInterval, updateStatusSummaryKey } from './SettingsPage';
+import { listFieldValue } from './settingsPageHelpers';
 
 describe('settings helpers', () => {
   it('sends an empty password to preserve the existing backend password', () => {
@@ -87,6 +88,12 @@ describe('settings helpers', () => {
     expect(certificateStatusLabel('expiring_soon')).toBe('即将到期');
     expect(toggleID([1, 2], 2)).toEqual([1]);
     expect(toggleID([1], 2)).toEqual([1, 2]);
+  });
+
+  it('keeps list field formatting helper in the settings helper module', () => {
+    expect(listFieldValue(['panel.example.com', 'api.example.com'])).toBe('panel.example.com, api.example.com');
+    expect(listFieldValue([22, 443])).toBe('22, 443');
+    expect(listFieldValue('  raw  ')).toBe('  raw  ');
   });
 
   it('summarizes certificate inventory and recommended actions', () => {

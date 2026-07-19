@@ -173,19 +173,52 @@ func outboundSubscriptionChildrenHandler(cfg *routerConfig) http.HandlerFunc {
 }
 
 func refreshOneOutboundSubscriptionHandler(cfg *routerConfig, id int64, w http.ResponseWriter, r *http.Request) {
-	includeXray, includeSingbox, err := xrayAndSingboxForAllOutbounds(r.Context(), cfg.store)
+	sub, found, err := cfg.store.GetOutboundSubscription(r.Context(), id)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "list_failed")
+		writeJSONError(w, http.StatusInternalServerError, "get_outbound_subscription_failed")
 		return
 	}
-	before := captureCoreGeneratedHashes(r.Context(), cfg, includeXray, includeSingbox)
-	result, markXray, markSingbox, err := refreshOutboundSubscription(r.Context(), cfg.store, id)
-	if err != nil {
-		writeJSONError(w, http.StatusBadGateway, "refresh_outbound_subscription_failed", map[string]interface{}{"detail": err.Error()})
+	if !found {
+		writeJSONError(w, http.StatusNotFound, "not_found")
 		return
 	}
-	includeXray, includeSingbox = includeExistingPendingCores(r.Context(), cfg, markXray, markSingbox)
-	writeCoreWriteResultForHashes(w, r, cfg, http.StatusOK, map[string]interface{}{"result": result}, before, markXray, markSingbox, includeXray, includeSingbox)
+	if !sub.Enabled {
+		writeJSONError(w, http.StatusBadGateway, "refresh_outbound_subscription_failed", map[string]interface{}{"detail": "subscription is disabled"})
+		return
+	}
+	type refreshResponse struct {
+		status  int
+		payload map[string]interface{}
+	}
+	resultCh := make(chan refreshResponse, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		status, payload := runOneOutboundSubscriptionRefresh(ctx, cfg, id)
+		resultCh <- refreshResponse{status: status, payload: payload}
+	}()
+	select {
+	case result := <-resultCh:
+		writeJSON(w, result.status, result.payload)
+	case <-time.After(100 * time.Millisecond):
+		writeJSON(w, http.StatusAccepted, map[string]interface{}{"status": "queued", "subscription_id": id})
+	}
+}
+
+func runOneOutboundSubscriptionRefresh(ctx context.Context, cfg *routerConfig, id int64) (int, map[string]interface{}) {
+	includeXray, includeSingbox, err := xrayAndSingboxForAllOutbounds(ctx, cfg.store)
+	if err != nil {
+		return http.StatusInternalServerError, map[string]interface{}{"error": "list_failed"}
+	}
+	before := captureCoreGeneratedHashes(ctx, cfg, includeXray, includeSingbox)
+	result, markXray, markSingbox, err := refreshOutboundSubscription(ctx, cfg.store, id)
+	if err != nil {
+		return http.StatusBadGateway, map[string]interface{}{"error": "refresh_outbound_subscription_failed", "detail": err.Error()}
+	}
+	includeXray, includeSingbox = includeExistingPendingCores(ctx, cfg, markXray, markSingbox)
+	payload := map[string]interface{}{"result": result}
+	populateCoreWriteResultForHashes(ctx, cfg, payload, before, markXray, markSingbox, includeXray, includeSingbox)
+	return http.StatusOK, payload
 }
 
 func refreshAllOutboundSubscriptionsHandler(cfg *routerConfig, w http.ResponseWriter, r *http.Request) {

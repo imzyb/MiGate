@@ -56,7 +56,7 @@ export default function AppLayout() {
   return (
     <div className={clsx('min-h-screen bg-panel-bg text-panel-text', sidebarOpen && 'sidebar-open', sidebarCollapsed && 'sidebar-collapsed')}>
       <div className="mobile-topbar">
-        <button className="icon-button" onClick={() => setSidebarOpen(true)}>
+        <button className="icon-button" onClick={() => setSidebarOpen(true)} title={t('expandMenu')} aria-label={t('expandMenu')}>
           <ChevronRight className="h-5 w-5" />
         </button>
         <div className="font-semibold">MiGate</div>
@@ -67,7 +67,7 @@ export default function AppLayout() {
             <MiGateMark />
             <div className="sidebar-brand-text text-lg font-semibold tracking-normal">MiGate</div>
           </div>
-          <button className="icon-button mobile-sidebar-close" onClick={() => setSidebarOpen(false)} title={t('closeMenu')}>
+          <button className="icon-button mobile-sidebar-close" onClick={() => setSidebarOpen(false)} title={t('closeMenu')} aria-label={t('closeMenu')}>
             <ChevronLeft className="h-5 w-5" />
           </button>
         </div>
@@ -97,16 +97,16 @@ export default function AppLayout() {
             <div className="sidebar-footer-text mt-2 truncate text-xs text-panel-muted">{session.data?.username || t('notLoggedIn')}</div>
           </div>
           <div className="sidebar-actions mt-3 grid grid-cols-4 gap-2">
-            <button className="icon-button h-9" onClick={toggleTheme} title={t('toggleTheme')}>
+            <button className="icon-button h-9" onClick={toggleTheme} title={t('toggleTheme')} aria-label={t('toggleTheme')}>
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
-            <button className="icon-button h-9" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} title={t('toggleLanguage')}>
+            <button className="icon-button h-9" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} title={t('toggleLanguage')} aria-label={t('toggleLanguage')}>
               <Languages className="h-4 w-4" />
             </button>
-            <button className="icon-button h-9" onClick={() => logout.mutate()} title={t('logout')}>
+            <button className="icon-button h-9" onClick={() => logout.mutate()} title={t('logout')} aria-label={t('logout')}>
               <LogOut className="h-4 w-4" />
             </button>
-            <button className="icon-button h-9 desktop-sidebar-collapse" onClick={() => setSidebarCollapsed((value) => !value)} title={t(sidebarCollapsed ? 'expandMenu' : 'collapseMenu')}>
+            <button className="icon-button h-9 desktop-sidebar-collapse" onClick={() => setSidebarCollapsed((value) => !value)} title={t(sidebarCollapsed ? 'expandMenu' : 'collapseMenu')} aria-label={t(sidebarCollapsed ? 'expandMenu' : 'collapseMenu')}>
               {sidebarCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
             </button>
           </div>

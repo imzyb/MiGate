@@ -12,6 +12,7 @@ import { serviceLabel } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { refreshCertificateApplyDependencies, refreshCertificateOperationDependencies, refreshQueries, refreshQuery, refreshSessionDependencies, refreshSettingsDependencies, refreshUpdateDependencies } from '../lib/queryInvalidation';
 import { PageTitle } from './OverviewPage';
+import { listFieldValue } from './settingsPageHelpers';
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -654,10 +655,6 @@ function PanelSettingsCard({
 }
 
 
-function listFieldValue(value: string[] | number[] | string | undefined) {
-  if (Array.isArray(value)) return value.join('\n');
-  return value || '';
-}
 
 export function certificateInventorySummary(certificates: ManagedCertificate[], tlsInbounds: Inbound[]) {
   const counts = certificates.reduce(

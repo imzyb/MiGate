@@ -1444,8 +1444,18 @@ func changedCoresFromGeneratedHashes(before map[string]coreGeneratedHashSnapshot
 	return result
 }
 
+func runCoreWriteSideEffectsForHashes(ctx context.Context, cfg *routerConfig, before map[string]coreGeneratedHashSnapshot, markXray bool, markSingbox bool, includeXray bool, includeSingbox bool) {
+	payload := map[string]interface{}{}
+	populateCoreWriteResultForHashes(ctx, cfg, payload, before, markXray, markSingbox, includeXray, includeSingbox)
+}
+
 func writeCoreWriteResultForHashes(w http.ResponseWriter, r *http.Request, cfg *routerConfig, status int, payload map[string]interface{}, before map[string]coreGeneratedHashSnapshot, markXray bool, markSingbox bool, includeXray bool, includeSingbox bool) {
 	ctx := r.Context()
+	populateCoreWriteResultForHashes(ctx, cfg, payload, before, markXray, markSingbox, includeXray, includeSingbox)
+	writeJSON(w, status, payload)
+}
+
+func populateCoreWriteResultForHashes(ctx context.Context, cfg *routerConfig, payload map[string]interface{}, before map[string]coreGeneratedHashSnapshot, markXray bool, markSingbox bool, includeXray bool, includeSingbox bool) {
 	after := captureCoreGeneratedHashes(ctx, cfg, markXray, markSingbox)
 	hashChange := changedCoresFromGeneratedHashes(before, after)
 	changedCores := hashChange.Changed
@@ -1507,7 +1517,6 @@ func writeCoreWriteResultForHashes(w http.ResponseWriter, r *http.Request, cfg *
 	} else {
 		attachSaveResponseCorePendingApplyResult(ctx, cfg, payload, includeXray, includeSingbox)
 	}
-	writeJSON(w, status, payload)
 }
 
 func firstAutoApplyErrorDetail(errorsByCore map[string]map[string]string) string {

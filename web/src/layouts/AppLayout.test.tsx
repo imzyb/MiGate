@@ -41,7 +41,45 @@ describe('AppLayout simplified navigation', () => {
       expect(nav?.textContent).not.toContain(hiddenLabel);
     }
   });
+
+  it('keeps DOM structure and non-text attributes stable when switching languages', async () => {
+    renderLayout('/');
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain('概览'));
+    const shell = document.querySelector('.min-h-screen') as HTMLElement;
+    const before = structuralSnapshot(shell);
+
+    const languageButton = document.querySelector('button[aria-label="语言切换"]') as HTMLButtonElement;
+    expect(languageButton).toBeTruthy();
+    act(() => languageButton.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Overview'));
+    expect(structuralSnapshot(shell)).toEqual(before);
+  });
+
+  it('gives every icon-only layout button an aria-label', async () => {
+    renderLayout('/');
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain('MiGate'));
+    const unlabeledIconButtons = Array.from(document.querySelectorAll('button.icon-button')).filter((button) => {
+      const hasOnlyIcon = button.textContent?.trim() === '';
+      return hasOnlyIcon && !button.getAttribute('aria-label');
+    });
+
+    expect(unlabeledIconButtons).toEqual([]);
+  });
 });
+
+function structuralSnapshot(rootElement: HTMLElement) {
+  return Array.from(rootElement.querySelectorAll('*')).map((element) => ({
+    tag: element.tagName,
+    className: element.getAttribute('class'),
+    href: element.getAttribute('href'),
+    role: element.getAttribute('role'),
+    type: element.getAttribute('type'),
+    childElementCount: element.childElementCount,
+  }));
+}
 
 function renderLayout(initialPath: string) {
   container = document.createElement('div');

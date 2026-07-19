@@ -61,7 +61,7 @@ type ConfirmState = {
 const ConfirmContext = createContext<(input: Omit<ConfirmState, 'resolve'>) => Promise<boolean>>(() => Promise.resolve(false));
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
-  const { text } = useI18n();
+  const { t, text } = useI18n();
   const [state, setState] = useState<ConfirmState | null>(null);
   const confirm = useCallback((input: Omit<ConfirmState, 'resolve'>) => {
     return new Promise<boolean>((resolve) => setState({ ...input, resolve }));
@@ -87,10 +87,10 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button className="btn secondary" onClick={() => close(false)}>
-                {text('取消')}
+                {t('cancel')}
               </button>
               <button className={clsx('btn', state.tone === 'danger' ? 'danger' : 'primary')} onClick={() => close(true)}>
-                {text('确认')}
+                {t('confirm')}
               </button>
             </div>
           </div>
@@ -148,9 +148,9 @@ export function EmptyState({ title, description, action }: { title: string; desc
   );
 }
 
-export function LoadingBlock({ label = '加载中...' }: { label?: string }) {
-  const { text } = useI18n();
-  return <div className="rounded-lg border border-panel-line bg-panel-surface p-6 text-sm text-panel-muted shadow-panel">{text(label)}</div>;
+export function LoadingBlock({ label }: { label?: string }) {
+  const { t, text } = useI18n();
+  return <div className="rounded-lg border border-panel-line bg-panel-surface p-6 text-sm text-panel-muted shadow-panel">{label ? text(label) : t('loading')}</div>;
 }
 
 export function Field({ label, children, help }: { label: string; children: React.ReactNode; help?: string }) {
@@ -171,8 +171,8 @@ export function FieldError({ message }: { message?: string }) {
 }
 
 export function StatusBadge({ enabled, children }: { enabled: boolean; children?: React.ReactNode }) {
-  const { text } = useI18n();
-  return <span className={clsx('status-badge', enabled ? 'status-on' : 'status-off')}>{children || text(enabled ? '启用' : '禁用')}</span>;
+  const { t } = useI18n();
+  return <span className={clsx('status-badge', enabled ? 'status-on' : 'status-off')}>{children || t(enabled ? 'enabled' : 'disabled')}</span>;
 }
 
 export function toggleButtonClass(enabled: boolean) {

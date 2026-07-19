@@ -29,8 +29,10 @@ func WithAuth(username, password string) Option {
 		cfg.authEnabled = true
 		cfg.authUsername = username
 		cfg.authPassword = password
-		secret := make([]byte, 32)
-		_, _ = rand.Read(secret)
+		secret, err := randomBytes(32)
+		if err != nil {
+			panic(fmt.Errorf("generate session secret: %w", err))
+		}
 		cfg.sessionSecret = secret
 	}
 }
@@ -199,14 +201,24 @@ func cleanupSessionTouches(cfg *routerConfig, now time.Time) {
 	}
 }
 
-func createSessionToken(username string, secret []byte) string {
+func createSessionToken(username string, secret []byte) (string, error) {
 	// Generate a random nonce to ensure unique tokens per login
-	nonce := make([]byte, 8)
-	_, _ = rand.Read(nonce)
+	nonce, err := randomBytes(8)
+	if err != nil {
+		return "", fmt.Errorf("generate session nonce: %w", err)
+	}
 	expiry := time.Now().Add(7 * 24 * time.Hour).Unix()
 	payload := fmt.Sprintf("%s:%d:%s", username, expiry, hex.EncodeToString(nonce))
 	sig := signMessage(payload, secret)
-	return hex.EncodeToString([]byte(payload)) + "." + sig
+	return hex.EncodeToString([]byte(payload)) + "." + sig, nil
+}
+
+func randomBytes(size int) ([]byte, error) {
+	buf := make([]byte, size)
+	if _, err := rand.Read(buf); err != nil {
+		return nil, err
+	}
+	return buf, nil
 }
 
 func validateSessionToken(token string, secret []byte) bool {
@@ -270,7 +282,11 @@ func loginHandler(cfg *routerConfig) http.HandlerFunc {
 		if cfg.loginLimiter != nil {
 			cfg.loginLimiter.reset(keys...)
 		}
-		token := createSessionToken(req.Username, cfg.sessionSecret)
+		token, err := createSessionToken(req.Username, cfg.sessionSecret)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "session_token_failed")
+			return
+		}
 		cookiePath := cfg.basePath
 		if cookiePath == "" {
 			cookiePath = "/"

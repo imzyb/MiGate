@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/imzyb/MiGate/internal/db"
@@ -63,6 +64,8 @@ type Service struct {
 	LookupIP  func(context.Context, string) ([]net.IP, error)
 	ListenTCP func(network, address string) (net.Listener, error)
 }
+
+var assetWriteLocks sync.Map
 
 type IssueRequest struct {
 	Domains []string `json:"domains"`
@@ -597,10 +600,44 @@ func (s Service) writeAssetFiles(certPath, keyPath string, certPEM, keyPEM []byt
 	if err := os.MkdirAll(filepath.Dir(certPath), 0750); err != nil {
 		return err
 	}
-	if err := os.WriteFile(certPath, certPEM, 0640); err != nil {
+	lockKey := filepath.Dir(certPath)
+	lockValue, _ := assetWriteLocks.LoadOrStore(lockKey, &sync.Mutex{})
+	mu := lockValue.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+	if err := writeFileAtomic(certPath, certPEM, 0640); err != nil {
 		return err
 	}
-	return os.WriteFile(keyPath, keyPEM, 0600)
+	return writeFileAtomic(keyPath, keyPEM, 0600)
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+"-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 func (s Service) issuer() Issuer {
@@ -781,7 +818,9 @@ func sanitizeAssetName(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
 		b := make([]byte, 8)
-		_, _ = rand.Read(b)
+		if _, err := rand.Read(b); err != nil {
+			return "certificate"
+		}
 		name = hex.EncodeToString(b)
 	}
 	var b strings.Builder

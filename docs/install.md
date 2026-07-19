@@ -116,8 +116,10 @@ The installer writes or repairs:
 /etc/systemd/system/migate.service
 ```
 
-The generated service binds the panel to `0.0.0.0` by default for VPS panel-style
-access. For production use, set a strong password and prefer publishing through a
+The generated systemd service listens on `0.0.0.0:9999` by default for VPS panel-style
+access, and the default web base path is `/panel` (for example,
+`http://<your-server-ip>:9999/panel`; from the server itself,
+`http://127.0.0.1:9999/panel`). For production use, set a strong password and prefer publishing through a
 reverse proxy with HTTPS. Use
 `public_host` in `/etc/migate/panel.json` to control the host embedded in
 subscription share links. If the proxy terminates HTTPS, set `trust_proxy` to
@@ -168,15 +170,18 @@ xray version
 sing-box version
 ```
 
-Xray installation downloads the official XTLS install script and asks for
-confirmation before executing it in interactive mode. In dry-run mode, the
-download and execution commands are printed instead.
+Xray installation downloads the configured official XTLS release ZIP, downloads
+the corresponding `.dgst` checksum file, verifies the archive, installs
+`/usr/local/bin/xray`, writes the dedicated `migate-xray.service`, and records a
+MiGate ownership marker under `/var/lib/migate/managed`. It does not execute the
+upstream Xray install script.
 
-sing-box installation downloads the configured release archive, downloads
-checksums, verifies the archive before extracting, installs
-`/usr/local/bin/sing-box`, and writes `migate-sing-box.service`.
+sing-box installation downloads the configured release archive, reads the GitHub
+Release asset digest, verifies the archive before extracting, installs
+`/usr/local/bin/sing-box`, writes `migate-sing-box.service`, and records the same
+kind of MiGate ownership marker.
 
-MiGate and sing-box release archives are installed only after checksum
+MiGate, Xray, and sing-box release archives are installed only after checksum
 verification. Certificate issuance no longer depends on `acme.sh`; the WebUI
 uses MiGate's Go native ACME HTTP-01 issuer and stores managed certificate
 assets under `/etc/migate/certs`. HTTP-01 still requires public DNS resolution
@@ -203,7 +208,7 @@ Purge config/data only when you explicitly intend to delete them:
 migate-uninstall --purge --yes
 ```
 
-The uninstaller does not remove third-party Xray itself by default.
+`--with-cores` and `--purge` remove only core binaries that have MiGate ownership markers. Existing third-party or manually installed `xray`/`sing-box` binaries are left in place even when MiGate removes `migate-xray.service` and `migate-sing-box.service`.
 
 ## Update, Backup, and Restore
 

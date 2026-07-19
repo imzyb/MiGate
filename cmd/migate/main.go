@@ -281,7 +281,7 @@ func runServer(args []string) int {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	log.Printf("MiGate listening on %s", addr)
 
-	srv := &http.Server{Addr: addr, Handler: configuredRouter}
+	srv := newPanelHTTPServer(addr, configuredRouter)
 
 	// Graceful shutdown on SIGINT/SIGTERM
 	go func() {
@@ -300,6 +300,17 @@ func runServer(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func newPanelHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
 }
 
 func runCLI(args []string, stdout, stderr io.Writer, runner commandRunner) int {

@@ -125,6 +125,60 @@ func TestInstallerSupportsNonInteractiveActionsAndDryRun(t *testing.T) {
 	}
 }
 
+func TestUninstallerPreservesNonMiGateManagedCoreBinaries(t *testing.T) {
+	h := newUninstallerHarness(t)
+	writeExecutable(t, h.migateBin, "#!/usr/bin/env bash\necho migate\n")
+	writeExecutable(t, h.xrayBin, "#!/usr/bin/env bash\necho external xray\n")
+	writeExecutable(t, h.singboxBin, "#!/usr/bin/env bash\necho external sing-box\n")
+
+	result := h.run(t, "--with-cores", "--yes")
+	if result.err != nil {
+		t.Fatalf("uninstall failed: %v\noutput:\n%s", result.err, result.output)
+	}
+	if _, err := os.Stat(h.xrayBin); err != nil {
+		t.Fatalf("uninstaller removed non-MiGate-managed Xray binary: %v\noutput:\n%s", err, result.output)
+	}
+	if _, err := os.Stat(h.singboxBin); err != nil {
+		t.Fatalf("uninstaller removed non-MiGate-managed sing-box binary: %v\noutput:\n%s", err, result.output)
+	}
+	if _, err := os.Stat(h.migateBin); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("MiGate panel binary should be removed, stat err=%v", err)
+	}
+	for _, want := range []string{
+		"Keeping non-MiGate-managed Xray binary",
+		"Keeping non-MiGate-managed sing-box binary",
+	} {
+		if !strings.Contains(result.output, want) {
+			t.Fatalf("uninstall output missing %q:\n%s", want, result.output)
+		}
+	}
+}
+
+func TestUninstallerRemovesOnlyMarkedMiGateManagedCoreBinaries(t *testing.T) {
+	h := newUninstallerHarness(t)
+	writeExecutable(t, h.xrayBin, "#!/usr/bin/env bash\necho migate xray\n")
+	writeExecutable(t, h.singboxBin, "#!/usr/bin/env bash\necho migate sing-box\n")
+	if err := os.MkdirAll(h.managedDir, 0755); err != nil {
+		t.Fatalf("mkdir managed dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(h.managedDir, "xray.binary"), []byte("installed_by=MiGate\nbinary="+h.xrayBin+"\n"), 0644); err != nil {
+		t.Fatalf("write xray marker: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(h.managedDir, "sing-box.binary"), []byte("installed_by=MiGate\nbinary="+h.singboxBin+"\n"), 0644); err != nil {
+		t.Fatalf("write sing-box marker: %v", err)
+	}
+
+	result := h.run(t, "--with-cores", "--yes")
+	if result.err != nil {
+		t.Fatalf("uninstall failed: %v\noutput:\n%s", result.err, result.output)
+	}
+	for _, path := range []string{h.xrayBin, h.singboxBin, filepath.Join(h.managedDir, "xray.binary"), filepath.Join(h.managedDir, "sing-box.binary")} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("MiGate-managed core artifact should be removed: %s stat err=%v\noutput:\n%s", path, err, result.output)
+		}
+	}
+}
+
 func TestInstallerChecksRootBeforeTakingInstallLock(t *testing.T) {
 	script := read(t, "packaging", "install.sh")
 	mainIdx := strings.Index(script, "main()")
@@ -448,12 +502,14 @@ func TestInstallerReplacesCoreBinariesAtomically(t *testing.T) {
 	for _, want := range []string{
 		"systemctl stop migate-xray 2>/dev/null || true",
 		"local xray_install_tmp=\"/usr/local/bin/.xray.new.$$\"",
-		"cp \"$tmp_xray/xray/xray\" \"$xray_install_tmp\" && chmod +x \"$xray_install_tmp\" && mv -f \"$xray_install_tmp\" /usr/local/bin/xray",
+		"cp \"$tmp_xray/xray/xray\" \"$xray_install_tmp\" && chmod +x \"$xray_install_tmp\" && mv -f \"$xray_install_tmp\" \"$XRAY_BINARY\"",
+		`printf 'installed_by=MiGate\nbinary=%s\n' "$XRAY_BINARY" > "${MIGATE_MANAGED_DIR}/xray.binary"`,
 		"rm -f \"$xray_install_tmp\"",
 		"systemctl stop migate-sing-box 2>/dev/null || true",
 		"systemctl stop migate-sing-box 2>/dev/null || true",
 		"local sb_install_tmp=\"/usr/local/bin/.sing-box.new.$$\"",
-		"cp \"$tmp_sb\"/sing-box-*/sing-box \"$sb_install_tmp\" && chmod +x \"$sb_install_tmp\" && mv -f \"$sb_install_tmp\" /usr/local/bin/sing-box",
+		"cp \"$tmp_sb\"/sing-box-*/sing-box \"$sb_install_tmp\" && chmod +x \"$sb_install_tmp\" && mv -f \"$sb_install_tmp\" \"$SINGBOX_BINARY\"",
+		`printf 'installed_by=MiGate\nbinary=%s\n' "$SINGBOX_BINARY" > "${MIGATE_MANAGED_DIR}/sing-box.binary"`,
 		"rm -f \"$sb_install_tmp\"",
 		"[DRY-RUN] systemctl stop migate-xray",
 		"[DRY-RUN] atomic install /usr/local/bin/xray via /usr/local/bin/.xray.new.$$",
@@ -1198,8 +1254,8 @@ func TestUninstallScriptStopsServicesAndRemovesInstalledArtifacts(t *testing.T) 
 		`rm -f "$unit_path"`,
 		`rm -f "$MIGATE_BINARY"`,
 		`rm -f "$MIGATE_LINK"`,
-		`SINGBOX_SERVICE_PATH="/etc/systemd/system/migate-sing-box.service"`,
-		`XRAY_SERVICE_PATH="/etc/systemd/system/migate-xray.service"`,
+		`SINGBOX_SERVICE_PATH="${SINGBOX_SERVICE_PATH:-/etc/systemd/system/migate-sing-box.service}"`,
+		`XRAY_SERVICE_PATH="${XRAY_SERVICE_PATH:-/etc/systemd/system/migate-xray.service}"`,
 		"systemctl daemon-reload",
 		"systemctl reset-failed",
 		"--purge",
@@ -1250,10 +1306,10 @@ func TestInstallAndUninstallScriptsKeepOpsContractPathsAndSafety(t *testing.T) {
 		`MIGATE_SERVICE="migate"`,
 		`XRAY_SERVICE="migate-xray"`,
 		`SINGBOX_SERVICE="migate-sing-box"`,
-		`MIGATE_CONFIG_DIR="/etc/migate"`,
-		`MIGATE_DATA_DIR="/var/lib/migate"`,
-		`MIGATE_LOG_DIR="/var/log/migate"`,
-		`MIGATE_RUN_DIR="/run/migate"`,
+		`MIGATE_CONFIG_DIR="${MIGATE_CONFIG_DIR:-/etc/migate}"`,
+		`MIGATE_DATA_DIR="${MIGATE_DATA_DIR:-/var/lib/migate}"`,
+		`MIGATE_LOG_DIR="${MIGATE_LOG_DIR:-/var/log/migate}"`,
+		`MIGATE_RUN_DIR="${MIGATE_RUN_DIR:-/run/migate}"`,
 		"Interactive uninstall asks which mode to use:",
 		"Keeping MiGate config/data/logs",
 		`if [ "$UNINSTALL_MODE" = "purge" ]; then`,
@@ -1318,8 +1374,8 @@ func TestUninstallInteractiveChoiceCanRemovePanelAndCoresWithoutConfig(t *testin
 		"卸载模式: 卸载 MiGate 面板和核心",
 		"[DRY-RUN] systemctl stop migate-xray",
 		"[DRY-RUN] systemctl stop migate-sing-box",
-		"[DRY-RUN] rm -f /usr/local/bin/xray",
-		"[DRY-RUN] rm -f /usr/local/bin/sing-box",
+		"Keeping non-MiGate-managed Xray binary: /usr/local/bin/xray",
+		"Keeping non-MiGate-managed sing-box binary: /usr/local/bin/sing-box",
 		"Keeping MiGate config/data/logs",
 	} {
 		if !strings.Contains(out, want) {
@@ -1344,7 +1400,7 @@ func TestUninstallInteractiveChoiceCanRemoveEverythingIncludingConfig(t *testing
 	for _, want := range []string{
 		"卸载模式: 彻底卸载 MiGate 面板、核心和配置文件",
 		"[DRY-RUN] systemctl stop migate-xray",
-		"[DRY-RUN] rm -f /usr/local/bin/sing-box",
+		"Keeping non-MiGate-managed sing-box binary: /usr/local/bin/sing-box",
 		"[DRY-RUN] rm -rf /etc/migate",
 		"[DRY-RUN] rm -rf /var/lib/migate",
 		"[DRY-RUN] rm -rf /var/log/migate",
@@ -1452,7 +1508,7 @@ func TestServiceUsesGeneratedPanelConfigAndSingleBinary(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		`mkdir -p "$CONFIG_DIR" "$CORE_CONFIG_DIR" "$DATA_DIR" "$BACKUP_DIR" "$LOG_DIR" "$RUN_DIR" "$(dirname "$MIGATE_BIN")" "$(dirname "$INSTALLER_BIN")" "$(dirname "$UNINSTALLER_BIN")" "$XRAY_SHARE_DIR" "$(dirname "$SERVICE_PATH")"`,
+		`mkdir -p "$CONFIG_DIR" "$CORE_CONFIG_DIR" "$DATA_DIR" "$BACKUP_DIR" "$LOG_DIR" "$RUN_DIR" "$MIGATE_MANAGED_DIR" "$(dirname "$MIGATE_BIN")" "$(dirname "$INSTALLER_BIN")" "$(dirname "$UNINSTALLER_BIN")" "$XRAY_SHARE_DIR" "$(dirname "$SERVICE_PATH")"`,
 		`chown root:migate "$DATA_DIR" "$BACKUP_DIR" "$LOG_DIR" "$RUN_DIR"`,
 		`chmod 0770 "$DATA_DIR" "$BACKUP_DIR" "$LOG_DIR" "$RUN_DIR"`,
 		"ProtectSystem=strict",
@@ -1601,6 +1657,84 @@ func tarEntries(t *testing.T, path string) map[string]bool {
 		entries[header.Name] = true
 	}
 	return entries
+}
+
+type uninstallerHarness struct {
+	root           string
+	binDir         string
+	fakeBin        string
+	configDir      string
+	dataDir        string
+	logDir         string
+	runDir         string
+	systemdDir     string
+	managedDir     string
+	migateBin      string
+	migateLink     string
+	installerBin   string
+	uninstallerBin string
+	xrayBin        string
+	singboxBin     string
+}
+
+type uninstallerRunResult struct {
+	output string
+	err    error
+}
+
+func newUninstallerHarness(t *testing.T) *uninstallerHarness {
+	t.Helper()
+	root := t.TempDir()
+	h := &uninstallerHarness{
+		root:       root,
+		binDir:     filepath.Join(root, "usr", "local", "bin"),
+		fakeBin:    filepath.Join(root, "fake-bin"),
+		configDir:  filepath.Join(root, "etc", "migate"),
+		dataDir:    filepath.Join(root, "var", "lib", "migate"),
+		logDir:     filepath.Join(root, "var", "log", "migate"),
+		runDir:     filepath.Join(root, "run", "migate"),
+		systemdDir: filepath.Join(root, "etc", "systemd", "system"),
+	}
+	h.managedDir = filepath.Join(h.dataDir, "managed")
+	h.migateBin = filepath.Join(h.binDir, "migate")
+	h.migateLink = filepath.Join(h.binDir, "mg")
+	h.installerBin = filepath.Join(h.binDir, "migate-install")
+	h.uninstallerBin = filepath.Join(h.binDir, "migate-uninstall")
+	h.xrayBin = filepath.Join(h.binDir, "xray")
+	h.singboxBin = filepath.Join(h.binDir, "sing-box")
+	for _, dir := range []string{h.binDir, h.fakeBin, h.configDir, h.dataDir, h.logDir, h.runDir, h.systemdDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	writeExecutable(t, filepath.Join(h.fakeBin, "id"), "#!/usr/bin/env bash\nif [ \"${1:-}\" = \"-u\" ]; then echo 0; else /usr/bin/id \"$@\"; fi\n")
+	writeExecutable(t, filepath.Join(h.fakeBin, "systemctl"), "#!/usr/bin/env bash\ncase \"${1:-}\" in cat) exit 1 ;; *) exit 0 ;; esac\n")
+	return h
+}
+
+func (h *uninstallerHarness) run(t *testing.T, args ...string) uninstallerRunResult {
+	t.Helper()
+	cmdArgs := append([]string{filepath.Join(repoRoot(t), "packaging", "uninstall.sh")}, args...)
+	cmd := exec.Command("bash", cmdArgs...)
+	cmd.Env = append(os.Environ(),
+		"PATH="+h.fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"MIGATE_BINARY="+h.migateBin,
+		"MIGATE_LINK="+h.migateLink,
+		"INSTALLER_BINARY="+h.installerBin,
+		"UNINSTALLER_BINARY="+h.uninstallerBin,
+		"XRAY_BINARY="+h.xrayBin,
+		"SINGBOX_BINARY="+h.singboxBin,
+		"MIGATE_SERVICE_PATH="+filepath.Join(h.systemdDir, "migate.service"),
+		"XRAY_SERVICE_PATH="+filepath.Join(h.systemdDir, "migate-xray.service"),
+		"SINGBOX_SERVICE_PATH="+filepath.Join(h.systemdDir, "migate-sing-box.service"),
+		"MIGATE_CONFIG_DIR="+h.configDir,
+		"MIGATE_DATA_DIR="+h.dataDir,
+		"MIGATE_LOG_DIR="+h.logDir,
+		"MIGATE_RUN_DIR="+h.runDir,
+		"MIGATE_MANAGED_DIR="+h.managedDir,
+	)
+	out, err := cmd.CombinedOutput()
+	return uninstallerRunResult{output: string(out), err: err}
 }
 
 type installerHarness struct {

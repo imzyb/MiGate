@@ -4,19 +4,20 @@ set -euo pipefail
 MIGATE_SERVICE="migate"
 XRAY_SERVICE="migate-xray"
 SINGBOX_SERVICE="migate-sing-box"
-MIGATE_BINARY="/usr/local/bin/migate"
-MIGATE_LINK="/usr/local/bin/mg"
-INSTALLER_BINARY="/usr/local/bin/migate-install"
-UNINSTALLER_BINARY="/usr/local/bin/migate-uninstall"
-XRAY_BINARY="/usr/local/bin/xray"
-SINGBOX_BINARY="/usr/local/bin/sing-box"
-MIGATE_SERVICE_PATH="/etc/systemd/system/migate.service"
-XRAY_SERVICE_PATH="/etc/systemd/system/migate-xray.service"
-SINGBOX_SERVICE_PATH="/etc/systemd/system/migate-sing-box.service"
-MIGATE_CONFIG_DIR="/etc/migate"
-MIGATE_DATA_DIR="/var/lib/migate"
-MIGATE_LOG_DIR="/var/log/migate"
-MIGATE_RUN_DIR="/run/migate"
+MIGATE_BINARY="${MIGATE_BINARY:-/usr/local/bin/migate}"
+MIGATE_LINK="${MIGATE_LINK:-/usr/local/bin/mg}"
+INSTALLER_BINARY="${INSTALLER_BINARY:-/usr/local/bin/migate-install}"
+UNINSTALLER_BINARY="${UNINSTALLER_BINARY:-/usr/local/bin/migate-uninstall}"
+XRAY_BINARY="${XRAY_BINARY:-/usr/local/bin/xray}"
+SINGBOX_BINARY="${SINGBOX_BINARY:-/usr/local/bin/sing-box}"
+MIGATE_SERVICE_PATH="${MIGATE_SERVICE_PATH:-/etc/systemd/system/migate.service}"
+XRAY_SERVICE_PATH="${XRAY_SERVICE_PATH:-/etc/systemd/system/migate-xray.service}"
+SINGBOX_SERVICE_PATH="${SINGBOX_SERVICE_PATH:-/etc/systemd/system/migate-sing-box.service}"
+MIGATE_CONFIG_DIR="${MIGATE_CONFIG_DIR:-/etc/migate}"
+MIGATE_DATA_DIR="${MIGATE_DATA_DIR:-/var/lib/migate}"
+MIGATE_LOG_DIR="${MIGATE_LOG_DIR:-/var/log/migate}"
+MIGATE_RUN_DIR="${MIGATE_RUN_DIR:-/run/migate}"
+MIGATE_MANAGED_DIR="${MIGATE_MANAGED_DIR:-${MIGATE_DATA_DIR}/managed}"
 
 UNINSTALL_MODE=""
 ASSUME_YES=0
@@ -134,6 +135,28 @@ remove_panel() {
   run_cmd rm -f "$UNINSTALLER_BINARY"
 }
 
+core_binary_is_migate_managed() {
+  local name="$1"
+  local binary="$2"
+  local marker="${MIGATE_MANAGED_DIR}/${name}.binary"
+  [ -f "$marker" ] || return 1
+  grep -Fxq 'installed_by=MiGate' "$marker" || return 1
+  grep -Fxq "binary=${binary}" "$marker" || return 1
+}
+
+remove_core_binary_if_migate_managed() {
+  local label="$1"
+  local name="$2"
+  local binary="$3"
+  local marker="${MIGATE_MANAGED_DIR}/${name}.binary"
+  if core_binary_is_migate_managed "$name" "$binary"; then
+    run_cmd rm -f "$binary"
+    run_cmd rm -f "$marker"
+  else
+    echo "Keeping non-MiGate-managed ${label} binary: ${binary}"
+  fi
+}
+
 legacy_xray_service_is_migate_managed() {
   local unit=""
   local old_config_marker="/usr/local/""migate/xray.json"
@@ -159,8 +182,8 @@ remove_cores() {
   stop_disable_remove_service "$SINGBOX_SERVICE" "$SINGBOX_SERVICE_PATH"
   stop_disable_legacy_migate_xray_service
   echo "Removing MiGate managed core binaries..."
-  run_cmd rm -f "$XRAY_BINARY"
-  run_cmd rm -f "$SINGBOX_BINARY"
+  remove_core_binary_if_migate_managed "Xray" "xray" "$XRAY_BINARY"
+  remove_core_binary_if_migate_managed "sing-box" "sing-box" "$SINGBOX_BINARY"
 }
 
 remove_state() {

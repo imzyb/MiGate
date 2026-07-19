@@ -26,6 +26,9 @@ UNINSTALLER_BIN="${UNINSTALLER_BIN:-/usr/local/bin/migate-uninstall}"
 XRAY_SERVICE_PATH="${XRAY_SERVICE_PATH:-/etc/systemd/system/migate-xray.service}"
 SINGBOX_SERVICE_PATH="${SINGBOX_SERVICE_PATH:-/etc/systemd/system/migate-sing-box.service}"
 XRAY_SHARE_DIR="${MIGATE_XRAY_SHARE_DIR:-/usr/local/share/xray}"
+XRAY_BINARY="${XRAY_BINARY:-/usr/local/bin/xray}"
+SINGBOX_BINARY="${SINGBOX_BINARY:-/usr/local/bin/sing-box}"
+MIGATE_MANAGED_DIR="${MIGATE_MANAGED_DIR:-${DATA_DIR}/managed}"
 JOURNALD_CONF_DIR="${JOURNALD_CONF_DIR:-/etc/systemd/journald.conf.d}"
 JOURNALD_MIGATE_CONF="${JOURNALD_MIGATE_CONF:-${JOURNALD_CONF_DIR}/migate.conf}"
 LOGROTATE_CONF_DIR="${LOGROTATE_CONF_DIR:-/etc/logrotate.d}"
@@ -352,7 +355,7 @@ ensure_migate_user_group() {
 }
 
 ensure_runtime_dirs() {
-  run_cmd mkdir -p "$CONFIG_DIR" "$CORE_CONFIG_DIR" "$DATA_DIR" "$BACKUP_DIR" "$LOG_DIR" "$RUN_DIR" "$(dirname "$MIGATE_BIN")" "$(dirname "$INSTALLER_BIN")" "$(dirname "$UNINSTALLER_BIN")" "$XRAY_SHARE_DIR" "$(dirname "$SERVICE_PATH")"
+  run_cmd mkdir -p "$CONFIG_DIR" "$CORE_CONFIG_DIR" "$DATA_DIR" "$BACKUP_DIR" "$LOG_DIR" "$RUN_DIR" "$MIGATE_MANAGED_DIR" "$(dirname "$MIGATE_BIN")" "$(dirname "$INSTALLER_BIN")" "$(dirname "$UNINSTALLER_BIN")" "$XRAY_SHARE_DIR" "$(dirname "$SERVICE_PATH")"
   if [ "$DRY_RUN" -eq 1 ]; then
     printf '[DRY-RUN] set runtime ownership and permissions under /etc/migate, /var/lib/migate, /var/log/migate, /run/migate\n'
     return 0
@@ -1692,12 +1695,14 @@ install_xray() {
   fi
   local xray_install_tmp="/usr/local/bin/.xray.new.$$"
   rm -f "$xray_install_tmp"
-  if ! { cp "$tmp_xray/xray/xray" "$xray_install_tmp" && chmod +x "$xray_install_tmp" && mv -f "$xray_install_tmp" /usr/local/bin/xray; }; then
+  if ! { cp "$tmp_xray/xray/xray" "$xray_install_tmp" && chmod +x "$xray_install_tmp" && mv -f "$xray_install_tmp" "$XRAY_BINARY"; }; then
     rm -f "$xray_install_tmp"
     rm -rf "$tmp_xray"
     return 1
   fi
   ensure_runtime_dirs
+  printf 'installed_by=MiGate\nbinary=%s\n' "$XRAY_BINARY" > "${MIGATE_MANAGED_DIR}/xray.binary"
+  chmod 0644 "${MIGATE_MANAGED_DIR}/xray.binary"
   mkdir -p "$XRAY_SHARE_DIR"
   [ -f "$tmp_xray/xray/geosite.dat" ] && cp "$tmp_xray/xray/geosite.dat" "$XRAY_SHARE_DIR/geosite.dat"
   [ -f "$tmp_xray/xray/geoip.dat" ] && cp "$tmp_xray/xray/geoip.dat" "$XRAY_SHARE_DIR/geoip.dat"
@@ -1815,13 +1820,15 @@ install_singbox() {
   fi
   local sb_install_tmp="/usr/local/bin/.sing-box.new.$$"
   rm -f "$sb_install_tmp"
-  if ! { cp "$tmp_sb"/sing-box-*/sing-box "$sb_install_tmp" && chmod +x "$sb_install_tmp" && mv -f "$sb_install_tmp" /usr/local/bin/sing-box; }; then
+  if ! { cp "$tmp_sb"/sing-box-*/sing-box "$sb_install_tmp" && chmod +x "$sb_install_tmp" && mv -f "$sb_install_tmp" "$SINGBOX_BINARY"; }; then
     rm -f "$sb_install_tmp"
     rm -rf "$tmp_sb"
     return 1
   fi
   rm -rf "$tmp_sb"
   ensure_runtime_dirs
+  printf 'installed_by=MiGate\nbinary=%s\n' "$SINGBOX_BINARY" > "${MIGATE_MANAGED_DIR}/sing-box.binary"
+  chmod 0644 "${MIGATE_MANAGED_DIR}/sing-box.binary"
   if [ ! -f "$SINGBOX_CONFIG_PATH" ]; then
     install_default_singbox_config
   fi
