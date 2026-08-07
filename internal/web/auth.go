@@ -453,38 +453,66 @@ func validSameOriginRequest(r *http.Request, cfg *routerConfig) bool {
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return false
 	}
-	expectedScheme := "http"
-	if requestIsHTTPS(r, cfg) {
-		expectedScheme = "https"
-	}
-	if u.Scheme != expectedScheme {
-		return false
-	}
 	sourceHost := canonicalOriginHostPort(u)
 	if sourceHost == "" {
 		return false
 	}
-	for _, allowedHost := range sameOriginAllowedHosts(r, cfg) {
-		if strings.EqualFold(sourceHost, canonicalAllowedOriginHostPort(u.Scheme, allowedHost)) {
+	for _, allowedOrigin := range sameOriginAllowedOrigins(r, cfg) {
+		if !sameOriginSchemeMatches(r, cfg, u.Scheme, allowedOrigin.scheme) {
+			continue
+		}
+		if strings.EqualFold(sourceHost, canonicalAllowedOriginHostPort(allowedOrigin.scheme, allowedOrigin.host)) {
 			return true
 		}
 	}
 	return false
 }
 
-func sameOriginAllowedHosts(r *http.Request, cfg *routerConfig) []string {
-	hosts := []string{r.Host}
+type sameOriginAllowedOrigin struct {
+	scheme string
+	host   string
+}
+
+func sameOriginAllowedOrigins(r *http.Request, cfg *routerConfig) []sameOriginAllowedOrigin {
+	scheme := "http"
+	if requestIsHTTPS(r, cfg) {
+		scheme = "https"
+	}
+	origins := []sameOriginAllowedOrigin{{scheme: scheme, host: r.Host}}
 	if cfg != nil {
 		if cfg.trustProxy {
 			if forwardedHost := firstForwardedHeaderValue(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
-				hosts = append(hosts, forwardedHost)
+				origins = append(origins, sameOriginAllowedOrigin{scheme: scheme, host: forwardedHost})
 			}
 		}
 		if publicHost := originHost(cfg.publicHost); publicHost != "" {
-			hosts = append(hosts, publicHost)
+			publicScheme := scheme
+			if u, err := url.Parse(cfg.publicHost); err == nil && u.Scheme != "" {
+				publicScheme = strings.ToLower(u.Scheme)
+			}
+			origins = append(origins, sameOriginAllowedOrigin{scheme: publicScheme, host: publicHost})
 		}
 	}
-	return hosts
+	return origins
+}
+
+func sameOriginSchemeMatches(r *http.Request, cfg *routerConfig, sourceScheme, allowedScheme string) bool {
+	sourceScheme = strings.ToLower(strings.TrimSpace(sourceScheme))
+	allowedScheme = strings.ToLower(strings.TrimSpace(allowedScheme))
+	if sourceScheme == "" || allowedScheme == "" {
+		return false
+	}
+	if sourceScheme == allowedScheme {
+		return true
+	}
+	if allowedScheme == "https" && sourceScheme == "http" {
+		if strings.TrimSpace(cfg.publicHost) != "" {
+			if u, err := url.Parse(cfg.publicHost); err == nil && strings.EqualFold(strings.TrimSpace(u.Scheme), "https") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func hostWithoutPort(host string) string {

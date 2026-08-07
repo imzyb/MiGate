@@ -1423,6 +1423,8 @@ Type=simple
 # root-owned core configs, and binds/administers system resources during install
 # and repair flows.
 User=root
+RuntimeDirectory=migate
+RuntimeDirectoryMode=0755
 WorkingDirectory=${DATA_DIR}
 ExecStart=${MIGATE_BIN} serve --host ${PANEL_BIND_HOST} --config ${CONFIG_PATH}
 Restart=on-failure

@@ -100,7 +100,7 @@ func TestCreateOutboundRejectsSubscriptionSourceOutsideMaterialization(t *testin
 	}
 }
 
-func TestStoreMaterializesSubscriptionOutboundsAndDisablesMissing(t *testing.T) {
+func TestStoreMaterializesSubscriptionOutboundsAndRemovesMissing(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -139,18 +139,17 @@ func TestStoreMaterializesSubscriptionOutboundsAndDisablesMissing(t *testing.T) 
 		t.Fatalf("materialize second: %v", err)
 	}
 	outbounds, _ = store.ListOutbounds(context.Background())
-	foundDisabled := false
 	for _, outbound := range outbounds {
 		if outbound.ID == firstID {
-			foundDisabled = !outbound.Enabled
+			t.Fatalf("missing subscription node should be removed after successful refresh: %+v", outbounds)
 		}
 	}
-	if !foundDisabled {
-		t.Fatalf("expected missing subscription node to be disabled, got %+v", outbounds)
-	}
 	rules, err := store.ListRoutingRules(context.Background())
-	if err != nil || len(rules) != 1 || rules[0].OutboundID != firstID {
-		t.Fatalf("routing rule should remain intact, rules=%+v err=%v", rules, err)
+	if err != nil {
+		t.Fatalf("list routing rules: %v", err)
+	}
+	if len(rules) != 0 {
+		t.Fatalf("routing rules targeting removed subscription nodes should be removed, got %+v", rules)
 	}
 }
 
@@ -390,7 +389,7 @@ func TestSetOutboundEnabledRejectsEnablingDisabledSubscriptionNode(t *testing.T)
 	}
 }
 
-func TestStoreSoftDeletesOutboundSubscriptionWithoutOrphaningNodes(t *testing.T) {
+func TestStoreDeletesOutboundSubscriptionNodesAndReferences(t *testing.T) {
 	store, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -406,6 +405,18 @@ func TestStoreSoftDeletesOutboundSubscriptionWithoutOrphaningNodes(t *testing.T)
 		{Tag: "sub1-a", Remark: "a", Protocol: "trojan", Address: "example.com", Port: 443, Password: "pw", SubscriptionIdentity: "a", RawLink: "trojan://pw@example.com:443#a", Position: 0},
 	}, []string{"a"}); err != nil {
 		t.Fatalf("materialize: %v", err)
+	}
+	var outboundID int64
+	for _, outbound := range mustListOutboundsDB(t, store) {
+		if outbound.SubscriptionIdentity == "a" {
+			outboundID = outbound.ID
+		}
+	}
+	if outboundID == 0 {
+		t.Fatalf("expected materialized subscription outbound")
+	}
+	if _, err := store.CreateRoutingRule(context.Background(), db.CreateRoutingRuleParams{OutboundID: outboundID, Enabled: true}); err != nil {
+		t.Fatalf("create route to subscription outbound: %v", err)
 	}
 	if err := store.DeleteOutboundSubscription(context.Background(), sub.ID); err != nil {
 		t.Fatalf("delete subscription: %v", err)
@@ -423,13 +434,16 @@ func TestStoreSoftDeletesOutboundSubscriptionWithoutOrphaningNodes(t *testing.T)
 	}
 	for _, outbound := range outbounds {
 		if outbound.SubscriptionIdentity == "a" {
-			if outbound.SubscriptionID != sub.ID || outbound.Source != db.OutboundSourceSubscription || outbound.Enabled {
-				t.Fatalf("subscription node should remain attributed and disabled, got %+v", outbound)
-			}
-			return
+			t.Fatalf("subscription outbound should be removed after subscription delete, got %+v", outbound)
 		}
 	}
-	t.Fatalf("expected subscription outbound to remain after soft delete, got %+v", outbounds)
+	rules, err := store.ListRoutingRules(context.Background())
+	if err != nil {
+		t.Fatalf("list routing rules: %v", err)
+	}
+	if len(rules) != 0 {
+		t.Fatalf("routing rules targeting deleted subscription nodes should be removed, got %+v", rules)
+	}
 }
 
 func TestStoreRejectsWritesToSoftDeletedOutboundSubscription(t *testing.T) {

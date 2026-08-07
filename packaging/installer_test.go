@@ -681,6 +681,8 @@ func TestInstallerConfiguresBoundedLogRetention(t *testing.T) {
 		"StandardError=journal",
 		"LogRateLimitIntervalSec=30s",
 		"LogRateLimitBurst=200",
+		"RuntimeDirectory=migate",
+		"RuntimeDirectoryMode=0755",
 	} {
 		if !strings.Contains(service, want) {
 			t.Fatalf("packaged systemd unit log limit missing %q", want)
@@ -982,6 +984,8 @@ func TestInstallerRepairServiceRefreshesSandboxPermissions(t *testing.T) {
 	script := read(t, "packaging", "install.sh")
 	for _, want := range []string{
 		`ReadWritePaths=${CONFIG_DIR} ${DATA_DIR} ${LOG_DIR} ${RUN_DIR} $(dirname "$MIGATE_BIN") ${XRAY_SHARE_DIR} $(dirname "$SERVICE_PATH")`,
+		`RuntimeDirectory=migate`,
+		`RuntimeDirectoryMode=0755`,
 		"repair_service_flow()",
 		"write_systemd_service",
 		"restart_migate_service",
@@ -1499,6 +1503,8 @@ func TestServiceUsesGeneratedPanelConfigAndSingleBinary(t *testing.T) {
 		"NoNewPrivileges=true",
 		"PrivateTmp=true",
 		"ProtectSystem=strict",
+		"RuntimeDirectory=migate",
+		"RuntimeDirectoryMode=0755",
 		"ReadWritePaths=/etc/migate /var/lib/migate /var/log/migate /run/migate /usr/local/bin /usr/local/share/xray /etc/systemd/system",
 		"CapabilityBoundingSet=CAP_NET_BIND_SERVICE",
 		"RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX",
@@ -1512,6 +1518,8 @@ func TestServiceUsesGeneratedPanelConfigAndSingleBinary(t *testing.T) {
 		`chown root:migate "$DATA_DIR" "$BACKUP_DIR" "$LOG_DIR" "$RUN_DIR"`,
 		`chmod 0770 "$DATA_DIR" "$BACKUP_DIR" "$LOG_DIR" "$RUN_DIR"`,
 		"ProtectSystem=strict",
+		`RuntimeDirectory=migate`,
+		`RuntimeDirectoryMode=0755`,
 		`ReadWritePaths=${CONFIG_DIR} ${DATA_DIR} ${LOG_DIR} ${RUN_DIR} $(dirname "$MIGATE_BIN") ${XRAY_SHARE_DIR} $(dirname "$SERVICE_PATH")`,
 		"CapabilityBoundingSet=CAP_NET_BIND_SERVICE",
 	} {

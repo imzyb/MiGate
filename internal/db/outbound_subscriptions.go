@@ -151,7 +151,11 @@ func (s *Store) DeleteOutboundSubscription(ctx context.Context, id int64) error 
 		}
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE outbounds SET enabled=0, last_seen_at=last_seen_at WHERE subscription_id=? AND source='subscription'`, id); err != nil {
+	outboundIDs, err := subscriptionOutboundIDsTx(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if err := deleteSubscriptionOutboundsTx(ctx, tx, outboundIDs); err != nil {
 		return err
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE outbound_subscriptions SET enabled=0, deleted_at=?, updated_at=? WHERE id=? AND deleted_at=''`, time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339), id)
@@ -319,33 +323,18 @@ VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 'subscription', ?, ?, ?, ?, ?, ?)`,
 		}
 		seenIDs[id] = true
 	}
-	if len(seenIDs) == 0 {
-		if _, err := tx.ExecContext(ctx, `UPDATE outbounds SET enabled=0 WHERE subscription_id=? AND source='subscription'`, subscriptionID); err != nil {
-			return nil, err
+	allIDs, err := subscriptionOutboundIDsTx(ctx, tx, subscriptionID)
+	if err != nil {
+		return nil, err
+	}
+	staleIDs := make([]int64, 0)
+	for _, id := range allIDs {
+		if !seenIDs[id] {
+			staleIDs = append(staleIDs, id)
 		}
-	} else {
-		rows, err := tx.QueryContext(ctx, `SELECT id FROM outbounds WHERE subscription_id=? AND source='subscription'`, subscriptionID)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			var id int64
-			if err := rows.Scan(&id); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			if !seenIDs[id] {
-				if _, err := tx.ExecContext(ctx, `UPDATE outbounds SET enabled=0 WHERE id=?`, id); err != nil {
-					rows.Close()
-					return nil, err
-				}
-			}
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		rows.Close()
+	}
+	if err := deleteSubscriptionOutboundsTx(ctx, tx, staleIDs); err != nil {
+		return nil, err
 	}
 	if err := updateSubscriptionFetchTx(ctx, tx, subscriptionID, now, "", identities); err != nil {
 		return nil, err
@@ -357,6 +346,41 @@ VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 'subscription', ?, ?, ?, ?, ?, ?)`,
 		return nil, err
 	}
 	return s.ListOutbounds(ctx)
+}
+
+func subscriptionOutboundIDsTx(ctx context.Context, tx *sql.Tx, subscriptionID int64) ([]int64, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM outbounds WHERE subscription_id=? AND source='subscription' ORDER BY id ASC`, subscriptionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func deleteSubscriptionOutboundsTx(ctx context.Context, tx *sql.Tx, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
+	args := make([]interface{}, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM routing_rules WHERE outbound_id IN (`+placeholders+`)`, args...); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM outbounds WHERE source='subscription' AND id IN (`+placeholders+`)`, args...); err != nil {
+		return err
+	}
+	return nil
 }
 
 func updateSubscriptionFetchTx(ctx context.Context, tx *sql.Tx, subscriptionID int64, fetchedAt string, lastErr string, identities []string) error {
