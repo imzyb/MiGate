@@ -625,6 +625,8 @@ export interface Settings {
   panel_username?: string;
   panel_password?: string;
   web_base_path?: string;
+  public_host?: string;
+  trust_proxy?: boolean;
   database_path?: string;
   cert_domain?: string;
   cert_email?: string;

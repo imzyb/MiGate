@@ -75,7 +75,8 @@ export default function SettingsPage() {
     staleTime: 30_000,
     refetchInterval: () => updateDependencyRefetchInterval(watchUpdateStatus),
   });
-  const form = useForm<Settings>({ values: settings.data || {} });
+  const formValues = useMemo(() => settings.data ? { ...settings.data, public_host: publicHostInputValue(settings.data.public_host) } : {}, [settings.data]);
+  const form = useForm<Settings>({ values: formValues });
   const certDomain = form.watch('cert_domain') || cert.data?.domain || '';
   const certEmail = form.watch('cert_email') || cert.data?.email || '';
   const managedCertificates = certificates.data?.certificates || [];
@@ -123,7 +124,7 @@ export default function SettingsPage() {
   const save = useMutation({
     mutationFn: (values: Settings) => api.saveSettings(settingsPayload(settings.data, values)),
     onSuccess: () => {
-      showToast(text('设置已保存，端口、数据库或基础路径变更需要重启服务后生效'), 'success');
+      showToast(text('设置已保存，端口、数据库、基础路径或反向代理配置变更需要重启服务后生效'), 'success');
       form.setValue('panel_password', '');
       refreshSettingsDependencies(queryClient);
     },
@@ -442,6 +443,9 @@ export function settingsPayload(current: Settings | undefined, values: Settings)
     ...values,
     panel_password: values.panel_password || '',
   };
+  if (Object.prototype.hasOwnProperty.call(values, 'public_host')) {
+    payload.public_host = buildPublicHost(payload.public_host, payload.web_base_path, payload.trust_proxy === true);
+  }
   if (Object.prototype.hasOwnProperty.call(values, 'management_direct_hosts')) {
     payload.management_direct_hosts = parseTextList(values.management_direct_hosts);
   }
@@ -449,6 +453,34 @@ export function settingsPayload(current: Settings | undefined, values: Settings)
     payload.management_direct_ports = parsePortList(values.management_direct_ports);
   }
   return payload;
+}
+
+export function publicHostInputValue(value?: string): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
+    return parsed.host;
+  } catch {
+    return raw.replace(/^https?:\/\//i, '').split('/')[0].trim();
+  }
+}
+
+export function buildPublicHost(value: string | undefined, webPath: string | undefined, trustProxy: boolean): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  let scheme = trustProxy ? 'https' : 'http';
+  let host = raw;
+  try {
+    const parsed = new URL(raw.includes('://') ? raw : `${scheme}://${raw}`);
+    scheme = parsed.protocol.replace(':', '') || scheme;
+    host = parsed.host;
+  } catch {
+    host = raw.replace(/^https?:\/\//i, '').split('/')[0].trim();
+  }
+  const path = String(webPath || '').trim();
+  const normalizedPath = !path || path === '/' ? '' : `/${path.replace(/^\/+|\/+$/g, '')}`;
+  return `${scheme}://${host}${normalizedPath}`;
 }
 
 export function certSettingsPayload(current: Settings | undefined, values: Settings): Settings {
@@ -557,6 +589,9 @@ function PanelSettingsCard({
 }) {
   const managementEnabled = form.watch('management_direct_enabled') !== false;
   const managementAutoDetect = form.watch('management_direct_auto_detect') !== false;
+  const publicHost = form.watch('public_host') || '';
+  const trustProxy = form.watch('trust_proxy') === true;
+  const publicURL = buildPublicHost(publicHost, form.watch('web_base_path'), trustProxy);
   return (
     <Card className="p-5">
       <form className="panel-config" onSubmit={form.handleSubmit(onSubmit)}>
@@ -574,6 +609,18 @@ function PanelSettingsCard({
             <div className="settings-field-grid">
               <Field label={text('面板端口')}><input type="number" {...form.register('panel_port', { valueAsNumber: true })} /></Field>
               <Field label={text('Web 基础路径')}><input placeholder="/panel" {...form.register('web_base_path')} /></Field>
+              <Field label={text('公开访问地址')} help={text('填写域名即可，例如 migate.526566.xyz；保存时会自动拼接 Web 基础路径。')}>
+                <input placeholder="migate.526566.xyz" autoComplete="url" {...form.register('public_host')} />
+                <span className="public-host-preview">{publicURL || text('未设置公开访问地址')}</span>
+              </Field>
+              <label className="toggle-switch-field settings-proxy-toggle">
+                <input type="checkbox" aria-label={text('信任反向代理请求头')} {...form.register('trust_proxy')} />
+                <span className="toggle-switch-track" aria-hidden="true"><span /></span>
+                <span className="settings-toggle-copy">
+                  <strong>{text('信任反向代理请求头')}</strong>
+                  <small>{text('启用后正确识别 HTTPS 代理并设置安全登录 Cookie。')}</small>
+                </span>
+              </label>
             </div>
           </section>
 

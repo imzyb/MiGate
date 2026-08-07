@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../api/client';
-import { certificateInventorySummary, certificateStatusLabel, certIssuePayload, certSettingsPayload, formatUpdateLogs, hasTLSCertificateBinding, inboundCertificateBindingStatus, isUpdateInProgress, isUpdateTerminal, parseDomains, preflightFromAPIError, settingsPayload, shouldClearInboundSelectionForActualCertificate, shouldClearInboundSelectionOnCertificateSelect, toggleID, updateAvailabilitySummary, updateDependencyRefetchInterval, updatePrimaryAction, updateStatusRefetchInterval, updateStatusSummaryKey } from './SettingsPage';
+import { buildPublicHost, certificateInventorySummary, certificateStatusLabel, certIssuePayload, certSettingsPayload, formatUpdateLogs, hasTLSCertificateBinding, inboundCertificateBindingStatus, isUpdateInProgress, isUpdateTerminal, parseDomains, preflightFromAPIError, publicHostInputValue, settingsPayload, shouldClearInboundSelectionForActualCertificate, shouldClearInboundSelectionOnCertificateSelect, toggleID, updateAvailabilitySummary, updateDependencyRefetchInterval, updatePrimaryAction, updateStatusRefetchInterval, updateStatusSummaryKey } from './SettingsPage';
 import { listFieldValue } from './settingsPageHelpers';
 
 describe('settings helpers', () => {
+  it('shows only the host in the public address field and rebuilds its URL on save', () => {
+    expect(publicHostInputValue('https://migate.526566.xyz/panel/')).toBe('migate.526566.xyz');
+    expect(buildPublicHost('migate.526566.xyz', '/panel', true)).toBe('https://migate.526566.xyz/panel');
+    expect(settingsPayload({ web_base_path: '/panel' }, { public_host: 'migate.526566.xyz', web_base_path: '/panel', trust_proxy: true })).toMatchObject({
+      public_host: 'https://migate.526566.xyz/panel',
+      trust_proxy: true,
+    });
+  });
+
   it('sends an empty password to preserve the existing backend password', () => {
     expect(settingsPayload({
       panel_username: 'admin',

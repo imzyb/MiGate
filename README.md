@@ -26,7 +26,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/packaging/in
 Install specific version:
 
 ```bash
-MIGATE_VERSION=v1.0.21 bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/packaging/install.sh)
+MIGATE_VERSION=v1.6.2 bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/packaging/install.sh)
 ```
 
 The installer runs an environment check, detects existing MiGate installs, keeps

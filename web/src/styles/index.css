@@ -2090,6 +2090,38 @@ textarea:focus {
   min-height: 20px;
 }
 
+.public-host-preview {
+  display: block;
+  overflow: hidden;
+  color: rgb(var(--muted));
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-proxy-toggle {
+  align-self: stretch;
+  min-height: 40px;
+  border: 1px solid rgb(var(--line));
+  border-radius: 8px;
+  background: rgb(var(--surface));
+  padding: 9px 12px;
+}
+
+.settings-toggle-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.settings-toggle-copy small {
+  color: rgb(var(--muted));
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
 .panel-config-storage-grid {
   grid-template-columns: minmax(0, 1fr);
 }
