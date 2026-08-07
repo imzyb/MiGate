@@ -13,6 +13,8 @@ const apiMock = vi.hoisted(() => ({
   settings: vi.fn(async () => ({
     panel_port: 8080,
     web_base_path: '/',
+    public_host: 'https://panel.example.com/',
+    trust_proxy: true,
     panel_username: 'admin',
     has_password: true,
     database_path: '/etc/migate/migate.db',
@@ -65,6 +67,12 @@ describe('SettingsPage simplified panel configuration', () => {
     expect(document.body.textContent).toContain('访问入口');
     expect(document.body.textContent).toContain('面板端口');
     expect(document.body.textContent).toContain('Web 基础路径');
+    expect(document.body.textContent).toContain('公开访问地址');
+    expect(document.body.textContent).toContain('信任反向代理请求头');
+    const publicHost = document.querySelector('input[name="public_host"]') as HTMLInputElement;
+    const trustProxy = document.querySelector('input[name="trust_proxy"]') as HTMLInputElement;
+    expect(publicHost.value).toBe('panel.example.com');
+    expect(trustProxy.checked).toBe(true);
   });
 
   it('keeps secondary setting sections collapsed by default', async () => {

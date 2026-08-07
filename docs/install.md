@@ -13,7 +13,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/packaging/in
 Install a specific release:
 
 ```bash
-MIGATE_VERSION=v1.0.21 bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/packaging/install.sh)
+MIGATE_VERSION=v1.6.2 bash <(curl -Ls https://raw.githubusercontent.com/imzyb/MiGate/main/packaging/install.sh)
 ```
 
 The interactive flow prints these stages:

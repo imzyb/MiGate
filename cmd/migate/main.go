@@ -31,8 +31,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Version is set via ldflags at build time.
-var Version = "dev"
+// Version is overridden by release builds via ldflags.
+var Version = "v1.6.2"
 
 var defaultPanelConfigPath = paths.PanelConfig
 var routerOptionsFromConfigHook func([]web.Option) []web.Option
