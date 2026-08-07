@@ -1184,6 +1184,51 @@ func TestRefreshOutboundSubscriptionConfigChangeDetection(t *testing.T) {
 	}
 }
 
+func TestRefreshOutboundSubscriptionPrunesMissingNodesAndRoutes(t *testing.T) {
+	store := openWebTestStore(t)
+	if _, err := store.CreateInbound(context.Background(), db.CreateInboundParams{Remark: "xray", Protocol: "vless", Port: 2447, Network: "tcp", Security: "none"}); err != nil {
+		t.Fatalf("create xray inbound: %v", err)
+	}
+	sub, err := store.CreateOutboundSubscription(context.Background(), db.CreateOutboundSubscriptionParams{Remark: "sub", URL: "https://example.com/sub", Enabled: true})
+	if err != nil {
+		t.Fatalf("create subscription: %v", err)
+	}
+	initialBody := strings.Join([]string{
+		"trojan://secret@example.com:443#node-a",
+		"trojan://secret@example.org:8443#node-b",
+	}, "\n")
+	if _, _, _, err := web.RefreshOutboundSubscription(context.Background(), store, staticSubscriptionFetcher{body: initialBody}, sub.ID); err != nil {
+		t.Fatalf("initial refresh: %v", err)
+	}
+	var removed db.Outbound
+	for _, outbound := range mustListOutbounds(t, store) {
+		if outbound.SubscriptionID == sub.ID && outbound.Address == "example.org" && outbound.Port == 8443 {
+			removed = outbound
+		}
+	}
+	if removed.ID == 0 {
+		t.Fatalf("expected soon-removed subscription outbound in initial list")
+	}
+	if _, err := store.CreateRoutingRule(context.Background(), db.CreateRoutingRuleParams{OutboundID: removed.ID, Domain: "example.org", Enabled: true}); err != nil {
+		t.Fatalf("create route to soon-removed subscription outbound: %v", err)
+	}
+	result, includeXray, includeSingbox, err := web.RefreshOutboundSubscription(context.Background(), store, staticSubscriptionFetcher{body: "trojan://secret@example.com:443#node-a"}, sub.ID)
+	if err != nil {
+		t.Fatalf("pruning refresh: %v", err)
+	}
+	if result == nil || result.Count != 1 || !result.ConfigChanged || !includeXray || includeSingbox {
+		t.Fatalf("pruning refresh should report xray config change, result=%+v xray=%v singbox=%v", result, includeXray, includeSingbox)
+	}
+	for _, outbound := range mustListOutbounds(t, store) {
+		if outbound.ID == removed.ID || outbound.SubscriptionIdentity == removed.SubscriptionIdentity {
+			t.Fatalf("removed subscription outbound should not remain listed: %+v", outbound)
+		}
+	}
+	if rules := mustListRules(t, store); len(rules) != 0 {
+		t.Fatalf("routes targeting removed subscription outbound should be pruned, got %+v", rules)
+	}
+}
+
 func TestRefreshOutboundSubscriptionMetadataOnlyChangeDoesNotMarkPending(t *testing.T) {
 	store := openWebTestStore(t)
 	if _, err := store.CreateInbound(context.Background(), db.CreateInboundParams{Remark: "xray", Protocol: "vless", Port: 2443, Network: "tcp", Security: "none"}); err != nil {
