@@ -9,6 +9,8 @@ Type=simple
 # root-owned core configs, and binds/administers system resources during install
 # and repair flows.
 User=root
+RuntimeDirectory=migate
+RuntimeDirectoryMode=0755
 WorkingDirectory=/var/lib/migate
 ExecStart=/usr/local/bin/migate serve --host 0.0.0.0 --config /etc/migate/panel.json
 Restart=on-failure

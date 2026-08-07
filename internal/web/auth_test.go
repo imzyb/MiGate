@@ -315,6 +315,20 @@ func TestAuthCSRFAllowsPublicHostOrigin(t *testing.T) {
 	}
 }
 
+func TestAuthCSRFAllowsPublicHostHttpsWithoutTrustedProxyHeaders(t *testing.T) {
+	router := NewRouter(WithAuth("admin", "secret"), WithPublicHost("https://migate.526566.xyz/panel"))
+	response := httptest.NewRecorder()
+	req := localLoginRequest(`{"username":"admin","password":"secret"}`)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://migate.526566.xyz")
+	req.Host = "154.40.58.201:9999"
+	req.RemoteAddr = "203.0.113.10:44321"
+	router.ServeHTTP(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected public_host https origin to be accepted without trusted proxy headers, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
 func TestAuthCSRFAllowsTrustedForwardedHostOrigin(t *testing.T) {
 	router := NewRouter(WithAuth("admin", "secret"), WithTrustedProxyHeaders(true))
 	response := httptest.NewRecorder()
